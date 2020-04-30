@@ -1,5 +1,7 @@
 import argparse
 
+from stats.arima import stats_arima
+
 """
     plot(args)
 
@@ -15,15 +17,11 @@ def plot(args):
 
     print("PLOT FIGS: ", figs)
 
-    return
-    """
-    Implement later
-
-    funcs = map("plot_".join(figs))
-
+    funcs = ["plots" + fig for fig in figs]
     for f in funcs:
-        f()
-    """
+        globals()[f]()
+
+    pass
 
 """
     stats(args)
@@ -39,6 +37,11 @@ def stats(args):
         pass
 
     print("STAT SIMS: ", sims)
+
+    funcs = ["stats_" + sim for sim in sims]
+    for f in funcs:
+        globals()[f]()
+
     pass
 
 """
@@ -55,6 +58,10 @@ def ml(args):
         pass
 
     print("ML   SIMS: ", sims)
+
+    funcs = ["ml_" + sim for sim in sims]
+    for f in funcs:
+        globals()[f]()
 
     pass
 
