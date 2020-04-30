@@ -12,3 +12,5 @@ SEOUL_NAMES = [
     "동작구","관악구","강남구","서초구","송파구",
     "강동구","금천구","강북구","강북구","양천구",
     "양천구","노원구"]
+
+SEOUL_STATIONS = dict(zip(SEOUL_CODES, SEOUL_NAMES))
