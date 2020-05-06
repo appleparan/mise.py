@@ -7,10 +7,11 @@ def load(filepath="/input/input.csv"):
 
     # prints
     pd.set_option('display.max_rows', 10)
-    print(df)
     pd.reset_option('display.max_rows')
+    print(df.head(10))
 
     return df
 
 def load_station(df, code=111123):
-    return df[df['stationCode']==code]
+    #return df[df['stationCode'] == code]
+    return df.query('stationCode == "' + str(code) + '"')

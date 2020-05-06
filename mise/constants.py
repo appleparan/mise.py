@@ -13,4 +13,4 @@ SEOUL_NAMES = [
     "강동구","금천구","강북구","강북구","양천구",
     "양천구","노원구"]
 
-SEOUL_STATIONS = dict(zip(SEOUL_CODES, SEOUL_NAMES))
+SEOUL_STATIONS = dict(zip(SEOUL_NAMES, SEOUL_CODES))
