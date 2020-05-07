@@ -52,7 +52,6 @@ def stats_arima(station_name = "종로구"):
 
         #train = df_ta.loc[pd.Timestamp(train_fdate):pd.Timestamp(train_tdate)]
         #test = df_ta.loc[pd.Timestamp(test_tdate):pd.Timestamp(test_tdate)]
-        print(df_ta.head(10))
         df_train = df_ta.loc[(df_ta.index.get_level_values(level='date') >= train_fdate) & \
                           (df_ta.index.get_level_values(level='date') <= train_tdate)]
         df_test = df_ta.loc[(df_ta.index.get_level_values(level='date') >= test_fdate) &
@@ -84,7 +83,6 @@ def mw_df(_df_sim, df_org, target, output_size, fdate, tdate):
                  (_df_sim.index.get_level_values(level='date') <= tdate - dt.timedelta(hours=output_size))]
     cols = [str(i) for i in range(output_size)]
     df_obs = pd.DataFrame(columns=cols)
-    print(df.head(10))
 
     for index, row in df.iterrows():
         findex = index
@@ -151,8 +149,6 @@ def plot_arima(df_sim, df_obs, target, order, _test_fdate, _test_tdate, station_
     # simulation result might have exceed our observation
     _sim = df_sim[(df_sim.index.get_level_values(level='date') >= test_fdate) &
                   (df_sim.index.get_level_values(level='date') <= test_tdate)]
-    print(_obs.tail(5))
-    print(_sim.tail(5))
 
     for t in range(output_size):
         # zero-padded directory name
