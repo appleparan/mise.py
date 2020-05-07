@@ -35,10 +35,10 @@ def stats_arima(station_name = "종로구"):
     print("Data loading complete")
     targets = ["PM10", "PM25"]
     output_size = 24
-    train_fdate = dt.datetime(2018,12,16,1).astimezone(seoultz)
-    train_tdate = dt.datetime(2018,12,31,23).astimezone(seoultz)
-    test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(seoultz)
-    test_tdate = dt.datetime(2019, 1, 15, 23).astimezone(seoultz)
+    train_fdate = dt.datetime(2017,1,1,0).astimezone(seoultz)
+    train_tdate = dt.datetime(2017,12,31,23).astimezone(seoultz)
+    test_fdate = dt.datetime(2018, 1, 1, 0).astimezone(seoultz)
+    test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(seoultz)
 
     for target in targets:
         dir_prefix = Path("/mnt/arima/" + station_name + "/" + target + "/")
@@ -60,45 +60,55 @@ def stats_arima(station_name = "종로구"):
 
         print("ARIMA with " + target + "...")
         def run_arima(order):
-            _df_out = sim_arima(df_train, df_test, norm_target, order, norm_maxlog, output_size)
-            plot_arima(_df_out, df_ta, target, order, test_fdate, test_tdate, station_name, output_size)
+            df_sim = sim_arima(df_train, df_test, norm_target, order, norm_maxlog, output_size)
+            df_obs = mw_df(df_sim, df_ta, target, output_size, test_fdate, test_tdate)
             # join df
-            #df_out = mw_df(_df_out, target, output_size, test_fdate, test_tdate - dt.timedelta(hours=output_size))
+            plot_arima(df_sim, df_obs, target, order, test_fdate,
+                       test_tdate, station_name, output_size)
             # save to csv
-            #csv_fname = "csv_arima(" + \
-            #    str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-            #    target + ".png"
-            #df_out.to_csv(dir_prefix / csv_fname)
+            csv_fname = "obs_arima(" + \
+                str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
+                target + ".png"
+            df_obs.to_csv(dir_prefix / csv_fname)
         print("ARIMA(1, 0, 0)...")
         run_arima((1, 0, 0))
         print("ARIMA(0, 0, 1)...")
         run_arima((0, 0, 1))
         print("ARIMA(1, 0, 1)...")
         run_arima((1, 0, 1))
-        print("ARIMA(1, 1, 1)...")
-        run_arima((1, 1, 1))
 
-def mw_df(_df, target, output_size, fdate, tdate):
-    df = _df[(fdate <= _df.date) & (_df.date <= tdate)]
+
+def mw_df(_df_sim, df_org, target, output_size, fdate, tdate):
+    # get indices from df_sim
+    df = _df_sim[(_df_sim.index.get_level_values(level='date') >= fdate) &
+                 (_df_sim.index.get_level_values(level='date') <= tdate - dt.timedelta(hours=output_size))]
     cols = [str(i) for i in range(output_size)]
-    df_out = pd.DataFrame(columns=["date"].extend(cols))
-
-    dates = pd.date_range(start=fdate, end=tdate, freq='1H')
+    df_obs = pd.DataFrame(columns=cols)
+    print(df.head(10))
 
     for index, row in df.iterrows():
-        values = df[target].iloc[index:(index + output_size-1)].to_numpy()[:]
-        _d = df[target].iloc[index:(index + output_size-1)].index[0]
-        arr = [_d]
-        arr.extend(values)
-        df_out.append(arr)
+        findex = index
+        tindex = index + dt.timedelta(hours=(output_size - 1))
+        _df_org = df_org[(df_org.index.get_level_values(level='date') >= findex) &
+                         (df_org.index.get_level_values(level='date') <= tindex)]
 
-    return df_out
+        # get observation value from original datafram and construct df_obs
+        values = _df_org[target].to_numpy()[:]
+        _date = index
+        _idx = pd.Index([_date], dtype=type(_date), name='date')
+
+        df_obs = df_obs.append(pd.DataFrame(
+            dict(zip(cols, values)), index=_idx))
+    df_obs_idx = df_obs.index.set_names('date')
+    df_obs.index = df_obs_idx
+
+    return df_obs
 
 
 def sim_arima(df_train, df_test, target, order, norm_maxlog, output_size):
     # columns are offset to datetime
     cols = [str(i) for i in range(output_size)]
-    df_out = pd.DataFrame(columns=cols)
+    df_sim = pd.DataFrame(columns=cols)
 
     # train -> initial data
     endog = df_train[target].tolist()
@@ -115,14 +125,15 @@ def sim_arima(df_train, df_test, target, order, norm_maxlog, output_size):
         _date = index[1]
         _idx = pd.Index([_date], dtype=type(_date), name='date')
         # insert row to dataframe
-        df_out = df_out.append(pd.DataFrame(dict(zip(cols, out_ibc)), index=[_date]))
+        df_sim = df_sim.append(pd.DataFrame(
+            dict(zip(cols, out_ibc)), index=_idx))
 
         # Rolling Forecast ARIMA Model
         endog.append(row[target])
-    df_out_idx = df_out.index.set_names('date')
-    df_out.index = df_out_idx
+    df_sim_idx = df_sim.index.set_names('date')
+    df_sim.index = df_sim_idx
 
-    return df_out
+    return df_sim
 
 
 def plot_arima(df_sim, df_obs, target, order, _test_fdate, _test_tdate, station_name, output_size):
@@ -131,22 +142,25 @@ def plot_arima(df_sim, df_obs, target, order, _test_fdate, _test_tdate, station_
     times = list(range(0, output_size+1))
     corrs = [1.0]
 
+    test_fdate = _test_fdate
+    test_tdate = _test_tdate - dt.timedelta(hours=output_size)
+
+    # filter by test dates
+    _obs = df_obs[(df_obs.index.get_level_values(level='date') >= test_fdate) &
+                    (df_obs.index.get_level_values(level='date') <= test_tdate)]
+    # simulation result might have exceed our observation
+    _sim = df_sim[(df_sim.index.get_level_values(level='date') >= test_fdate) &
+                  (df_sim.index.get_level_values(level='date') <= test_tdate)]
+    print(_obs.tail(5))
+    print(_sim.tail(5))
+
     for t in range(output_size):
         # zero-padded directory name
         output_dir = dir_prefix / str(t).zfill(2)
         Path.mkdir(output_dir, parents=True, exist_ok = True)
 
-        test_fdate = _test_fdate
-        test_tdate = _test_tdate - dt.timedelta(hours=t)
-
-        # plot scatter
-        #obs = df_obs[test_fdate <= df_obs.loc[target] < test_tdate]
-        _obs = df_obs[(df_obs.index.get_level_values(level='date') >= test_fdate) &
-                      (df_obs.index.get_level_values(level='date') <= test_tdate)]
-        _sim = df_sim[(df_sim.index.get_level_values(level='date') >= test_fdate) &
-                      (df_sim.index.get_level_values(level='date') <= test_tdate)]
-
-        obs = _obs[target].to_numpy()
+        # get column per each time
+        obs = _obs[str(t)].to_numpy()
         sim = _sim[str(t)].to_numpy()
 
         scatter_fname = "scatter_arima(" + \
@@ -165,7 +179,7 @@ def plot_arima(df_sim, df_obs, target, order, _test_fdate, _test_tdate, station_
             target + "_h" + str(t).zfill(2) + ".csv"
         df_obs_sim = pd.DataFrame({'obs': obs, 'sim': sim}, index=plot_dates)
         df_obs_sim.to_csv(output_dir / csv_fname)
-        
+
         # np.corrcoef -> [[1.0, corr], [corr, 1]]
         corrs.append(np.corrcoef(obs, sim)[0, 1])
     output_dir = dir_prefix
@@ -176,7 +190,7 @@ def plot_arima(df_sim, df_obs, target, order, _test_fdate, _test_tdate, station_
     csv_fname = "corr_hourly_arima(" + \
         str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
         target + "_h" + str(t).zfill(2) + ".csv"
-    
+
     df_corrs = pd.DataFrame({'time': times, 'corr': corrs})
     df_corrs.to_csv(output_dir / csv_fname)
 
@@ -187,6 +201,9 @@ def plot_scatter(obs, sim, output_name):
     plt.title("Model/OBS")
     plt.xlabel("OBS")
     plt.ylabel("Model")
+    maxval = np.nanmax([np.nanmax(obs), np.nanmax(sim)])
+    plt.xlim((0, maxval))
+    plt.ylim((0, maxval))
     plt.scatter(obs, sim)
     plt.savefig(output_name)
     plt.close()
