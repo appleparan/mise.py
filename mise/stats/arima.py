@@ -67,8 +67,13 @@ def stats_arima(station_name = "종로구"):
             # save to csv
             csv_fname = "obs_arima(" + \
                 str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-                target + ".png"
+                target + ".csv"
             df_obs.to_csv(dir_prefix / csv_fname)
+
+            csv_fname = "sim_arima(" + \
+                str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
+                target + ".csv"
+            df_sim.to_csv(dir_prefix / csv_fname)
         print("ARIMA(1, 0, 0)...")
         run_arima((1, 0, 0))
         print("ARIMA(0, 0, 1)...")
