@@ -16,7 +16,7 @@ seoultz = timezone('Asia/Seoul')
 def stats_preprocess(station_name="종로구"):
     print("Data preprocessing(imputation) start...")
 
-    raw_df = data.load()
+    raw_df = data.load(datecol=[1])
     dfs_h = []
     dfs_d = []
     for station_name in tqdm.tqdm(SEOUL_STATIONS.keys(), total=len(SEOUL_STATIONS.keys())):
@@ -37,7 +37,7 @@ def stats_preprocess(station_name="종로구"):
         dfs_d.append(_df_avg)
 
     df = pd.concat(dfs_h)
-    df.to_csv("/input/input_seoul_imputed_hourly_pandas.csv")
+    df.to_csv("/input/python/input_seoul_imputed_hourly_pandas.csv")
 
     df = pd.concat(dfs_d)
-    df.to_csv("/input/input_seoul_imputed_daily_pandas.csv")
+    df.to_csv("/input/python/input_seoul_imputed_daily_pandas.csv")
