@@ -1,6 +1,7 @@
 import argparse
 
 from stats.arima import stats_arima
+from stats.sarima import stats_sarima
 from stats.tbats import stats_tbats
 from stats.preprocess import stats_preprocess
 
@@ -73,7 +74,7 @@ if __name__ == '__main__':
     parser.add_argument("-p", "--plot", nargs='*',
         help="plot figures, must used with --figure")
     parser.add_argument("-s", "--stats", nargs='*',
-        help="statistics simulations, available arguments ['arima', 'tbats']")
+        help="statistics simulations, available arguments ['arima', 'sarima', 'tbats']")
     parser.add_argument("-m", "--ml", nargs='*',
         help="machine learning simulations")
 
