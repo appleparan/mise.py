@@ -41,7 +41,7 @@ def stats_tbats(station_name="종로구"):
     targets = ["PM10", "PM25"]
     output_size = 24
     #train_fdate = dt.datetime(2017, 1, 1, 0).astimezone(seoultz)
-    train_fdate = dt.datetime(2017, 9, 1, 0).astimezone(seoultz)
+    train_fdate = dt.datetime(2017, 1, 1, 0).astimezone(seoultz)
     train_tdate = dt.datetime(2017, 12, 31, 23).astimezone(seoultz)
     test_fdate = dt.datetime(2018, 1, 1, 0).astimezone(seoultz)
     #test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(seoultz)
@@ -169,7 +169,14 @@ def sim_tbats(_df_train, _df_test, target, fdate, tdate, norm_maxlog, output_siz
 
         params = model_fit.params
         components = model_fit.params.components
-        
+        """
+        print(_date)
+        print(params.alpha, params.beta, params.phi)
+        print(components.seasonal_periods)
+        print(components.seasonal_harmonics)
+        print(params.gamma_1())
+        print(params.gamma_1())
+        """
         values_param[i, :] = [
             params.alpha,
             params.beta,
