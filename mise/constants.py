@@ -1,3 +1,5 @@
+from pytz import timezone
+
 SEOUL_CODES = [
     111121,111123,111131,111141,111142,
     111151,111152,111161,111171,111181,
@@ -14,3 +16,4 @@ SEOUL_NAMES = [
     "양천구","노원구"]
 
 SEOUL_STATIONS = dict(zip(SEOUL_NAMES, SEOUL_CODES))
+SEOULTZ = timezone('Asia/Seoul')
