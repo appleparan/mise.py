@@ -15,11 +15,13 @@ from sklearn import preprocessing
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import transforms
-from torch.utils.data import random_split, DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import random_split, DataLoader
+from torch.utils.data import RandomSampler, SequentialSampler, BatchSampler
+from torch.utils.tensorboard import SummaryWriter
 
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
+from pytorch_lightning.loggers import TensorBoardLogger
 
 import data
 from constants import SEOUL_STATIONS, SEOULTZ
@@ -37,7 +39,7 @@ def ml_dnn(station_name="종로구"):
     output_size = 24
 
     # Hyper parameter
-    epoch_size = 3
+    epoch_size = 500
     batch_size = 256
     learning_rate = 1e-3
 
@@ -61,7 +63,7 @@ def ml_dnn(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/dnn/" + target + "/")
+        output_dir = Path("/mnt/data/dnn/" + station_name + "/"+ target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
 
         if not Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
@@ -70,16 +72,6 @@ def ml_dnn(station_name="종로구"):
             df_h = _df_h.query('stationCode == "' +
                             str(SEOUL_STATIONS[station_name]) + '"')
             df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
-
-        # construct data loader
-        """
-        train_loader = DataLoader(train_set,
-            batch_size=batch_size, shuffle=True, pin_memory=True)
-        valid_loader = DataLoader(valid_set,
-            batch_size=batch_size, shuffle=True, pin_memory=True)
-        test_loader = DataLoader(test_set,
-            batch_size=batch_size, shuffle=True, pin_memory=True)
-        """
 
         if target == 'PM10':
             unit_size = 32
@@ -95,9 +87,9 @@ def ml_dnn(station_name="종로구"):
                 station_name=station_name,
                 target=target,
                 features=train_features,
-                num_workers=4,
                 train_fdate=train_fdate, train_tdate=train_tdate,
-                test_fdate=test_fdate, test_tdate=test_tdate)
+                test_fdate=test_fdate, test_tdate=test_tdate,
+                output_dir=output_dir)
         elif target == 'PM25':
             unit_size = 16
             hparams = Namespace(
@@ -112,84 +104,26 @@ def ml_dnn(station_name="종로구"):
                 station_name=station_name,
                 target=target,
                 features=train_features,
-                num_workers=4,
                 train_fdate=train_fdate, train_tdate=train_tdate,
-                test_fdate=test_fdate, test_tdate=test_tdate)
+                test_fdate=test_fdate, test_tdate=test_tdate,
+                output_dir=output_dir)
 
-        # Loss and optimizer
-        #criterion = nn.MSELoss(reduction='sum')
-        #optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
-        #total_step = len(train_loader)
-        #curr_lr = learning_rate
-
+        log_name = target + dt.date.today().strftime("%y%m%d-%H-%M")
+        log_dir = output_dir / "logs"
+        Path.mkdir(log_dir, parents=True, exist_ok=True)
+        logger = TensorBoardLogger(log_dir, name=log_name + " DNN")
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1,
             precision=32,
-            min_epochs=1, max_epochs=1000,
+            min_epochs=1, max_epochs=epoch_size,
             early_stop_checkpoint=True,
-            auto_lr_find=True,
-            default_save_path=output_dir)
-
-        # Invoke method
-        #scaled_batch_size = trainer.scale_batch_size(model)
-
-        # Override old batch size
-        #model.hparams.batch_size = scaled_batch_size
-
-        #lr_finder = trainer.lr_find(model)
-
-        # Results can be found in
-        #print(lr_finder.results)
-
-        # Pick point based on plot, or get suggestion
-        #new_lr = lr_finder.suggestion()
-
-        # update hparams of the model
-        #model.hparams.lr = new_lr
+            default_save_path=output_dir,
+            logger=logger)
 
         trainer.fit(model)
-
-        """
-        # training
-        for epoch in range(epoch_size):
-            for batch_idx, (xs, ys) in enumerate(train_loader):
-                #xs = xs.view(-1, sample_size*len(train_features)).to(device)
-                #ys = ys.view(-1, output_size).to(device)
-                #y = y.view(-1, output_size).to(device)
-
-                # Forward pass
-                ys_pred = model(xs)
-                loss = criterion(ys_pred, ys)
-
-                # Backward and optimize
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                if (batch_idx+1) % 100 == 0:
-                    print("Epoch [{}/{}], Step [{}/{}] Loss: {:.4f}"
-                        .format(epoch+1, epoch_size, batch_idx+1, total_step, loss.item()))
-
-            # Decay learning rate
-            if (epoch+1) % 20 == 0:
-                curr_lr /= 3
-                update_lr(optimizer, curr_lr)
-
-        model.eval()
-        # test
-        with torch.no_grad():
-            evals = 0
-            for xs, ys in test_loader:
-                xs = xs.view(-1, sample_size*len(train_features)).to(device)
-                ys = ys.view(-1, output_size).to(device)
-
-                ys_pred = model(xs)
-                evals = criterion(ys_pred, ys)
-
-            print('Accuracy of the model {}'.format(evals))
-        """
-        #torch.save(model.state_dict(),  output_dir / (target + '.ckpt'))
+                
+        # run test set
+        trainer.test()
 
 class BaseDNNModel(LightningModule):
     def __init__(self, *args, **kwargs):
@@ -217,6 +151,7 @@ class BaseDNNModel(LightningModule):
         self.test_tdate = kwargs.get('test_tdate', dt.datetime(
             2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
+        self.output_dir = kwargs.get('output_dir', Path('.'))
 
         self.fc1 = nn.Linear(self.hparams.input_size, self.hparams.layer1_size)
         self.fc2 = nn.Linear(self.hparams.layer1_size, self.hparams.layer2_size)
@@ -239,34 +174,96 @@ class BaseDNNModel(LightningModule):
         return Adam(self.parameters(), lr=self.hparams.lr|self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        x, y = batch
+        x, y, dates = batch
         y_hat = self(x)
         _loss = self.loss(y_hat, y)
-        tensorboard_logs = {'train_loss': _loss}
+        tensorboard_logs = {'Loss/Train': _loss}
         return {'loss': _loss, 'log': tensorboard_logs}
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters())
 
     def validation_step(self, batch, batch_idx):
-        x, y = batch
+        x, y, dates = batch
         y_hat = self(x)
         return {'val_loss': self.loss(y_hat, y)}
 
     def validation_epoch_end(self, outputs):
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        tensorboard_logs = {'val_loss': avg_loss}
+        tensorboard_logs = {'Loss/Valid': avg_loss}
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, y = batch
+        x, y, dates = batch
         y_hat = self(x)
-        return {'test_loss': self.loss(y_hat, y)}
 
-    def test_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
-        tensorboard_logs = {'test_loss': avg_loss}
-        return {'avg_test_loss': avg_loss, 'log': tensorboard_logs}
+        return {
+            'test_loss': self.loss(y_hat, y),
+            'obs': y,
+            'sim': y_hat,
+            'dates': dates
+        }
+
+    def test_epoch_end(self, out_dicts):
+        avg_loss = torch.stack([x['test_loss'] for x in out_dicts]).mean()
+        tensorboard_logs = {'Loss/Test': avg_loss}
+
+        # column to indicate offset to key_date
+        cols = [str(t) for t in range(self.hparams.output_size)]
+
+        df_obs = pd.DataFrame(columns=cols)
+        df_sim = pd.DataFrame(columns=cols)
+
+        for out_dict in out_dicts:
+            ys = out_dict['obs']
+            y_hats = out_dict['sim']
+            dates = out_dict['dates']
+
+            _df_obs, _df_sim = self.single_batch_to_df(ys, y_hats, dates, cols)
+
+            df_obs = pd.concat([df_obs, _df_obs])
+            df_sim = pd.concat([df_sim, _df_sim])
+        df_obs.index.name = 'date'
+        df_sim.index.name = 'date'
+
+        df_obs.sort_index(inplace=True)
+        df_sim.sort_index(inplace=True)
+        
+        df_obs.to_csv(self.output_dir / "df_test_obs.csv")
+        df_sim.to_csv(self.output_dir / "df_test_sim.csv")
+
+        plot_line(self.hparams, df_obs, df_sim, self.target,
+            self.output_dir, "line_DNN_" + self.target)
+        plot_scatter(self.hparams, df_obs, df_sim,
+            self.output_dir, "scatter_DNN_" + self.target)
+        plot_corr(self.hparams, df_obs, df_sim,
+            self.output_dir, "corrs_DNN_" + self.target)
+
+        return {
+            'test_loss': avg_loss,
+            'log': tensorboard_logs,
+            'obs': df_obs,
+            'sim': df_sim,
+        }
+    
+    def single_batch_to_df(self, ys, y_hats, dates, cols):
+        # single batch to dataframe
+        # dataframe that index is starting date
+        values, indicies = [], []
+        for _d, _y in zip(dates, ys):
+            values.append(_y.cpu().detach().numpy())
+            # just append single key date
+            indicies.append(_d[0])
+        _df_obs = pd.DataFrame(data=values, index=indicies, columns=cols)
+
+        values, indicies = [], []
+        for _d, _y_hat in zip(dates, y_hats):
+            values.append(_y_hat.cpu().detach().numpy())
+            # just append single key date
+            indicies.append(_d[0])
+        _df_sim = pd.DataFrame(data=values, index=indicies, columns=cols)
+
+        return _df_obs, _df_sim
 
     def prepare_data(self):
         # create custom dataset
@@ -307,17 +304,110 @@ class BaseDNNModel(LightningModule):
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
             batch_size=self.hparams.batch_size,
-            shuffle=True)
+            shuffle=True,
+            num_workers=self.num_workers,
+            collate_fn=self.collate_fn)
 
     def val_dataloader(self):
         return DataLoader(self.val_dataset,
             batch_size=self.hparams.batch_size,
-            num_workers=self.num_workers)
+            num_workers=self.num_workers,
+            collate_fn=self.collate_fn)
 
     def test_dataloader(self):
         return DataLoader(self.test_dataset,
             batch_size=self.hparams.batch_size,
-            num_workers=self.num_workers)
+            num_workers=self.num_workers,
+            collate_fn=self.collate_fn)
+    
+    def collate_fn(self, batch):
+        """Creates mini-batch tensors from from list of tuples (x, y, dates)
+
+        dates will not be trained but need to construct output, so don't put dates into Tensors
+        Args:
+        data: list of tuple  (x, y, dates).
+            - x: pandas DataFrame or numpy of shape (input_size, num_features); 
+            - y: pandas DataFrame or numpy of shape (output_size); 
+            - date: pandas DateTimeIndex of shape (output_size):
+            
+        Returns:
+            - xs: torch Tensor of shape (batch_size, input_size, num_features); 
+            - ys: torch Tensor of shape (batch_size, output_size); 
+            - dates: pandas DateTimeIndex of shape (batch_size, output_size):
+        """
+            
+        # seperate source and target sequences
+        # data goes to tuple (thanks to *) and zipped
+        xs, ys, dates = zip(*batch)
+
+        elem = batch[0]
+        elem_type = type(elem)
+
+        return torch.as_tensor(xs), torch.as_tensor(ys), dates
+
+
+def plot_line(hparams, df_obs, df_sim, target, output_dir, fname_prefix):
+    Path.mkdir(output_dir, parents=True, exist_ok=True)
+
+    for t in range(hparams.output_size):
+        dates = df_obs.index + dt.timedelta(hours=t)
+        plt_fname = output_dir / (fname_prefix + "_h" + str(t) + ".png")
+
+        obs = df_obs[[str(t)]]
+        sim = df_sim[[str(t)]]
+
+        plt.figure()
+        plt.title("OBS & Model")
+        plt.xlabel("dates")
+        plt.ylabel(target)
+        plt.plot(dates, obs, "b", dates, sim, "r")
+        plt.savefig(plt_fname)
+        plt.close()
+
+
+def plot_scatter(hparams, df_obs, df_sim, output_dir, fname_prefix):
+    Path.mkdir(output_dir, parents=True, exist_ok=True)
+
+    for t in range(hparams.output_size):
+        plt_fname = output_dir / (fname_prefix + "_h" + str(t) + ".png")
+
+        obs = df_obs[[str(t)]]
+        sim = df_sim[[str(t)]]
+        
+        plt.figure()
+        plt.title("Model/OBS")
+        plt.xlabel("OBS")
+        plt.ylabel("Model")
+        maxval = np.nanmax([np.nanmax(obs), np.nanmax(sim)])
+        plt.xlim((0, maxval))
+        plt.ylim((0, maxval))
+        plt.scatter(obs, sim)
+        plt.savefig(plt_fname)
+        plt.close()
+
+def plot_corr(hparams, df_obs, df_sim, output_dir, fname_prefix):
+    Path.mkdir(output_dir, parents=True, exist_ok=True)
+    plt_fname = output_dir / (fname_prefix + ".png")
+    csv_fname = output_dir / (fname_prefix + ".csv")
+    
+    times = list(range(hparams.output_size))
+    corrs = []
+    for t in range(hparams.output_size):
+        obs = df_obs[str(t)].to_numpy()
+        sim = df_sim[str(t)].to_numpy()
+
+        corrs.append(np.corrcoef(obs, sim)[0, 1])
+
+    plt.figure()
+    plt.title("Correlation of OBS & Model")
+    plt.xlabel("lags")
+    plt.ylabel("corr")
+    plt.plot(times, corrs)
+    plt.savefig(plt_fname)
+    plt.close()
+
+    df_corrs = pd.DataFrame({'time': times, 'corr': corrs})
+    df_corrs.to_csv(output_dir / csv_fname)
 
 def swish(_input, beta=1.0):
     """

@@ -73,6 +73,7 @@ class DNNDataset(Dataset):
         # filter by date
         self._df = self._df[self.fdate:self.tdate]
 
+        self._dates = self.df.index.to_pydatetime()
         self._xs = self.df[self.features]
         self._ys = self.df[[self.target]]
 
@@ -93,7 +94,10 @@ class DNNDataset(Dataset):
         x = self._xs.iloc[i:i+self.sample_size]
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
-        return x.to_numpy().astype('float32'), np.reshape(y.to_numpy(), len(y)).astype('float32')
+        # return X, Y, Y_dates
+        return x.to_numpy().astype('float32'), \
+            np.reshape(y.to_numpy(), len(y)).astype('float32'), \
+            self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
     def __len__(self):
         """
