@@ -162,6 +162,9 @@ class DNNMeanSeasonalityDataset(Dataset):
         self.batch_size = kwargs.get('batch_size', 32)
         self.output_size = kwargs.get('output_size', 24)
         self._train_valid_ratio = kwargs.get('train_valid_ratio', 0.8)
+        
+        self._dict_avg_hourly = kwargs.get('avg_hourly', None)
+        self._dict_avg_annual = kwargs.get('avg_annual', None)
 
         # load imputed data from filepath if not provided as dataframe
         filepath = kwargs.get('filepath', Path("/input/python/input_jongro_imputed_hourly_pandas.csv"))
@@ -177,9 +180,7 @@ class DNNMeanSeasonalityDataset(Dataset):
 
         self._dates = self._df.index.to_pydatetime()
 
-        dict_avg_hourly, dict_avg_annual = self.decompose_seasonality()
-        self.dict_avg_hourly = dict_avg_hourly
-        self.dict_avg_annual = dict_avg_annual
+        self.decompose_seasonality()
         new_features = [f + "_yr" if f == self.target else f  for f in self.features]
         self.features = new_features
         self._xs = self._df[self.features]
@@ -217,11 +218,11 @@ class DNNMeanSeasonalityDataset(Dataset):
         duration  = self.tdate - self.fdate - dt.timedelta(hours=(self.output_size + self.sample_size))
         return duration.days * 24 + duration.seconds // 3600
     
-    def decompose_seasonality(self):
-        self._df['hour'] = self._df.index.hour.to_numpy()
-
+    def decompose_seasonality(self):        
         def datetime2keyyear(dt1):
             return str(dt1.month).zfill(2) + str(dt1.day).zfill(2) + str(dt1.hour).zfill(2) 
+
+        self._df['hour'] = self._df.index.hour.to_numpy()
 
         months = self._df.index.month.to_numpy()
         days = self._df.index.day.to_numpy()
@@ -230,9 +231,12 @@ class DNNMeanSeasonalityDataset(Dataset):
             str(m).zfill(2) + str(d).zfill(2) + str(h).zfill(2)
             for (m, d, h) in zip(months, days, hours)]
 
-        # hourly
-        grp_hourly = self._df.groupby('hour').mean()
-        dict_avg_hourly = grp_hourly.to_dict()
+        # hourly mean
+        if self.dict_avg_hourly == None:
+            # only compute on train/valid set
+            # test set will use mean of train/valid set which is fed on __init__
+            grp_hourly = self._df.groupby('hour').mean()
+            self._dict_avg_hourly = grp_hourly.to_dict()
         self._df[self.target + "_raw"] = self._df[self.target]
         # daily seasonality
         self._df[self.target + "_ds"] = self._df[self.target]
@@ -240,26 +244,28 @@ class DNNMeanSeasonalityDataset(Dataset):
 
         for index, row in self._df.iterrows():
             # daily seasonality 
-            ds = dict_avg_hourly[self.target][index.hour]
+            ds = self._dict_avg_hourly[self.target][index.hour]
             # daily residual
             dr = row[self.target] - ds
             self._df.at[index, self.target + '_ds'] = ds
             self._df.at[index, self.target + '_dr'] = dr
-
-        grp_annual = self._df.groupby('key_year').mean()
-        dict_avg_annual = grp_annual.to_dict()
+        
+        # annual mean
+        if self.dict_avg_annual == None:
+            # only compute on train/valid set
+            # test set will use mean of train/valid set which is fed on __init__
+            grp_annual = self._df.groupby('key_year').mean()
+            self._dict_avg_annual = grp_annual.to_dict()
         self._df[self.target + "_ys"] = self._df[self.target]
         self._df[self.target + "_yr"] = self._df[self.target]
         
         for index, row in self._df.iterrows():
             # annual seasonality 
-            ys = dict_avg_annual[self.target + '_dr'][datetime2keyyear(index)]
+            ys = self._dict_avg_annual[self.target + '_dr'][datetime2keyyear(index)]
             # annual residual
             yr = row[self.target] - ys
             self._df.at[index, self.target + '_ys'] = ys
             self._df.at[index, self.target + '_yr'] = yr
-        
-        return dict_avg_hourly, dict_avg_annual
 
     # getter only
     @property
@@ -271,6 +277,22 @@ class DNNMeanSeasonalityDataset(Dataset):
     def ys(self):
         return self._ys
 
+    @property
+    def dict_avg_hourly(self):
+        return self._dict_avg_hourly
+    
+    @dict_avg_hourly.setter
+    def dict_avg_hourly(self, value):
+        self._dict_avg_hourly = value
+
+    @property
+    def dict_avg_annual(self):
+        return self._dict_avg_annual
+    
+    @dict_avg_annual.setter
+    def dict_avg_annual(self, value):
+        self._dict_avg_annual = value
+    
     @property
     def scaler(self):
         return self._scaler

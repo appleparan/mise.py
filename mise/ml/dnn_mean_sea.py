@@ -285,7 +285,9 @@ class BaseDNNModel(LightningModule):
             fdate=self.test_fdate,
             tdate=self.test_tdate,
             sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size)
+            output_size=self.hparams.output_size,
+            avg_hourly=train_valid_set.dict_avg_hourly,
+            avg_annual=train_valid_set.dict_avg_annual)
 
         # split train/valid/test set
         train_len = int(len(train_valid_set) * train_valid_set.train_valid_ratio)
