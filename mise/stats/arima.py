@@ -219,10 +219,10 @@ def plot_arima(df_sim, df_obs, target, order, _test_fdate, _test_tdate, station_
     # plot corr for all times
     corr_fname = "corr_arima(" + \
         str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-        target + "_" + str(t).zfill(2) + ".png"
+        target + ".png"
     csv_fname = "corr_hourly_arima(" + \
         str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-        target + "_h" + str(t).zfill(2) + ".csv"
+        target + ".csv"
 
     df_corrs = pd.DataFrame({'time': times, 'corr': corrs})
     df_corrs.to_csv(output_dir / csv_fname)

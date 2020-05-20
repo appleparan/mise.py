@@ -369,7 +369,7 @@ def plot_scatter(hparams, df_obs, df_sim, output_dir, fname_prefix):
     Path.mkdir(output_dir, parents=True, exist_ok=True)
 
     for t in range(hparams.output_size):
-        plt_fname = output_dir / (fname_prefix + "_h" + str(t) + ".png")
+        plt_fname = output_dir / (fname_prefix + "_h" + str(t).zfill(2) + ".png")
 
         obs = df_obs[[str(t)]]
         sim = df_sim[[str(t)]]
