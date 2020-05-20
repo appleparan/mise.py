@@ -7,6 +7,8 @@ from stats.stl import stats_stl
 from stats.stl_acf import stats_stl_acf
 from stats.preprocess import stats_preprocess
 
+from ml.dnn import ml_dnn
+
 """
     plot(args)
 
@@ -78,7 +80,7 @@ if __name__ == '__main__':
     parser.add_argument("-s", "--stats", nargs='*',
         help="statistics simulations, available arguments ['arima', 'sarima', 'tbats', 'stl', 'stl_acf']")
     parser.add_argument("-m", "--ml", nargs='*',
-        help="machine learning simulations")
+        help="machine learning simulations, available arguments ['dnn']")
 
     args = vars(parser.parse_args())
 
