@@ -8,6 +8,7 @@ from stats.stl_acf import stats_stl_acf
 from stats.preprocess import stats_preprocess
 
 from ml.dnn import ml_dnn
+from ml.dnn_mean_sea import ml_dnn_msea
 
 """
     plot(args)

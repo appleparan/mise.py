@@ -134,3 +134,4 @@ dmypy.json
 # logs and job scripts
 lightning_logs/
 *.sh
+out.*
