@@ -164,8 +164,9 @@ class DNNMeanSeasonalityDataset(Dataset):
         self.output_size = kwargs.get('output_size', 24)
         self._train_valid_ratio = kwargs.get('train_valid_ratio', 0.8)
 
-        self._dict_avg_hourly = kwargs.get('avg_hourly', None)
         self._dict_avg_annual = kwargs.get('avg_annual', None)
+        self._dict_avg_hourly = kwargs.get('avg_hourly', None)
+        self._dict_avg_weekly = kwargs.get('avg_weekly', None)
 
         # load imputed data from filepath if not provided as dataframe
         filepath = kwargs.get('filepath', Path("/input/python/input_jongro_imputed_hourly_pandas.csv"))
@@ -220,53 +221,50 @@ class DNNMeanSeasonalityDataset(Dataset):
         return duration.days * 24 + duration.seconds // 3600
 
     def decompose_seasonality(self):
-        def datetime2keyyear(dt1):
-            return str(dt1.month).zfill(2) + str(dt1.day).zfill(2) + str(dt1.hour).zfill(2)
-
-        self._df['hour'] = self._df.index.hour.to_numpy()
-
+        # add keys
+        self._df['key_day'] = self._df.index.hour.to_numpy()
+        self._df['key_week'] = self._df.index.weekday.to_numpy()
         months = self._df.index.month.to_numpy()
         days = self._df.index.day.to_numpy()
         hours = self._df.index.hour.to_numpy()
         self._df['key_year'] = [
             str(m).zfill(2) + str(d).zfill(2) + str(h).zfill(2)
             for (m, d, h) in zip(months, days, hours)]
-
-        # hourly mean
-        if self.dict_avg_hourly == None:
-            # only compute on train/valid set
-            # test set will use mean of train/valid set which is fed on __init__
-            grp_hourly = self._df.groupby('hour').mean()
-            self._dict_avg_hourly = grp_hourly.to_dict()
         self._df[self.target + "_raw"] = self._df[self.target]
-        # daily seasonality
-        self._df[self.target + "_ds"] = self._df[self.target]
-        self._df[self.target + "_dr"] = self._df[self.target]
 
-        for index, row in self._df.iterrows():
-            # daily seasonality
-            ds = self._dict_avg_hourly[self.target][index.hour]
-            # daily residual
-            dr = row[self.target] - ds
-            self._df.at[index, self.target + '_ds'] = ds
-            self._df.at[index, self.target + '_dr'] = dr
+        def datetime2key(dt1, prefix):
+            if prefix == 'y':
+                return str(dt1.month).zfill(2) + str(dt1.day).zfill(2) + str(dt1.hour).zfill(2)
+            elif prefix == 'd':
+                return dt1.hour
+            elif prefix == 'w':
+                return dt1.weekday
+            
+        def periodic_mean(key, prefix_period, prefix_input, dict_avg):        
+            # periodic mean
+            if dict_avg == None:
+                # only compute on train/valid set
+                # test set will use mean of train/valid set which is fed on __init__
+                grp_annual = self._df.groupby(key).mean()
+                _dict_avg = grp_annual.to_dict()
+            self._df[self.target + "_" + prefix_period + "s"] = self._df[self.target]
+            self._df[self.target + "_" + prefix_period + "r"] = self._df[self.target]
 
-        # annual mean
-        if self.dict_avg_annual == None:
-            # only compute on train/valid set
-            # test set will use mean of train/valid set which is fed on __init__
-            grp_annual = self._df.groupby('key_year').mean()
-            self._dict_avg_annual = grp_annual.to_dict()
-        self._df[self.target + "_ys"] = self._df[self.target]
-        self._df[self.target + "_yr"] = self._df[self.target]
+            for index, row in self._df.iterrows():
+                # seasonality
+                sea = _dict_avg[self.target + '_' + prefix_input][datetime2key(index, prefix_period)]
+                # annual residual
+                res = row[self.target] - sea
+                self._df.at[index, self.target + '_' + perfix_period + 's'] = sea
+                self._df.at[index, self.target + '_' + perfix_period + 'r'] = res
 
-        for index, row in self._df.iterrows():
-            # annual seasonality
-            ys = self._dict_avg_annual[self.target + '_dr'][datetime2keyyear(index)]
-            # annual residual
-            yr = row[self.target] - ys
-            self._df.at[index, self.target + '_ys'] = ys
-            self._df.at[index, self.target + '_yr'] = yr
+            return _dict_avg
+
+        # remove (preassumed) seasonality
+        self._dict_avg_annual = periodic_mean("key_year", "y", "", self._dict_avg_annual)
+        self._dict_avg_daily = periodic_mean("key_day", "d", "yr", self._dict_avg_daily)
+        self._dict_avg_weekly = periodic_mean(
+            "key_week", "w", "dr", self._dict_avg_weekly)
 
     # getter only
     @property
