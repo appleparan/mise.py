@@ -42,10 +42,10 @@ def stats_arima(station_name = "종로구"):
     print("Data loading complete")
     targets = ["PM10", "PM25"]
     output_size = 24
-    train_fdate = dt.datetime(2017, 1, 1, 0).astimezone(seoultz)
-    train_tdate = dt.datetime(2017, 12, 31, 23).astimezone(seoultz)
-    test_fdate = dt.datetime(2018, 1, 1, 0).astimezone(seoultz)
-    test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(seoultz)
+    train_fdate = dt.datetime(2018, 1, 1, 0).astimezone(seoultz)
+    train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(seoultz)
+    test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(seoultz)
+    test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(seoultz)
     # consective dates between train and test
     assert train_tdate + dt.timedelta(hours=1) == test_fdate
 
@@ -178,9 +178,6 @@ def plot_arima(df_sim, df_obs, target, order, _test_fdate, _test_tdate, station_
     test_fdate = _test_fdate
     test_tdate = _test_tdate - dt.timedelta(hours=output_size)
 
-    # filter by test dates
-    print(df_obs.head(5))
-    print(df_obs.tail(5))
     _obs = df_obs[(df_obs.index.get_level_values(level='date') >= test_fdate) &
                     (df_obs.index.get_level_values(level='date') <= test_tdate)]
     # simulation result might have exceed our observation
@@ -215,6 +212,7 @@ def plot_arima(df_sim, df_obs, target, order, _test_fdate, _test_tdate, station_
 
         # np.corrcoef -> [[1.0, corr], [corr, 1]]
         corrs.append(np.corrcoef(obs, sim)[0, 1])
+
     output_dir = dir_prefix
     # plot corr for all times
     corr_fname = "corr_arima(" + \

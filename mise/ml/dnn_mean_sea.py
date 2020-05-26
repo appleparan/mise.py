@@ -392,8 +392,8 @@ def plot_corr(hparams, df_obs, df_sim, output_dir, fname_prefix):
     plt_fname = output_dir / (fname_prefix + ".png")
     csv_fname = output_dir / (fname_prefix + ".csv")
     
-    times = list(range(hparams.output_size))
-    corrs = []
+    times = list(range(hparams.output_size + 1))
+    corrs = [1.0]
     for t in range(hparams.output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
