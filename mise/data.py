@@ -96,7 +96,7 @@ class DNNDataset(Dataset):
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
-        return x.to_numpy().astype('float32'), \
+        return self._scaler.transform(x).to_numpy().astype('float32'), \
             np.reshape(y.to_numpy(), len(y)).astype('float32'), \
             self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
@@ -185,6 +185,8 @@ class DNNMeanSeasonalityDataset(Dataset):
         self.decompose_seasonality()
         new_features = [f + "_yr" if f == self.target else f  for f in self.features]
         self.features = new_features
+        #self._xs = self._df[self.features]
+        # residual to _xs
         self._xs = self._df[self.features]
         self._ys = self._df[[self.target]]
 
@@ -206,7 +208,7 @@ class DNNMeanSeasonalityDataset(Dataset):
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
-        return x.to_numpy().astype('float32'), \
+        return self._scaler.transform(x).to_numpy().astype('float32'), \
             np.reshape(y.to_numpy(), len(y)).astype('float32'), \
             self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
@@ -252,16 +254,20 @@ class DNNMeanSeasonalityDataset(Dataset):
 
             for index, row in self._df.iterrows():
                 # seasonality
-                sea = _dict_avg[self.target + '_' + prefix_input][datetime2key(index, prefix_period)]
+                if prefix_input == None:
+                    sea = _dict_avg[self.target][datetime2key(index, prefix_period)]
+                else:
+                    sea = _dict_avg[self.target + '_' +
+                                    prefix_input][datetime2key(index, prefix_period)]
                 # annual residual
                 res = row[self.target] - sea
-                self._df.at[index, self.target + '_' + perfix_period + 's'] = sea
-                self._df.at[index, self.target + '_' + perfix_period + 'r'] = res
+                self._df.at[index, self.target + '_' + prefix_period + 's'] = sea
+                self._df.at[index, self.target + '_' + prefix_period + 'r'] = res
 
             return _dict_avg
 
         # remove (preassumed) seasonality
-        self._dict_avg_annual = periodic_mean("key_year", "y", "", self._dict_avg_annual)
+        self._dict_avg_annual = periodic_mean("key_year", "y", None, self._dict_avg_annual)
         self._dict_avg_daily = periodic_mean("key_day", "d", "yr", self._dict_avg_daily)
         self._dict_avg_weekly = periodic_mean(
             "key_week", "w", "dr", self._dict_avg_weekly)
@@ -316,7 +322,7 @@ class DNNMeanSeasonalityDataset(Dataset):
     def train_valid_ratio(self, value):
         self._train_valid_ratio = value
 
-class DNNSTLSeasonalityDataset(Dataset):
+class DNNARIMAMLPDataset(Dataset):
     def __init__(self, *args, **kwargs):
         #args -- tuple of anonymous arguments
         #kwargs -- dictionary of named arguments
@@ -335,10 +341,6 @@ class DNNSTLSeasonalityDataset(Dataset):
         self.output_size = kwargs.get('output_size', 24)
         self._train_valid_ratio = kwargs.get('train_valid_ratio', 0.8)
 
-        self._trend = kwargs.get('trend', None)
-        self._seasonal = kwargs.get('seasonal', None)
-        self._resid = kwargs.get('resid', None)
-
         # load imputed data from filepath if not provided as dataframe
         filepath = kwargs.get('filepath', Path("/input/python/input_jongro_imputed_hourly_pandas.csv"))
         raw_df = pd.read_csv(filepath,
@@ -348,39 +350,38 @@ class DNNSTLSeasonalityDataset(Dataset):
         self._df = raw_df.query('stationCode == "' +
                             str(SEOUL_STATIONS[self.station_name]) + '"')
         self._df.reset_index(level='stationCode', drop=True, inplace=True)
-        # filter by date
-        self._df = self._df[self.fdate:self.tdate]
 
         self._dates = self._df.index.to_pydatetime()
-        self.decompose_seasonality()
-        # replace original feature coolumn to residual
-        new_features = [f + "_rs" if f == self.target else f  for f in self.features]
-        self.features = new_features
-        self._xs = self._df[self.features]
-        self._xts = self._df[self.target + "_tr"]
+        # AR Input
+        self._xas = self._df[self.target]
+        # ML Input
+        self._xms = self._df[self.features]
         self._ys = self._df[[self.target]]
 
-        # self._xs must not be available when creating instance so no kwargs for scaler
-        self._scaler = preprocessing.StandardScaler().fit(self._xs)
+        # self._xms must not be available when creating instance so no kwargs for scaler
+        self._scaler = preprocessing.StandardScaler().fit(self._xms)
 
     def __getitem__(self, i: int):
         """
         get X, Y for given index `di`
 
         Args:
-            di(datetime): datetime where output starts
+            i: where output starts
 
         Returns:
             Tensor: transformed input (might be normalized)
             Tensor: output without transform
         """
-        x = self._xs.iloc[i:i+self.sample_size]
-        xt = self._xts.iloc[i:i+self.sample_size]
+        xa = self._xas.iloc[i:i+self.sample_size]
+        xm = self._xms.iloc[i:i+self.sample_size]
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
-        # return X, Y, Y_dates
-        return x.to_numpy().astype('float32'), \
-            xt.to_numpy().astype('float32'), \
+        # target in xm must be replaced after fit to ARIMA
+        # residual about to around zero, so I ignored scaling
+
+        return xa.to_numpy().astype('float32'), \
+            self._scaler.transform(xm), \
+            xm.columns.tolist().index(self.target), \
             np.reshape(y.to_numpy(), len(y)).astype('float32'), \
             self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
@@ -393,22 +394,6 @@ class DNNSTLSeasonalityDataset(Dataset):
         """
         duration  = self.tdate - self.fdate - dt.timedelta(hours=(self.output_size + self.sample_size))
         return duration.days * 24 + duration.seconds // 3600
-
-    def decompose_seasonality(self):
-        df_target = self._df[self.target].copy()
-        model = STL(df_target)
-        result = model.fit()
-
-        if self._resid == None:
-            self._observed = result.observed
-            self._trend = result.trend
-            self._seasonal = result.seasonal
-            self._resid = result.resid
-
-        self._df[self.target + "_ob"] = self._observed
-        self._df[self.target + "_tr"] = self._trend
-        self._df[self.target + "_se"] = self._seasonal
-        self._df[self.target + "_rs"] = self._resid
 
     # getter only
     @property
