@@ -44,10 +44,10 @@ def ml_dnn(station_name="종로구"):
     learning_rate = 1e-3
 
     train_fdate = dt.datetime(2012, 1, 1, 0).astimezone(SEOULTZ)
-    train_tdate = dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ)
-    test_fdate = dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ)
+    train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     #test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
-    test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
 
     # check date range assumption
     assert test_tdate > train_fdate
@@ -390,8 +390,8 @@ def plot_corr(hparams, df_obs, df_sim, output_dir, fname_prefix):
     plt_fname = output_dir / (fname_prefix + ".png")
     csv_fname = output_dir / (fname_prefix + ".csv")
     
-    times = list(range(hparams.output_size))
-    corrs = []
+    times = list(range(hparams.output_size + 1))
+    corrs = [1.0]
     for t in range(hparams.output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
