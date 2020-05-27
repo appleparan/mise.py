@@ -96,7 +96,7 @@ class DNNDataset(Dataset):
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
-        return self._scaler.transform(x).to_numpy().astype('float32'), \
+        return self._scaler.transform(x).astype('float32'), \
             np.reshape(y.to_numpy(), len(y)).astype('float32'), \
             self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
@@ -208,7 +208,7 @@ class DNNMeanSeasonalityDataset(Dataset):
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
-        return self._scaler.transform(x).to_numpy().astype('float32'), \
+        return self._scaler.transform(x).astype('float32'), \
             np.reshape(y.to_numpy(), len(y)).astype('float32'), \
             self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 

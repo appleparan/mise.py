@@ -21,6 +21,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 
 import data
@@ -112,16 +113,25 @@ def ml_dnn_msea(station_name="종로구"):
         log_dir = output_dir / "logs"
         Path.mkdir(log_dir, parents=True, exist_ok=True)
         logger = TensorBoardLogger(log_dir, name=log_name + " DNN")
+        # early stopping
+        early_stop_callback = EarlyStopping(
+            monitor='val_loss',
+            min_delta=0.00,
+            patience=20,
+            verbose=False,
+            mode='max'
+        )
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1,
-            precision=32,
-            min_epochs=1, max_epochs=epoch_size,
-            early_stop_checkpoint=True,
-            default_save_path=output_dir,
-            logger=logger)
+                          precision=32,
+                          min_epochs=1, max_epochs=epoch_size,
+                          early_stop_callback=early_stop_callback,
+                          default_save_path=output_dir,
+                          logger=logger)
+
 
         trainer.fit(model)
-                
+
         # run test set
         trainer.test()
 
@@ -228,7 +238,7 @@ class BaseDNNModel(LightningModule):
 
         df_obs.sort_index(inplace=True)
         df_sim.sort_index(inplace=True)
-        
+
         df_obs.to_csv(self.output_dir / "df_test_obs.csv")
         df_sim.to_csv(self.output_dir / "df_test_sim.csv")
 
@@ -245,7 +255,7 @@ class BaseDNNModel(LightningModule):
             'obs': df_obs,
             'sim': df_sim,
         }
-    
+
     def single_batch_to_df(self, ys, y_hats, dates, cols):
         # single batch to dataframe
         # dataframe that index is starting date
@@ -321,23 +331,23 @@ class BaseDNNModel(LightningModule):
             batch_size=self.hparams.batch_size,
             num_workers=self.num_workers,
             collate_fn=self.collate_fn)
-    
+
     def collate_fn(self, batch):
         """Creates mini-batch tensors from from list of tuples (x, y, dates)
 
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
         data: list of tuple  (x, y, dates).
-            - x: pandas DataFrame or numpy of shape (input_size, num_features); 
-            - y: pandas DataFrame or numpy of shape (output_size); 
+            - x: pandas DataFrame or numpy of shape (input_size, num_features);
+            - y: pandas DataFrame or numpy of shape (output_size);
             - date: pandas DateTimeIndex of shape (output_size):
-            
+
         Returns:
-            - xs: torch Tensor of shape (batch_size, input_size, num_features); 
-            - ys: torch Tensor of shape (batch_size, output_size); 
+            - xs: torch Tensor of shape (batch_size, input_size, num_features);
+            - ys: torch Tensor of shape (batch_size, output_size);
             - dates: pandas DateTimeIndex of shape (batch_size, output_size):
         """
-            
+
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
         xs, ys, dates = zip(*batch)
@@ -375,7 +385,7 @@ def plot_scatter(hparams, df_obs, df_sim, output_dir, fname_prefix):
 
         obs = df_obs[[str(t)]]
         sim = df_sim[[str(t)]]
-        
+
         plt.figure()
         plt.title("Model/OBS")
         plt.xlabel("OBS")
@@ -391,7 +401,7 @@ def plot_corr(hparams, df_obs, df_sim, output_dir, fname_prefix):
     Path.mkdir(output_dir, parents=True, exist_ok=True)
     plt_fname = output_dir / (fname_prefix + ".png")
     csv_fname = output_dir / (fname_prefix + ".csv")
-    
+
     times = list(range(hparams.output_size + 1))
     corrs = [1.0]
     for t in range(hparams.output_size):

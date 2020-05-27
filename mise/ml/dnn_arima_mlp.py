@@ -25,6 +25,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 
 import data
@@ -121,11 +122,19 @@ def ml_dnn_arima_mlp(station_name="종로구"):
         log_dir = output_dir / "logs"
         Path.mkdir(log_dir, parents=True, exist_ok=True)
         logger = TensorBoardLogger(log_dir, name=log_name + " DNN")
+        # early stopping
+        early_stop_callback = EarlyStopping(
+            monitor='val_loss',
+            min_delta=0.00,
+            patience=20,
+            verbose=False,
+            mode='max'
+        )
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1,
                           precision=32,
                           min_epochs=1, max_epochs=epoch_size,
-                          early_stop_checkpoint=True,
+                          early_stop_callback=early_stop_callback,
                           default_save_path=output_dir,
                           logger=logger)
 
@@ -183,13 +192,16 @@ class BaseDNNModel(LightningModule):
         return x
 
     def forward_arima(self, xas, o=(1, 0, 0)):
-        _res = []
+        _res = np.zeros_like(np.array(xas))
 
-        for xa in xas:
+        def compute_residual():
+            pass
+
+        for i, xa in enumerate(xas):
             model = ARIMA(xa, order=o)
             model_fit = model.fit(transparams=False, disp=False)
-            _res.append(model_fit.resid)
-        
+            _res[i, :, :] = model_fit.resid
+
         return tuple(_res)
 
     def configure_optimizers(self):
@@ -199,7 +211,7 @@ class BaseDNNModel(LightningModule):
         xas, xms, xmi, ys, dates = batch
         # ARIMA part
         resids = self.forward_arima(xas)
-        
+
         # residual to MLP
         for xm, i, resid in zip(xms, xmi, resids):
             xm[:, i] = resid
@@ -380,12 +392,12 @@ class BaseDNNModel(LightningModule):
         data: list of tuple  (x, y, dates).
             - xa: pandas DataFrame or numpy of shape (input_size, num_features);
             - xm: pandas DataFrame or numpy of shape (input_size, num_features);
-            - y: pandas DataFrame or numpy of shape (output_size); 
+            - y: pandas DataFrame or numpy of shape (output_size);
             - date: pandas DateTimeIndex of shape (output_size):
-            
+
         Returns:
-            - xs: torch Tensor of shape (batch_size, input_size, num_features); 
-            - ys: torch Tensor of shape (batch_size, output_size); 
+            - xs: torch Tensor of shape (batch_size, input_size, num_features);
+            - ys: torch Tensor of shape (batch_size, output_size);
             - dates: pandas DateTimeIndex of shape (batch_size, output_size):
         """
 
