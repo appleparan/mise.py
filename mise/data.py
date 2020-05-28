@@ -4,7 +4,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from statsmodels.tsa.seasonal import STL
+from statsmodels.tsa.arima_model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn import preprocessing
 
 from torch.utils.data.dataset import Dataset
@@ -52,11 +53,14 @@ class DNNDataset(Dataset):
         self.features = kwargs.get('features',
                               ["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp", "u", "v", "pres", "humid", "prep", "snow"])
 
+        # date when prediction starts, if I need to predict 2018/1/1 1:00 AM, I need more data with size 'sample_size'
         self.fdate = kwargs.get('fdate', dt.datetime(
-            2008, 1, 1, 1).astimezone(SEOULTZ))
+            2009, 1, 1, 1).astimezone(SEOULTZ))
+        # date where prediction starts
         self.tdate = kwargs.get('tdate', dt.datetime(
             2017, 12, 31, 23).astimezone(SEOULTZ))
 
+        # MLP sample_size
         self.sample_size = kwargs.get('sample_size', 48)
         self.batch_size = kwargs.get('batch_size', 32)
         self.output_size = kwargs.get('output_size', 24)
@@ -72,7 +76,7 @@ class DNNDataset(Dataset):
                             str(SEOUL_STATIONS[self.station_name]) + '"')
         self._df.reset_index(level='stationCode', drop=True, inplace=True)
         # filter by date
-        self._df = self._df[self.fdate:self.tdate]
+        self._df = self._df[self.fdate-dt.timedelta(hours=self.sample_size):self.tdate]
 
         self._dates = self._df.index.to_pydatetime()
         self._xs = self._df[self.features]
@@ -155,7 +159,7 @@ class DNNMeanSeasonalityDataset(Dataset):
                               ["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp", "u", "v", "pres", "humid", "prep", "snow"])
 
         self.fdate = kwargs.get('fdate', dt.datetime(
-            2008, 1, 1, 1).astimezone(SEOULTZ))
+            2009, 1, 1, 1).astimezone(SEOULTZ))
         self.tdate = kwargs.get('tdate', dt.datetime(
             2017, 12, 31, 23).astimezone(SEOULTZ))
 
@@ -164,9 +168,9 @@ class DNNMeanSeasonalityDataset(Dataset):
         self.output_size = kwargs.get('output_size', 24)
         self._train_valid_ratio = kwargs.get('train_valid_ratio', 0.8)
 
-        self._dict_avg_annual = kwargs.get('avg_annual', None)
-        self._dict_avg_hourly = kwargs.get('avg_hourly', None)
-        self._dict_avg_weekly = kwargs.get('avg_weekly', None)
+        self._dict_avg_annual = kwargs.get('avg_annual', {})
+        self._dict_avg_daily = kwargs.get('avg_daily', {})
+        self._dict_avg_weekly = kwargs.get('avg_weekly', {})
 
         # load imputed data from filepath if not provided as dataframe
         filepath = kwargs.get('filepath', Path("/input/python/input_jongro_imputed_hourly_pandas.csv"))
@@ -240,15 +244,16 @@ class DNNMeanSeasonalityDataset(Dataset):
             elif prefix == 'd':
                 return dt1.hour
             elif prefix == 'w':
-                return dt1.weekday
-            
-        def periodic_mean(key, prefix_period, prefix_input, dict_avg):        
-            # periodic mean
-            if dict_avg == None:
+                return dt1.weekday()
+
+        def periodic_mean(key, prefix_period, prefix_input, _dict_avg):
+            # if dictionary is empty, create new one
+            if not _dict_avg:
                 # only compute on train/valid set
                 # test set will use mean of train/valid set which is fed on __init__
                 grp_annual = self._df.groupby(key).mean()
                 _dict_avg = grp_annual.to_dict()
+
             self._df[self.target + "_" + prefix_period + "s"] = self._df[self.target]
             self._df[self.target + "_" + prefix_period + "r"] = self._df[self.target]
 
@@ -283,12 +288,20 @@ class DNNMeanSeasonalityDataset(Dataset):
         return self._ys
 
     @property
-    def dict_avg_hourly(self):
-        return self._dict_avg_hourly
+    def dict_avg_daily(self):
+        return self._dict_avg_daily
 
-    @dict_avg_hourly.setter
-    def dict_avg_hourly(self, value):
-        self._dict_avg_hourly = value
+    @dict_avg_daily.setter
+    def dict_avg_daily(self, value):
+        self._dict_avg_daily = value
+
+    @property
+    def dict_avg_weekly(self):
+        return self._dict_avg_weekly
+
+    @dict_avg_weekly.setter
+    def dict_avg_weekly(self, value):
+        self._dict_avg_weekly = value
 
     @property
     def dict_avg_annual(self):
@@ -331,12 +344,18 @@ class DNNARIMAMLPDataset(Dataset):
         self.features = kwargs.get('features',
                               ["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp", "u", "v", "pres", "humid", "prep", "snow"])
 
+        # date when prediction starts, if I need to predict 2018/1/1 1:00 AM, I need more data with size 'sample_size'
         self.fdate = kwargs.get('fdate', dt.datetime(
-            2008, 1, 1, 1).astimezone(SEOULTZ))
+            2009, 1, 1, 1).astimezone(SEOULTZ))
+        # date where prediction starts
         self.tdate = kwargs.get('tdate', dt.datetime(
             2017, 12, 31, 23).astimezone(SEOULTZ))
 
-        self.sample_size = kwargs.get('sample_size', 48)
+        # MLP smaple_size
+        self.sample_size_m = kwargs.get('sample_size_m', 48)
+        # ARIMA sample_size
+        self.sample_size_a = kwargs.get('sample_size_a', 24*30)
+        self.sample_size = max(self.sample_size_m, self.sample_size_a)
         self.batch_size = kwargs.get('batch_size', 32)
         self.output_size = kwargs.get('output_size', 24)
         self._train_valid_ratio = kwargs.get('train_valid_ratio', 0.8)
@@ -349,14 +368,20 @@ class DNNARIMAMLPDataset(Dataset):
         # filter by station_name
         self._df = raw_df.query('stationCode == "' +
                             str(SEOUL_STATIONS[self.station_name]) + '"')
+        # filter by date
+        self._df = self._df[self.fdate -
+                            dt.timedelta(hours=self.sample_size):self.tdate]
+
         self._df.reset_index(level='stationCode', drop=True, inplace=True)
 
         self._dates = self._df.index.to_pydatetime()
+        self._arima_o = (1, 0, 1)
+        self._arima_so = (0, 0, 0, 24)
         # AR Input
         self._xas = self._df[self.target]
         # ML Input
         self._xms = self._df[self.features]
-        self._ys = self._df[[self.target]]
+        self._ys = self._df[self.target]
 
         # self._xms must not be available when creating instance so no kwargs for scaler
         self._scaler = preprocessing.StandardScaler().fit(self._xms)
@@ -364,22 +389,85 @@ class DNNARIMAMLPDataset(Dataset):
     def __getitem__(self, i: int):
         """
         get X, Y for given index `di`
+        For ARIMA + MLP Hybrid model, original Time series is considered as
+
+            Z = L + N
+
+        Then ARIMA predicts L, MLP Predicts Z - L
+        Due to stationarity, ARIMA(actually SARIMAX) needs longer data than MLP
+        This means we need two sample_size
+
+        1. ARIMA predicts 'target' from its `sample_size_a` series
+        2. Get In-sample prediction (for residual) & out-sample prediction (for loss function)
+        3. Compute Residual of Input (E = Z - L)
+        4. Return Residual and Output
+        5. (MLP Model part) Train E to get Residual prediction
+        6. Compute Loss function from summing MLP trained prediction & ARIMA trained prediction
 
         Args:
             i: where output starts
 
         Returns:
+            Ndarray:
             Tensor: transformed input (might be normalized)
             Tensor: output without transform
         """
-        xa = self._xas.iloc[i:i+self.sample_size]
-        xm = self._xms.iloc[i:i+self.sample_size]
+        # i.e.
+        # sample_size_a = 12
+        # sample_size_m = 5
+        # sample_size = 12
+        # sample_size_ao = 0 (range(0:12))
+        # sample_size_mo = 5 (range(5:12))
+        if self.sample_size == self.sample_size_a:
+            # i
+            # | --               sample_size            -- | -- output_size -- |
+            # | --              sample_size_a           -- | -- output_size -- |
+            # | -- sample_size_mo -- | -- sample_size_m -- | -- output_size -- |
+            # ARIMA sample_size is longer (most case)
+            # difference as offset
+            sample_size_ao = 0
+            sample_size_mo = self.sample_size - self.sample_size_m
+        # MLP sample_size is longer
+        else:
+            # i
+            # | --               sample_size            -- | -- output_size -- |
+            # | --              sample_size_m           -- | -- output_size -- |
+            # | -- sample_size_ao -- | -- sample_size_a -- | -- output_size -- |
+            # ARIMA sample_size is longer (most case)
+            # difference as offset
+            sample_size_ao = self.sample_size - self.sample_size_a
+            sample_size_mo = 0
+
+         # ARIMA is precomputed
+        _xa = self._xas.iloc[i+sample_size_ao:i+self.sample_size]
+        _xa.index.freq = 'H'
+        model = SARIMAX(_xa, order=self._arima_o, seasonal_order=self._arima_so, freq='H')
+        model_fit = model.fit(disp=False)
+        if self.sample_size == self.sample_size_a:
+            # in-sample & out-sample prediction 
+            # its size is sample_size_m + output_size
+            _xa_pred = model_fit.predict(
+                start=sample_size_mo, end=self.sample_size+self.output_size-1)
+            xa = self._xas.iloc[i+sample_size_mo:i+self.sample_size].to_numpy() - \
+                _xa_pred[0:self.sample_size_m]
+            ya = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
+                _xa_pred[self.sample_size_m:self.sample_size_m+self.output_size]
+        else:
+            # in-sample & out-sample prediction
+            # its size is sample_size_m + output_size
+            _xa_pred = model_fit.predict(
+                start=sample_size_ao, stop=self.sample_size+self.output_size)
+            xa = self._xas.iloc[i+sample_size_mo:i+self.sample_size].to_numpy() - \
+                _xa_pred[0:self.sample_size_m]
+            ya = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
+                _xa_pred[self.sample_size_m:self.sample_size_m+self.output_size]
+
+        xm = self._xms.iloc[i+sample_size_mo:i+self.sample_size]
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
         # target in xm must be replaced after fit to ARIMA
         # residual about to around zero, so I ignored scaling
-
-        return xa.to_numpy().astype('float32'), \
+        return xa.astype('float32'), ya.astype('float32'), \
             self._scaler.transform(xm), \
             xm.columns.tolist().index(self.target), \
             np.reshape(y.to_numpy(), len(y)).astype('float32'), \
@@ -394,6 +482,9 @@ class DNNARIMAMLPDataset(Dataset):
         """
         duration  = self.tdate - self.fdate - dt.timedelta(hours=(self.output_size + self.sample_size))
         return duration.days * 24 + duration.seconds // 3600
+
+    def arima(self):
+        pass
 
     # getter only
     @property

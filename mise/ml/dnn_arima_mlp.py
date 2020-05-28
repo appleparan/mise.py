@@ -43,7 +43,10 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def ml_dnn_arima_mlp(station_name="종로구"):
     print("Start DNN model")
     targets = ["PM10", "PM25"]
-    sample_size = 48
+    # sample size for ARIMA model
+    sample_size_a = 24*30
+    # sample size for MLP model
+    sample_size_m = 48
     output_size = 24
 
     # Hyper parameter
@@ -86,12 +89,13 @@ def ml_dnn_arima_mlp(station_name="종로구"):
         if target == 'PM10':
             unit_size = 32
             hparams = Namespace(
-                input_size=sample_size*len(train_features),
+                input_size=sample_size_m*len(train_features),
                 layer1_size=32,
                 layer2_size=32,
                 output_size=output_size,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
+                sample_size_a=sample_size_a,
+                sample_size_m=sample_size_m,
                 batch_size=batch_size)
             model = BaseDNNModel(hparams=hparams,
                                  station_name=station_name,
@@ -103,12 +107,13 @@ def ml_dnn_arima_mlp(station_name="종로구"):
         elif target == 'PM25':
             unit_size = 16
             hparams = Namespace(
-                input_size=sample_size*len(train_features),
+                input_size=sample_size_m*len(train_features),
                 layer1_size=16,
                 layer2_size=16,
                 output_size=output_size,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
+                sample_size_a=sample_size_a,
+                sample_size_m=sample_size_m,
                 batch_size=batch_size)
             model = BaseDNNModel(hparams=hparams,
                                  station_name=station_name,
@@ -126,9 +131,9 @@ def ml_dnn_arima_mlp(station_name="종로구"):
         early_stop_callback = EarlyStopping(
             monitor='val_loss',
             min_delta=0.00,
-            patience=20,
+            patience=30,
             verbose=False,
-            mode='max'
+            mode='auto'
         )
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1,
@@ -154,6 +159,8 @@ class BaseDNNModel(LightningModule):
             output_size=24,
             learning_rate=1e-3,
             sample_size=48,
+            sample_size_a=24*30,
+            sample_size_m=48,
             batch_size=32
         ))
 
@@ -191,33 +198,17 @@ class BaseDNNModel(LightningModule):
         x = self.fc3(x)
         return x
 
-    def forward_arima(self, xas, o=(1, 0, 0)):
-        _res = np.zeros_like(np.array(xas))
-
-        def compute_residual():
-            pass
-
-        for i, xa in enumerate(xas):
-            model = ARIMA(xa, order=o)
-            model_fit = model.fit(transparams=False, disp=False)
-            _res[i, :, :] = model_fit.resid
-
-        return tuple(_res)
-
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.hparams.lr | self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        xas, xms, xmi, ys, dates = batch
-        # ARIMA part
-        resids = self.forward_arima(xas)
+        xas, yas, xms, xmi, ys, dates = batch
 
-        # residual to MLP
-        for xm, i, resid in zip(xms, xmi, resids):
-            xm[:, i] = resid
+        for xm, xa, i in zip(xms, xas, xmi):
+            xm[:, i] = xa
 
-        y_hats = self.forward(torch.as_tensor(xm.astype('float32')))
-        _loss = self.loss(y_hats, ys)
+        yms = self.forward(torch.as_tensor(xm.astype('float32')))
+        _loss = self.loss(yas + yms, ys)
         #_loss = self.loss(y_hat, y)
 
         tensorboard_logs = {'Loss/Train': _loss}
@@ -227,17 +218,13 @@ class BaseDNNModel(LightningModule):
         return torch.optim.Adam(self.parameters())
 
     def validation_step(self, batch, batch_idx):
-        xas, xms, xmi, ys, dates = batch
-        # ARIMA part
-        resids = self.forward_arima(xas)
+        xas, yas, xms, xmi, ys, dates = batch
 
-        # residual to MLP
-        for xm, i, resid in zip(xms, xmi, resids):
-            xm[:, i] = resid
+        for xm, xa, i in zip(xms, xas, xmi):
+            xm[:, i] = xa
 
-        y_hats = self.forward(torch.as_tensor(xm.astype('float32')))
-        _loss = self.loss(y_hats, ys)
-        #_loss = self.loss(y_hat, y)
+        yms = self.forward(torch.as_tensor(xm.astype('float32')))
+        _loss = self.loss(yas + yms, ys)
 
         return {'val_loss': _loss}
 
@@ -247,22 +234,18 @@ class BaseDNNModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        xas, xms, xmi, ys, dates = batch
-        # ARIMA part
-        resids = self.forward_arima(xas)
+        xas, yas, xms, xmi, ys, dates = batch
 
-        # residual to MLP
-        for xm, i, resid in zip(xms, xmi, resids):
-            xm[:, i] = resid
+        for xm, xa, i in zip(xms, xas, xmi):
+            xm[:, i] = xa
 
-        y_hats = self.forward(torch.as_tensor(xm.astype('float32')))
-        _loss = self.loss(y_hats, ys)
-        #_loss = self.loss(y_hat, y)
+        yms = self.forward(torch.as_tensor(xm.astype('float32')))
+        _loss = self.loss(yas + yms, ys)
 
         return {
             'test_loss': _loss,
             'obs': ys,
-            'sim': y_hats,
+            'sim': yms,
             'dates': dates
         }
 
@@ -270,6 +253,16 @@ class BaseDNNModel(LightningModule):
         avg_loss = torch.stack([x['test_loss'] for x in out_dicts]).mean()
         tensorboard_logs = {'Loss/Test': avg_loss}
 
+        df_obs, df_sim = self.evaluate_plot_test(out_dicts)
+
+        return {
+            'test_loss': avg_loss,
+            'log': tensorboard_logs,
+            'obs': df_obs,
+            'sim': df_sim,
+        }
+
+    def evaluate_plot_test(self, out_dicts):
         # column to indicate offset to key_date
         cols = [str(t) for t in range(self.hparams.output_size)]
 
@@ -301,13 +294,6 @@ class BaseDNNModel(LightningModule):
         plot_corr(self.hparams, df_obs, df_sim,
                   self.output_dir, "corrs_DNN_" + self.target)
 
-        return {
-            'test_loss': avg_loss,
-            'log': tensorboard_logs,
-            'obs': df_obs,
-            'sim': df_sim,
-        }
-
     def single_batch_to_df(self, ys, y_hats, dates, cols):
         # single batch to dataframe
         # dataframe that index is starting date
@@ -336,7 +322,8 @@ class BaseDNNModel(LightningModule):
             features=self.features,
             fdate=self.train_fdate,
             tdate=self.train_tdate,
-            sample_size=self.hparams.sample_size,
+            sample_size_m=self.hparams.sample_size_m,
+            sample_size_a=self.hparams.sample_size_a,
             output_size=self.hparams.output_size,
             train_valid_ratio=0.8)
         test_set = data.DNNARIMAMLPDataset(
@@ -346,7 +333,8 @@ class BaseDNNModel(LightningModule):
             features=self.features,
             fdate=self.test_fdate,
             tdate=self.test_tdate,
-            sample_size=self.hparams.sample_size,
+            sample_size_m=self.hparams.sample_size_m,
+            sample_size_a=self.hparams.sample_size_a,
             output_size=self.hparams.output_size)
 
         # split train/valid/test set
@@ -403,9 +391,9 @@ class BaseDNNModel(LightningModule):
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xas, xms, xmi, ys, dates = zip(*batch)
+        xas, yas, xms, xmi, ys, dates = zip(*batch)
 
-        return xas, xms, xmi, torch.as_tensor(ys), dates
+        return xas, torch.as_tensor(yas), xms, xmi, torch.as_tensor(ys), dates
 
 
 def plot_line(hparams, df_obs, df_sim, target, output_dir, fname_prefix):

@@ -116,10 +116,10 @@ def ml_dnn(station_name="종로구"):
         # early stopping
         early_stop_callback = EarlyStopping(
             monitor='val_loss',
-            min_delta=0.00,
-            patience=20,
-            verbose=False,
-            mode='max'
+            min_delta=0.001,
+            patience=30,
+            verbose=True,
+            mode='auto'
         )
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1,

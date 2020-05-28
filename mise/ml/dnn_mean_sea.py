@@ -116,10 +116,10 @@ def ml_dnn_msea(station_name="종로구"):
         # early stopping
         early_stop_callback = EarlyStopping(
             monitor='val_loss',
-            min_delta=0.00,
-            patience=20,
-            verbose=False,
-            mode='max'
+            min_delta=0.001,
+            patience=30,
+            verbose=True,
+            mode='auto'
         )
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1,
@@ -296,7 +296,8 @@ class BaseDNNModel(LightningModule):
             tdate=self.test_tdate,
             sample_size=self.hparams.sample_size,
             output_size=self.hparams.output_size,
-            avg_hourly=train_valid_set.dict_avg_hourly,
+            avg_daily=train_valid_set.dict_avg_daily,
+            avg_weekly=train_valid_set.dict_avg_weekly,
             avg_annual=train_valid_set.dict_avg_annual)
 
         # split train/valid/test set
