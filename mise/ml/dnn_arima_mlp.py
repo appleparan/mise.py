@@ -141,6 +141,7 @@ def ml_dnn_arima_mlp(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_save_path=output_dir,
+                          #fast_dev_run=True,
                           logger=logger)
 
         trainer.fit(model)
@@ -171,11 +172,11 @@ class BaseDNNModel(LightningModule):
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
         self.train_tdate = kwargs.get('train_tdate', dt.datetime(
-            2017, 12, 31, 23).astimezone(SEOULTZ))
-        self.test_fdate = kwargs.get('test_fdate', dt.datetime(
-            2018, 1, 1, 0).astimezone(SEOULTZ))
-        self.test_tdate = kwargs.get('test_tdate', dt.datetime(
             2018, 12, 31, 23).astimezone(SEOULTZ))
+        self.test_fdate = kwargs.get('test_fdate', dt.datetime(
+            2019, 1, 1, 0).astimezone(SEOULTZ))
+        self.test_tdate = kwargs.get('test_tdate', dt.datetime(
+            2019, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get('output_dir', Path('.'))
 
@@ -204,12 +205,14 @@ class BaseDNNModel(LightningModule):
     def training_step(self, batch, batch_idx):
         xas, yas, xms, xmi, ys, dates = batch
 
+        xms_embed = []
         for xm, xa, i in zip(xms, xas, xmi):
             xm[:, i] = xa
+            xms_embed.append(xm.astype('float32'))
+        xms_embed = tuple(xms_embed)
 
-        yms = self.forward(torch.as_tensor(xm.astype('float32')))
+        yms = self.forward(torch.as_tensor(xms_embed))
         _loss = self.loss(yas + yms, ys)
-        #_loss = self.loss(y_hat, y)
 
         tensorboard_logs = {'Loss/Train': _loss}
         return {'loss': _loss, 'log': tensorboard_logs}
@@ -220,10 +223,13 @@ class BaseDNNModel(LightningModule):
     def validation_step(self, batch, batch_idx):
         xas, yas, xms, xmi, ys, dates = batch
 
+        xms_embed = []
         for xm, xa, i in zip(xms, xas, xmi):
             xm[:, i] = xa
+            xms_embed.append(xm.astype('float32'))
+        xms_embed = tuple(xms_embed)
 
-        yms = self.forward(torch.as_tensor(xm.astype('float32')))
+        yms = self.forward(torch.as_tensor(xms_embed))
         _loss = self.loss(yas + yms, ys)
 
         return {'val_loss': _loss}
@@ -236,16 +242,19 @@ class BaseDNNModel(LightningModule):
     def test_step(self, batch, batch_idx):
         xas, yas, xms, xmi, ys, dates = batch
 
+        xms_embed = []
         for xm, xa, i in zip(xms, xas, xmi):
             xm[:, i] = xa
+            xms_embed.append(xm.astype('float32'))
+        xms_embed = tuple(xms_embed)
 
-        yms = self.forward(torch.as_tensor(xm.astype('float32')))
+        yms = self.forward(torch.as_tensor(xms_embed))
         _loss = self.loss(yas + yms, ys)
 
         return {
             'test_loss': _loss,
             'obs': ys,
-            'sim': yms,
+            'sim': yms + yas,
             'dates': dates
         }
 
@@ -293,6 +302,8 @@ class BaseDNNModel(LightningModule):
                      self.output_dir, "scatter_DNN_" + self.target)
         plot_corr(self.hparams, df_obs, df_sim,
                   self.output_dir, "corrs_DNN_" + self.target)
+
+        return df_obs, df_sim
 
     def single_batch_to_df(self, ys, y_hats, dates, cols):
         # single batch to dataframe
