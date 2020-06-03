@@ -300,6 +300,9 @@ class BaseDNNModel(LightningModule):
             avg_weekly=train_valid_set.dict_avg_weekly,
             avg_annual=train_valid_set.dict_avg_annual)
 
+        # save train/valid set
+        train_valid_set.save2csv(self.output_dir, self.target)
+
         # split train/valid/test set
         train_len = int(len(train_valid_set) * train_valid_set.train_valid_ratio)
         valid_len = len(train_valid_set) - train_len

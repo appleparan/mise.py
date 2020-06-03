@@ -278,6 +278,9 @@ class DNNMeanSeasonalityDataset(Dataset):
         self._dict_avg_weekly = periodic_mean(
             "key_week", "w", "dr", self._dict_avg_weekly)
 
+    def save2csv(self, output_dir, target):
+        self._df.to_csv(output_dir / ("df_" + str(target) + ".csv"))
+
     # getter only
     @property
     def xs(self):
