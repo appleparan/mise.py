@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from statsmodels.tsa.arima_model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
@@ -356,6 +357,31 @@ class DNNARIMAMLPDataset(Dataset):
         # ARIMA sample_size
         self.sample_size_a = kwargs.get('sample_size_a', 24*30)
         self.sample_size = max(self.sample_size_m, self.sample_size_a)
+        # i.e.
+        # sample_size_a = 12
+        # sample_size_m = 5
+        # sample_size = 12
+        # sample_size_ao = 0 (range(0:12))
+        # sample_size_mo = 5 (range(5:12))
+        if self.sample_size == self.sample_size_a:
+            # i
+            # | --               sample_size            -- | -- output_size -- |
+            # | --              sample_size_a           -- | -- output_size -- |
+            # | -- sample_size_mo -- | -- sample_size_m -- | -- output_size -- |
+            # ARIMA sample_size is longer (most case)
+            # difference as offset
+            self.sample_size_ao = 0
+            self.sample_size_mo = self.sample_size - self.sample_size_m
+        # MLP sample_size is longer
+        else:
+            # i
+            # | --               sample_size            -- | -- output_size -- |
+            # | --              sample_size_m           -- | -- output_size -- |
+            # | -- sample_size_ao -- | -- sample_size_a -- | -- output_size -- |
+            # ARIMA sample_size is longer (most case)
+            # difference as offset
+            self.sample_size_ao = self.sample_size - self.sample_size_a
+            self.sample_size_mo = 0
         self.batch_size = kwargs.get('batch_size', 32)
         self.output_size = kwargs.get('output_size', 24)
         self._train_valid_ratio = kwargs.get('train_valid_ratio', 0.8)
@@ -385,6 +411,8 @@ class DNNARIMAMLPDataset(Dataset):
 
         # self._xms must not be available when creating instance so no kwargs for scaler
         self._scaler = preprocessing.StandardScaler().fit(self._xms)
+        print("Construct AR part with SARIMX")
+        self.arima_x, self.arima_y = self.preprocess_arima_table()
 
     def __getitem__(self, i: int):
         """
@@ -412,57 +440,10 @@ class DNNARIMAMLPDataset(Dataset):
             Tensor: transformed input (might be normalized)
             Tensor: output without transform
         """
-        # i.e.
-        # sample_size_a = 12
-        # sample_size_m = 5
-        # sample_size = 12
-        # sample_size_ao = 0 (range(0:12))
-        # sample_size_mo = 5 (range(5:12))
-        if self.sample_size == self.sample_size_a:
-            # i
-            # | --               sample_size            -- | -- output_size -- |
-            # | --              sample_size_a           -- | -- output_size -- |
-            # | -- sample_size_mo -- | -- sample_size_m -- | -- output_size -- |
-            # ARIMA sample_size is longer (most case)
-            # difference as offset
-            sample_size_ao = 0
-            sample_size_mo = self.sample_size - self.sample_size_m
-        # MLP sample_size is longer
-        else:
-            # i
-            # | --               sample_size            -- | -- output_size -- |
-            # | --              sample_size_m           -- | -- output_size -- |
-            # | -- sample_size_ao -- | -- sample_size_a -- | -- output_size -- |
-            # ARIMA sample_size is longer (most case)
-            # difference as offset
-            sample_size_ao = self.sample_size - self.sample_size_a
-            sample_size_mo = 0
-
-         # ARIMA is precomputed
-        _xa = self._xas.iloc[i+sample_size_ao:i+self.sample_size]
-        _xa.index.freq = 'H'
-        model = SARIMAX(_xa, order=self._arima_o, seasonal_order=self._arima_so, freq='H')
-        model_fit = model.fit(disp=False)
-        if self.sample_size == self.sample_size_a:
-            # in-sample & out-sample prediction 
-            # its size is sample_size_m + output_size
-            _xa_pred = model_fit.predict(
-                start=sample_size_mo, end=self.sample_size+self.output_size-1)
-            xa = self._xas.iloc[i+sample_size_mo:i+self.sample_size].to_numpy() - \
-                _xa_pred[0:self.sample_size_m]
-            ya = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
-                _xa_pred[self.sample_size_m:self.sample_size_m+self.output_size]
-        else:
-            # in-sample & out-sample prediction
-            # its size is sample_size_m + output_size
-            _xa_pred = model_fit.predict(
-                start=sample_size_ao, stop=self.sample_size+self.output_size)
-            xa = self._xas.iloc[i+sample_size_mo:i+self.sample_size].to_numpy() - \
-                _xa_pred[0:self.sample_size_m]
-            ya = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
-                _xa_pred[self.sample_size_m:self.sample_size_m+self.output_size]
-
-        xm = self._xms.iloc[i+sample_size_mo:i+self.sample_size]
+        xa = self.arima_x[self.arima_x.index.get_level_values('key').isin([i])]['xa'].to_numpy()
+        ya = self.arima_y[self.arima_y.index.get_level_values(
+            'key').isin([i])]['ya'].to_numpy()
+        xm = self._xms.iloc[i+self.sample_size_mo:i+self.sample_size]
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
         # target in xm must be replaced after fit to ARIMA
@@ -475,7 +456,15 @@ class DNNARIMAMLPDataset(Dataset):
 
     def __len__(self):
         """
-        hours of train and test dates
+        hours of actual data size
+
+        index of this dataset indicates starts of sample date
+        fdate : start of sample date
+        tdate : end of output date
+
+        which means dataset[-1] != end of sample_date
+        dataset[-1] == start of last sample
+        dataset[-1] == tdate - output_size - sample_size
 
         Returns:
             int: total hours
@@ -483,8 +472,72 @@ class DNNARIMAMLPDataset(Dataset):
         duration  = self.tdate - self.fdate - dt.timedelta(hours=(self.output_size + self.sample_size))
         return duration.days * 24 + duration.seconds // 3600
 
-    def arima(self):
-        pass
+    def preprocess_arima_table(self):
+        """
+        construct arima table
+
+        1. iterate len(dataset)
+        """
+
+        df_x = pd.DataFrame()
+        df_y = pd.DataFrame()
+        len_self = self.__len__()
+        for i in tqdm(range(self.__len__())):
+            # where output starts
+            key_idx = i
+            # ARIMA is precomputed
+            _xa = self._xas.iloc[i+self.sample_size_ao:i+self.sample_size]
+            _xa.index.freq = 'H'
+            model = SARIMAX(_xa, order=self._arima_o,
+                            seasonal_order=self._arima_so, freq='H')
+            model_fit = model.fit(disp=False)
+
+            if self.sample_size == self.sample_size_a:
+                # in-sample & out-sample prediction
+                # its size is sample_size_m + output_size
+                _xa_pred = model_fit.predict(
+                    start=self.sample_size_mo, end=self.sample_size+self.output_size-1)
+                xa = self._xas.iloc[i+self.sample_size_mo:i+self.sample_size].to_numpy() - \
+                    _xa_pred[0:self.sample_size_m]
+                ya = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
+                    _xa_pred[self.sample_size_m:self.sample_size_m+self.output_size]
+            else:
+                # in-sample & out-sample prediction
+                # its size is sample_size_m + output_size
+                _xa_pred = model_fit.predict(
+                    start=self.sample_size_ao, stop=self.sample_size+self.output_size)
+                xa = self._xas.iloc[i+self.sample_size_mo:i+self.sample_size].to_numpy() - \
+                    _xa_pred[0:self.sample_size_m]
+                ya = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
+                    _xa_pred[self.sample_size_m:self.sample_size_m+self.output_size]
+            # index for outer
+            keys = np.repeat(i, self.sample_size_m)
+            # index for innner
+            dates_x = self._dates[i+self.sample_size_mo:i+self.sample_size]
+            dates_y = self._dates[i+self.sample_size +
+                                  1:i+self.sample_size+self.output_size+1]
+
+            # same key -> get x & y
+
+            _df_x = pd.DataFrame({
+                    'key': np.repeat(i, self.sample_size_m),
+                    'date': dates_x,
+                    'xa': xa})
+            _df_x.set_index(['key', 'date'], inplace=True)
+            _df_x.sort_index(inplace=True)
+            _df_y = pd.DataFrame(pd.DataFrame({
+                    'key': np.repeat(i, self.output_size),
+                    'date': dates_y,
+                    'ya': ya}))
+            _df_y.set_index(['key', 'date'], inplace=True)
+            _df_y.sort_index(inplace=True)
+            df_x = pd.concat([df_x, _df_x])
+            df_y = pd.concat([df_y, _df_y])
+
+        # if you want to filter by key
+        # df[df.index.get_level_values('key').isin(['some_key'])]
+
+        return df_x, df_y
 
     # getter only
     @property
