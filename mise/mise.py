@@ -5,11 +5,13 @@ from stats.sarima import stats_sarima
 from stats.tbats import stats_tbats
 from stats.stl import stats_stl
 from stats.stl_acf import stats_stl_acf
+from stats.msea_acf import stats_msea_acf
 from stats.preprocess import stats_preprocess
 
-from ml.dnn import ml_dnn
-from ml.dnn_mean_sea import ml_dnn_msea
-from ml.dnn_arima_mlp import ml_dnn_arima_mlp
+#from ml.dnn import ml_dnn
+from ml.mlp_uni import ml_mlp_uni
+from ml.mlp_uni_ms import ml_mlp_uni_ms
+from ml.mlp_uni_ar import ml_mlp_uni_ar
 
 """
     plot(args)

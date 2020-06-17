@@ -23,6 +23,10 @@ from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+from bokeh.plotting import figure, output_file, show
+from bokeh.io import export_png
 
 import data
 from constants import SEOUL_STATIONS, SEOULTZ
@@ -33,8 +37,8 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def ml_dnn_msea(station_name="종로구"):
-    print("Start DNN model")
+def ml_mlp_uni(station_name="종로구"):
+    print("Start Univariate MLP Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
     output_size = 24
@@ -45,10 +49,10 @@ def ml_dnn_msea(station_name="종로구"):
     learning_rate = 1e-3
 
     train_fdate = dt.datetime(2012, 1, 1, 0).astimezone(SEOULTZ)
-    train_tdate = dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ)
-    test_fdate = dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ)
+    train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     #test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
-    test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
 
     # check date range assumption
     assert test_tdate > train_fdate
@@ -64,7 +68,8 @@ def ml_dnn_msea(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/dnn_mean_sea/" + station_name + "/"+ target + "/")
+        output_dir = Path("/mnt/data/MLPUnivariate/" +
+                          station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
 
         if not Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
@@ -77,7 +82,7 @@ def ml_dnn_msea(station_name="종로구"):
         if target == 'PM10':
             unit_size = 32
             hparams = Namespace(
-                input_size=sample_size*len(train_features),
+                input_size=sample_size,
                 layer1_size=32,
                 layer2_size=32,
                 output_size=output_size,
@@ -87,14 +92,14 @@ def ml_dnn_msea(station_name="종로구"):
             model = BaseDNNModel(hparams=hparams,
                 station_name=station_name,
                 target=target,
-                features=train_features,
+                features=["PM10"],
                 train_fdate=train_fdate, train_tdate=train_tdate,
                 test_fdate=test_fdate, test_tdate=test_tdate,
                 output_dir=output_dir)
         elif target == 'PM25':
             unit_size = 16
             hparams = Namespace(
-                input_size=sample_size*len(train_features),
+                input_size=sample_size,
                 layer1_size=16,
                 layer2_size=16,
                 output_size=output_size,
@@ -104,15 +109,13 @@ def ml_dnn_msea(station_name="종로구"):
             model = BaseDNNModel(hparams=hparams,
                 station_name=station_name,
                 target=target,
-                features=train_features,
+                features=["PM25"],
                 train_fdate=train_fdate, train_tdate=train_tdate,
                 test_fdate=test_fdate, test_tdate=test_tdate,
                 output_dir=output_dir)
+        # first, plot periodicity
+        # second, univariate or multivariate
 
-        log_name = target + dt.date.today().strftime("%y%m%d-%H-%M")
-        log_dir = output_dir / "logs"
-        Path.mkdir(log_dir, parents=True, exist_ok=True)
-        logger = TensorBoardLogger(log_dir, name=log_name + " DNN")
         # early stopping
         early_stop_callback = EarlyStopping(
             monitor='val_loss',
@@ -127,7 +130,9 @@ def ml_dnn_msea(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_save_path=output_dir,
-                          logger=logger)
+                          #fast_dev_run=True,
+                          logger=model.logger,
+                          row_log_interval=10)
 
 
         trainer.fit(model)
@@ -139,7 +144,7 @@ class BaseDNNModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get('hparams', Namespace(
-                input_size=48*24,
+                input_size=48,
                 layer1_size=32,
                 layer2_size=32,
                 output_size=24,
@@ -150,8 +155,8 @@ class BaseDNNModel(LightningModule):
 
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
-        self.features = kwargs.get('features',
-            ["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp", "u", "v", "pres", "humid", "prep", "snow"])
+        self.features = [self.target]
+        self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
         self.train_tdate = kwargs.get('train_tdate', dt.datetime(
@@ -161,7 +166,16 @@ class BaseDNNModel(LightningModule):
         self.test_tdate = kwargs.get('test_tdate', dt.datetime(
             2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
-        self.output_dir = kwargs.get('output_dir', Path('.'))
+        self.output_dir = kwargs.get(
+            'output_dir', Path('/mnt/data/DNNUnivariate/'))
+        self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
+        Path.mkdir(self.log_dir, parents=True, exist_ok=True)
+        self.plot_dir = kwargs.get(
+            'plot_dir', self.output_dir / Path('png/' + self.target + '/'))
+        Path.mkdir(self.plot_dir, parents=True, exist_ok=True)
+        self.data_dir = kwargs.get(
+            'data_dir', self.output_dir / Path('csv/' + self.target + '/'))
+        Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
         self.fc1 = nn.Linear(self.hparams.input_size, self.hparams.layer1_size)
         self.fc2 = nn.Linear(self.hparams.layer1_size, self.hparams.layer2_size)
@@ -171,6 +185,9 @@ class BaseDNNModel(LightningModule):
         self._train_set = None
         self._valid_set = None
         self._test_set = None
+
+        log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
+        self.logger = TensorBoardLogger(self.log_dir, name=log_name)
 
     def forward(self, x):
         # vectorize
@@ -187,8 +204,31 @@ class BaseDNNModel(LightningModule):
         x, y, dates = batch
         y_hat = self(x)
         _loss = self.loss(y_hat, y)
-        tensorboard_logs = {'Loss/Train': _loss}
-        return {'loss': _loss, 'log': tensorboard_logs}
+        #tensorboard_logs = {'train/loss': _loss}
+        _y = y.detach().cpu().clone().numpy()
+        _y_hat = y_hat.detach().cpu().clone().numpy()
+        _mae = mean_absolute_error(_y, _y_hat)
+        _mse = mean_squared_error(_y, _y_hat)
+        _r2 = r2_score(_y, _y_hat)
+
+        return {
+            'loss': _loss,
+            'metric': {
+                'MSE': _mse,
+                'MAE': _mae,
+                'R2': _r2
+            }
+        }
+
+    def training_epoch_end(self, outputs):
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        tensorboard_logs = {'train/loss': avg_loss}
+        for name in self.metrics:
+            tensorboard_logs['train/{}'.format(name)] = torch.stack(
+                [torch.tensor(x['metric'][name]) for x in outputs]).mean()
+        tensorboard_logs['step'] = self.current_epoch
+
+        return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters())
@@ -196,38 +236,67 @@ class BaseDNNModel(LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y, dates = batch
         y_hat = self(x)
-        return {'val_loss': self.loss(y_hat, y)}
+
+        _loss = self.loss(y, y_hat)
+        _y = y.detach().cpu().clone().numpy()
+        _y_hat = y_hat.detach().cpu().clone().numpy()
+        _mae = mean_absolute_error(_y, _y_hat)
+        _mse = mean_squared_error(_y, _y_hat)
+        _r2 = r2_score(_y, _y_hat)
+
+        return {
+            'loss': _loss,
+            'metric': {
+                'MSE': _mse,
+                'MAE': _mae,
+                'R2': _r2
+            }
+        }
 
     def validation_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        tensorboard_logs = {'Loss/Valid': avg_loss}
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        tensorboard_logs = {'valid/loss': avg_loss}
+        for name in self.metrics:
+            tensorboard_logs['valid/{}'.format(name)] = torch.stack(
+                [torch.tensor(x['metric'][name]) for x in outputs]).mean()
+        tensorboard_logs['step'] = self.current_epoch
+
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
         x, y, dates = batch
         y_hat = self(x)
 
+        _loss = self.loss(y, y_hat)
+        _y = y.detach().cpu().clone().numpy()
+        _y_hat = y_hat.detach().cpu().clone().numpy()
+        _mae = mean_absolute_error(_y, _y_hat)
+        _mse = mean_squared_error(_y, _y_hat)
+        _r2 = r2_score(_y, _y_hat)
+
         return {
-            'test_loss': self.loss(y_hat, y),
+            'loss': _loss,
             'obs': y,
             'sim': y_hat,
-            'dates': dates
+            'dates': dates,
+            'metric': {
+                'MSE': _mse,
+                'MAE': _mae,
+                'R2': _r2
+            }
         }
 
-    def test_epoch_end(self, out_dicts):
-        avg_loss = torch.stack([x['test_loss'] for x in out_dicts]).mean()
-        tensorboard_logs = {'Loss/Test': avg_loss}
-
+    def test_epoch_end(self, outputs):
         # column to indicate offset to key_date
         cols = [str(t) for t in range(self.hparams.output_size)]
 
         df_obs = pd.DataFrame(columns=cols)
         df_sim = pd.DataFrame(columns=cols)
 
-        for out_dict in out_dicts:
-            ys = out_dict['obs']
-            y_hats = out_dict['sim']
-            dates = out_dict['dates']
+        for out in outputs:
+            ys = out['obs']
+            y_hats = out['sim']
+            dates = out['dates']
 
             _df_obs, _df_sim = self.single_batch_to_df(ys, y_hats, dates, cols)
 
@@ -239,15 +308,22 @@ class BaseDNNModel(LightningModule):
         df_obs.sort_index(inplace=True)
         df_sim.sort_index(inplace=True)
 
-        df_obs.to_csv(self.output_dir / "df_test_obs.csv")
-        df_sim.to_csv(self.output_dir / "df_test_sim.csv")
+        df_obs.to_csv(self.data_dir / "df_test_obs.csv")
+        df_sim.to_csv(self.data_dir / "df_test_sim.csv")
 
         plot_line(self.hparams, df_obs, df_sim, self.target,
-            self.output_dir, "line_DNN_" + self.target)
+            self.data_dir, self.plot_dir)
         plot_scatter(self.hparams, df_obs, df_sim,
-            self.output_dir, "scatter_DNN_" + self.target)
+            self.data_dir, self.plot_dir)
         plot_corr(self.hparams, df_obs, df_sim,
-            self.output_dir, "corrs_DNN_" + self.target)
+            self.data_dir, self.plot_dir)
+
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        tensorboard_logs = {'test/loss': avg_loss}
+        for name in self.metrics:
+            tensorboard_logs['test/{}'.format(name)] = torch.stack(
+                [torch.tensor(x['metric'][name]) for x in outputs]).mean()
+        tensorboard_logs['step'] = self.current_epoch
 
         return {
             'test_loss': avg_loss,
@@ -277,7 +353,7 @@ class BaseDNNModel(LightningModule):
 
     def prepare_data(self):
         # create custom dataset
-        train_valid_set = data.DNNMeanSeasonalityDataset(
+        train_valid_set = data.UnivariateDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
@@ -287,7 +363,7 @@ class BaseDNNModel(LightningModule):
             sample_size=self.hparams.sample_size,
             output_size=self.hparams.output_size,
             train_valid_ratio=0.8)
-        test_set = data.DNNMeanSeasonalityDataset(
+        test_set = data.UnivariateDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
@@ -295,13 +371,12 @@ class BaseDNNModel(LightningModule):
             fdate=self.test_fdate,
             tdate=self.test_tdate,
             sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size,
-            avg_daily=train_valid_set.dict_avg_daily,
-            avg_weekly=train_valid_set.dict_avg_weekly,
-            avg_annual=train_valid_set.dict_avg_annual)
+            output_size=self.hparams.output_size)
 
         # save train/valid set
-        train_valid_set.save2csv(self.output_dir, self.target)
+        train_valid_set.to_csv(
+            self.data_dir / ("df_train_valid_set_" + self.target + ".csv"))
+        test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
 
         # split train/valid/test set
         train_len = int(len(train_valid_set) * train_valid_set.train_valid_ratio)
@@ -362,49 +437,64 @@ class BaseDNNModel(LightningModule):
         return torch.as_tensor(xs), torch.as_tensor(ys), dates
 
 
-def plot_line(hparams, df_obs, df_sim, target, output_dir, fname_prefix):
-    Path.mkdir(output_dir, parents=True, exist_ok=True)
+def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
+    Path.mkdir(data_dir, parents=True, exist_ok=True)
+    Path.mkdir(plot_dir, parents=True, exist_ok=True)
 
     for t in range(hparams.output_size):
         dates = df_obs.index + dt.timedelta(hours=t)
-        plt_fname = output_dir / (fname_prefix + "_h" + str(t) + ".png")
 
-        obs = df_obs[[str(t)]]
-        sim = df_sim[[str(t)]]
+        plot_dir_h = plot_dir / str(t).zfill(2)
+        Path.mkdir(plot_dir_h, parents=True, exist_ok=True)
+        plt_path = plot_dir_h / ("line_" + str(t).zfill(2) + "h.png")
 
-        plt.figure()
-        plt.title("OBS & Model")
-        plt.xlabel("dates")
-        plt.ylabel(target)
-        plt.plot(dates, obs, "b", dates, sim, "r")
-        plt.savefig(plt_fname)
-        plt.close()
+        obs = df_obs[str(t)].to_numpy()
+        sim = df_sim[str(t)].to_numpy()
+
+        p = figure(title="OBS & Model")
+        p.xaxis.axis_label = "dates"
+        p.line(dates, obs, line_color="dodgerblue", legend_label="obs")
+        p.line(dates, sim, line_color="lightcoral", legend_label="sim")
+        export_png(p, filename=plt_path)
+
+        csv_path = data_dir / ("line_" + str(t).zfill(2) + "h.csv")
+        df_line = pd.DataFrame.from_dict({'date': dates, 'obs': obs, 'sim': sim})
+        df_line.set_index('date', inplace=True)
+        df_line.to_csv(csv_path)
 
 
-def plot_scatter(hparams, df_obs, df_sim, output_dir, fname_prefix):
-    Path.mkdir(output_dir, parents=True, exist_ok=True)
+def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
+    Path.mkdir(data_dir, parents=True, exist_ok=True)
+    Path.mkdir(plot_dir, parents=True, exist_ok=True)
 
     for t in range(hparams.output_size):
-        plt_fname = output_dir / (fname_prefix + "_h" + str(t).zfill(2) + ".png")
+        plot_dir_h = plot_dir / str(t).zfill(2)
+        Path.mkdir(plot_dir_h, parents=True, exist_ok=True)
+        plt_path = plot_dir_h / ("line_" + str(t).zfill(2) + "h.png")
 
-        obs = df_obs[[str(t)]]
-        sim = df_sim[[str(t)]]
+        obs = df_obs[str(t)].to_numpy()
+        sim = df_sim[str(t)].to_numpy()
 
-        plt.figure()
-        plt.title("Model/OBS")
-        plt.xlabel("OBS")
-        plt.ylabel("Model")
+        p = figure(title="Model/OBS")
+        p.xaxis.axis_label = "OBS"
+        p.yaxis.axis_label = "Model"
         maxval = np.nanmax([np.nanmax(obs), np.nanmax(sim)])
-        plt.xlim((0, maxval))
-        plt.ylim((0, maxval))
-        plt.scatter(obs, sim)
-        plt.savefig(plt_fname)
-        plt.close()
+        p.xaxis.bounds = (0, maxval)
+        p.yaxis.bounds = (0, maxval)
+        p.scatter(obs, sim)
+        export_png(p, filename=plt_path)
 
-def plot_corr(hparams, df_obs, df_sim, output_dir, fname_prefix):
-    Path.mkdir(output_dir, parents=True, exist_ok=True)
-    plt_fname = output_dir / (fname_prefix + ".png")
-    csv_fname = output_dir / (fname_prefix + ".csv")
+        csv_path = data_dir / ("line_" + str(t).zfill(2) + "h.csv")
+        df_line = pd.DataFrame({'obs': obs, 'sim': sim})
+        df_line.to_csv(csv_path)
+
+
+def plot_corr(hparams, df_obs, df_sim, data_dir, plot_dir):
+    Path.mkdir(data_dir, parents=True, exist_ok=True)
+    Path.mkdir(plot_dir, parents=True, exist_ok=True)
+
+    plt_path = plot_dir / ("corr_time.png")
+    csv_path = data_dir / ("corr_time.csv")
 
     times = list(range(hparams.output_size + 1))
     corrs = [1.0]
@@ -414,16 +504,15 @@ def plot_corr(hparams, df_obs, df_sim, output_dir, fname_prefix):
 
         corrs.append(np.corrcoef(obs, sim)[0, 1])
 
-    plt.figure()
-    plt.title("Correlation of OBS & Model")
-    plt.xlabel("lags")
-    plt.ylabel("corr")
-    plt.plot(times, corrs)
-    plt.savefig(plt_fname)
-    plt.close()
+    p = figure(title="Correlation of OBS & Model")
+    p.xaxis.axis_label = "lags"
+    p.yaxis.axis_label = "corr"
+    p.line(times, corrs)
+    export_png(p, filename=plt_path)
 
     df_corrs = pd.DataFrame({'time': times, 'corr': corrs})
-    df_corrs.to_csv(output_dir / csv_fname)
+    df_corrs.set_index('time', inplace=True)
+    df_corrs.to_csv(csv_path)
 
 def swish(_input, beta=1.0):
     """
