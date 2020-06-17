@@ -25,6 +25,7 @@ from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
 from bokeh.io import export_png
 
@@ -89,7 +90,7 @@ def ml_mlp_uni(station_name="종로구"):
                 learning_rate=learning_rate,
                 sample_size=sample_size,
                 batch_size=batch_size)
-            model = BaseDNNModel(hparams=hparams,
+            model = BaseMLPModel(hparams=hparams,
                 station_name=station_name,
                 target=target,
                 features=["PM10"],
@@ -106,7 +107,7 @@ def ml_mlp_uni(station_name="종로구"):
                 learning_rate=learning_rate,
                 sample_size=sample_size,
                 batch_size=batch_size)
-            model = BaseDNNModel(hparams=hparams,
+            model = BaseMLPModel(hparams=hparams,
                 station_name=station_name,
                 target=target,
                 features=["PM25"],
@@ -140,7 +141,7 @@ def ml_mlp_uni(station_name="종로구"):
         # run test set
         trainer.test()
 
-class BaseDNNModel(LightningModule):
+class BaseMLPModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get('hparams', Namespace(
@@ -171,10 +172,10 @@ class BaseDNNModel(LightningModule):
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.plot_dir = kwargs.get(
-            'plot_dir', self.output_dir / Path('png/' + self.target + '/'))
+            'plot_dir', self.output_dir / Path('png/'))
         Path.mkdir(self.plot_dir, parents=True, exist_ok=True)
         self.data_dir = kwargs.get(
-            'data_dir', self.output_dir / Path('csv/' + self.target + '/'))
+            'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
         self.fc1 = nn.Linear(self.hparams.input_size, self.hparams.layer1_size)
@@ -204,7 +205,7 @@ class BaseDNNModel(LightningModule):
         x, y, dates = batch
         y_hat = self(x)
         _loss = self.loss(y_hat, y)
-        #tensorboard_logs = {'train/loss': _loss}
+
         _y = y.detach().cpu().clone().numpy()
         _y_hat = y_hat.detach().cpu().clone().numpy()
         _mae = mean_absolute_error(_y, _y_hat)
@@ -453,12 +454,14 @@ def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
 
         p = figure(title="OBS & Model")
         p.xaxis.axis_label = "dates"
+        p.xaxis.formatter = DatetimeTickFormatter()
         p.line(dates, obs, line_color="dodgerblue", legend_label="obs")
         p.line(dates, sim, line_color="lightcoral", legend_label="sim")
         export_png(p, filename=plt_path)
 
         csv_path = data_dir / ("line_" + str(t).zfill(2) + "h.csv")
-        df_line = pd.DataFrame.from_dict({'date': dates, 'obs': obs, 'sim': sim})
+        df_line = pd.DataFrame.from_dict(
+            {'date': dates, 'obs': obs, 'sim': sim})
         df_line.set_index('date', inplace=True)
         df_line.to_csv(csv_path)
 
@@ -470,7 +473,7 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
     for t in range(hparams.output_size):
         plot_dir_h = plot_dir / str(t).zfill(2)
         Path.mkdir(plot_dir_h, parents=True, exist_ok=True)
-        plt_path = plot_dir_h / ("line_" + str(t).zfill(2) + "h.png")
+        plt_path = plot_dir_h / ("scatter_" + str(t).zfill(2) + "h.png")
 
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
@@ -479,12 +482,14 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
         p.xaxis.axis_label = "OBS"
         p.yaxis.axis_label = "Model"
         maxval = np.nanmax([np.nanmax(obs), np.nanmax(sim)])
-        p.xaxis.bounds = (0, maxval)
-        p.yaxis.bounds = (0, maxval)
+        p.xaxis.bounds = (0.0, maxval)
+        p.yaxis.bounds = (0.0, maxval)
+        p.x_range = Range1d(0.0, maxval)
+        p.y_range = Range1d(0.0, maxval)
         p.scatter(obs, sim)
         export_png(p, filename=plt_path)
 
-        csv_path = data_dir / ("line_" + str(t).zfill(2) + "h.csv")
+        csv_path = data_dir / ("scatter_" + str(t).zfill(2) + "h.csv")
         df_line = pd.DataFrame({'obs': obs, 'sim': sim})
         df_line.to_csv(csv_path)
 
@@ -507,6 +512,8 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, plot_dir):
     p = figure(title="Correlation of OBS & Model")
     p.xaxis.axis_label = "lags"
     p.yaxis.axis_label = "corr"
+    p.yaxis.bounds = (0.0, 1.0)
+    p.y_range = Range1d(0.0, 1.0)
     p.line(times, corrs)
     export_png(p, filename=plt_path)
 

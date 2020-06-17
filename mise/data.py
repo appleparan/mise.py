@@ -442,6 +442,7 @@ class MultivariateMeanSeasonalityDataset(MultivariateDataset):
         p1 = figure(title="Autocorrelation of Annual Residual")
         p1.xaxis.axis_label = "lags"
         p1.yaxis.bounds = (min(0, min(yr_acf)), 1.1)
+        p1.y_range.bounds = (min(0, min(yr_acf)), 1.1)
         p1.line(range(len(yr_acf)), yr_acf,
                 line_color="lightcoral", line_width=2)
         export_png(p1, filename=plt_path)
@@ -503,6 +504,7 @@ class MultivariateMeanSeasonalityDataset(MultivariateDataset):
         p2 = figure(title="Autocorrelation of Weekly Residual")
         p2.xaxis.axis_label = "lags"
         p2.yaxis.bounds = (min(0, min(wr_acf)), 1.1)
+        p2.y_range.bounds = (min(0, min(wr_acf)), 1.1)
         p2.line(range(len(wr_acf)), wr_acf,
                 line_color="lightcoral", line_width=2)
         export_png(p2, filename=plt_path)
@@ -561,6 +563,7 @@ class MultivariateMeanSeasonalityDataset(MultivariateDataset):
         p3 = figure(title="Autocorrelation of Daily Residual")
         p3.xaxis.axis_label = "lags"
         p3.yaxis.bounds = (min(0, min(dr_acf)), 1.1)
+        p3.y_range.bounds = (min(0, min(dr_acf)), 1.1)
         p3.line(range(len(dr_acf)), dr_acf,
                 line_color="lightcoral", line_width=2)
         export_png(p3, filename=plt_path)
@@ -810,7 +813,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         self.features = new_features
 
         # residual to _xs
-        # if len(self.features) == 1 -> univariate, else -> multivariate        
+        # if len(self.features) == 1 -> univariate, else -> multivariate
         self._xs = self._df_h[self.features]
         self._ys = self._df_h[[self.target]]
 
@@ -1068,7 +1071,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p2.line(week_range_plt, wr, line_color="lightcoral", line_width=2,
                 legend_label="residual")
         export_png(p2, filename=plt_path)
-        
+
         ## autocorrelation
         dt2 = dt1 + dt.timedelta(hours=nlags)
         week_range = pd.date_range(
