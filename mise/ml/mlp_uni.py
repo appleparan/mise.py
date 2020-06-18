@@ -453,6 +453,8 @@ def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
         sim = df_sim[str(t)].to_numpy()
 
         p = figure(title="OBS & Model")
+        p.toolbar.logo = None
+        p.toolbar_location = None
         p.xaxis.axis_label = "dates"
         p.xaxis.formatter = DatetimeTickFormatter()
         p.line(dates, obs, line_color="dodgerblue", legend_label="obs")
@@ -479,6 +481,8 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
         sim = df_sim[str(t)].to_numpy()
 
         p = figure(title="Model/OBS")
+        p.toolbar.logo = None
+        p.toolbar_location = None
         p.xaxis.axis_label = "OBS"
         p.yaxis.axis_label = "Model"
         maxval = np.nanmax([np.nanmax(obs), np.nanmax(sim)])
@@ -510,6 +514,8 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, plot_dir):
         corrs.append(np.corrcoef(obs, sim)[0, 1])
 
     p = figure(title="Correlation of OBS & Model")
+    p.toolbar.logo = None
+    p.toolbar_location = None
     p.xaxis.axis_label = "lags"
     p.yaxis.axis_label = "corr"
     p.yaxis.bounds = (0.0, 1.0)
