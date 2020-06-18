@@ -131,7 +131,7 @@ def ml_mlp_uni_ar(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_save_path=output_dir,
-                          fast_dev_run=True,
+                          #fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -202,8 +202,7 @@ class BaseMLPModel(LightningModule):
         return Adam(self.parameters(), lr=self.hparams.lr|self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        xas, mask, yas, xms, ys, dates = batch
-        #xms.masked_scatter_(mask, xas)
+        yas, xms, ys, dates = batch
 
         y_hat = self.forward(xms)
         _loss = self.loss(yas + y_hat, ys)
@@ -237,17 +236,8 @@ class BaseMLPModel(LightningModule):
         return torch.optim.Adam(self.parameters())
 
     def validation_step(self, batch, batch_idx):
-        xas, mask, yas, xms, ys, dates = batch
-        """
-        xms_embed = []
-        for xm, xa, i in zip(xms, xas, xmi):
-            xm[:, i] = xa
-            xms_embed.append(xm.astype('float32'))
-        xms_embed = tuple(xms_embed)
+        yas, xms, ys, dates = batch
 
-        y_hat = self.forward(torch.as_tensor(xms_embed))
-        """
-        #xms.masked_scatter_(mask, xas)
         y_hat = self.forward(xms)
         _loss = self.loss(yas + y_hat, ys)
 
@@ -277,16 +267,8 @@ class BaseMLPModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        xas, mask, yas, xms, ys, dates = batch
-        """
-        xms_embed = []
-        for xm, xa, i in zip(xms, xas, xmi):
-            xm[:, i] = xa
-            xms_embed.append(xm.astype('float32'))
-        xms_embed = tuple(xms_embed)
-        y_hat = self.forward(torch.as_tensor(xms_embed))
-        """
-        #xms.masked_scatter_(mask, xas)
+        yas, xms, ys, dates = batch
+
         y_hat = self.forward(xms)
         _loss = self.loss(yas + y_hat, ys)
 
@@ -384,7 +366,8 @@ class BaseMLPModel(LightningModule):
             tdate=self.train_tdate,
             sample_size=self.hparams.sample_size,
             output_size=self.hparams.output_size,
-            train_valid_ratio=0.8)
+            train_valid_ratio=0.8,
+            num_workers=4)
         test_set = data.UnivariateAutoRegressiveSubDataset(
             station_name=self.station_name,
             target=self.target,
@@ -393,7 +376,8 @@ class BaseMLPModel(LightningModule):
             fdate=self.test_fdate,
             tdate=self.test_tdate,
             sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size)
+            output_size=self.hparams.output_size,
+            num_workers=4)
 
         # save train/valid set
         train_valid_set.to_csv(
@@ -456,10 +440,9 @@ class BaseMLPModel(LightningModule):
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xas, yas, xms, ys, dates = zip(*batch)
+        yas, xms, ys, dates = zip(*batch)
 
-        return torch.as_tensor(xas), torch.as_tensor(np.ma.asarray(xas)), torch.as_tensor(yas), \
-            torch.as_tensor(xms), torch.as_tensor(ys), dates
+        return torch.as_tensor(yas), torch.as_tensor(xms), torch.as_tensor(ys), dates
 
 
 def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
@@ -485,7 +468,9 @@ def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
         p.line(dates, sim, line_color="lightcoral", legend_label="sim")
         export_png(p, filename=plt_path)
 
-        csv_path = data_dir / ("line_" + str(t).zfill(2) + "h.csv")
+        data_dir_h = data_dir / str(t).zfill(2)
+        Path.mkdir(data_dir_h, parents=True, exist_ok=True)
+        csv_path = data_dir_h / ("line_" + str(t).zfill(2) + "h.csv")
         df_line = pd.DataFrame.from_dict(
             {'date': dates, 'obs': obs, 'sim': sim})
         df_line.set_index('date', inplace=True)
@@ -517,7 +502,9 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
         p.scatter(obs, sim)
         export_png(p, filename=plt_path)
 
-        csv_path = data_dir / ("scatter_" + str(t).zfill(2) + "h.csv")
+        data_dir_h = data_dir / str(t).zfill(2)
+        Path.mkdir(data_dir_h, parents=True, exist_ok=True)
+        csv_path = data_dir_h / ("scatter_" + str(t).zfill(2) + "h.csv")
         df_line = pd.DataFrame({'obs': obs, 'sim': sim})
         df_line.to_csv(csv_path)
 
@@ -550,7 +537,6 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, plot_dir):
     df_corrs = pd.DataFrame({'time': times, 'corr': corrs})
     df_corrs.set_index('time', inplace=True)
     df_corrs.to_csv(csv_path)
-
 
 def swish(_input, beta=1.0):
     """

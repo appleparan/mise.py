@@ -1,6 +1,7 @@
 import datetime as dt
 import random
 from pathlib import Path
+import hashlib
 
 import numpy as np
 import pandas as pd
@@ -203,7 +204,7 @@ class UnivariateDataset(BaseDataset):
                            :(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
-        return self._scaler.transform(x.to_numpy()).astype('float32'), \
+        return x.to_numpy().astype('float32'), \
             np.reshape(y.to_numpy(), len(y)).astype('float32'), \
             self._dates[(i+self.sample_size)
                          :(i+self.sample_size+self.output_size)]
@@ -663,7 +664,7 @@ class MultivariateAutoRegressiveDataset(MultivariateDataset):
 
         # self._xms must not be available when creating instance so no kwargs for scaler
         self._scaler = preprocessing.StandardScaler().fit(self._xms)
-        print("Construct AR part with SARIMX")
+        print("Construct AR part with SARIMAX")
         self.arima_x, self.arima_y = self.preprocess_arima_table()
 
     def __getitem__(self, i: int):
@@ -847,7 +848,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
                            :(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
-        return self._scaler.transform(x.to_numpy()).astype('float32'), \
+        return x.to_numpy().astype('float32'), \
             np.reshape(y.to_numpy(), len(y)).astype('float32'), \
             self._dates[(i+self.sample_size)
                          :(i+self.sample_size+self.output_size)]
@@ -1003,6 +1004,8 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
 
         p1 = figure(title="Annual Seasonality")
         p1.xaxis.axis_label = "dates"
+        p1.toolbar.logo = None
+        p1.toolbar_location = None
         p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
                                                    months="%m/%d %H:%M",
                                                    hours="%m/%d %H:%M",
@@ -1035,6 +1038,8 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         p1 = figure(title="Autocorrelation of Annual Residual")
+        p1.toolbar.logo = None
+        p1.toolbar_location = None
         p1.xaxis.axis_label = "lags"
         p1.yaxis.bounds = (min(0, min(yr_acf)), 1.1)
         p1.line(range(len(yr_acf)), yr_acf, line_color="lightcoral", line_width=2)
@@ -1063,6 +1068,8 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
                                dt2.strftime("%Y%m%d%H") + ".png")
 
         p2 = figure(title="Weekly Seasonality")
+        p2.toolbar.logo = None
+        p2.toolbar_location = None
         p2.xaxis.axis_label = "dates"
         p2.xaxis.formatter = DatetimeTickFormatter(
             days="%w")
@@ -1095,6 +1102,8 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         p2 = figure(title="Autocorrelation of Weekly Residual")
+        p2.toolbar.logo = None
+        p2.toolbar_location = None
         p2.xaxis.axis_label = "lags"
         p2.yaxis.bounds = (min(0, min(wr_acf)), 1.1)
         p2.line(range(len(wr_acf)), wr_acf, line_color="lightcoral", line_width=2)
@@ -1122,6 +1131,8 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
                                dt2.strftime("%Y%m%d%H") + ".png")
 
         p3 = figure(title="Daily Seasonality")
+        p3.toolbar.logo = None
+        p3.toolbar_location = None
         p3.xaxis.axis_label = "dates"
         p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
         p3.line(day_range_plt, ds, line_color="dodgerblue", line_width=2,
@@ -1152,6 +1163,8 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         p3 = figure(title="Autocorrelation of Daily Residual")
+        p3.toolbar.logo = None
+        p3.toolbar_location = None
         p3.xaxis.axis_label = "lags"
         p3.yaxis.bounds = (min(0, min(dr_acf)), 1.1)
         p3.line(range(len(dr_acf)), dr_acf, line_color="lightcoral", line_width=2)
@@ -1189,3 +1202,193 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
     def df_d(self):
         return self._df_d
 
+
+class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
+    def __init__(self, *args, **kwargs):
+        #args -- tuple of anonymous arguments
+        #kwargs -- dictionary of named arguments
+        super().__init__(*args, **kwargs)
+        # univariate
+        self.features = [self.target]
+
+        # MLP smaple_size
+        self.sample_size_m = kwargs.get('sample_size_m', 48)
+        # ARIMA sample_size
+        self.sample_size_a = kwargs.get('sample_size_a', 24*15)
+        self.sample_size = max(self.sample_size_m, self.sample_size_a)
+        if self.sample_size_m > self.sample_size_a:
+            raise ValueError("AR length should be larger than ML input length")
+        # i.e.
+        # sample_size_a = 12
+        # sample_size_m = 5
+        # sample_size = 12
+        # sample_size_ao = 0 (range(0:12))
+        # sample_size_mo = 5 (range(5:12))
+        if self.sample_size == self.sample_size_a:
+            # i
+            # | --               sample_size            -- | -- output_size -- |
+            # | --              sample_size_a           -- | -- output_size -- |
+            # | -- sample_size_mo -- | -- sample_size_m -- | -- output_size -- |
+            # ARIMA sample_size is longer (most case)
+            # difference as offset
+            self.sample_size_ao = 0
+            self.sample_size_mo = self.sample_size - self.sample_size_m
+        # MLP sample_size is longer
+        else:
+            # i
+            # | --               sample_size            -- | -- output_size -- |
+            # | --              sample_size_m           -- | -- output_size -- |
+            # | -- sample_size_ao -- | -- sample_size_a -- | -- output_size -- |
+            # ARIMA sample_size is longer (most case)
+            # difference as offset
+            self.sample_size_ao = self.sample_size - self.sample_size_a
+            self.sample_size_mo = 0
+
+        # load imputed data from filepath if not provided as dataframe
+        filepath = kwargs.get('filepath', Path(
+            "/input/python/input_jongro_imputed_hourly_pandas.csv"))
+        raw_df = pd.read_csv(filepath,
+                             index_col=[0, 1],
+                             parse_dates=[0])
+        # filter by station_name
+        self._df = raw_df.query('stationCode == "' +
+                                str(SEOUL_STATIONS[self.station_name]) + '"')
+        # filter by date
+        self._df = self._df[self.fdate -
+                            dt.timedelta(hours=self.sample_size):self.tdate]
+
+        self._df.reset_index(level='stationCode', drop=True, inplace=True)
+
+        self._dates = self._df.index.to_pydatetime()
+        self._arima_o = (1, 0, 1)
+        self._arima_so = (0, 0, 0, 24)
+        # Original Input
+        self._xs = self._df[self.features]
+        # AR Input
+        self._xas = self._df[self.features]
+        # ML Input
+        self._xms = self._df[self.features]
+        self._ys = self._df[self.target]
+
+        # self._xms must not be available when creating instance so no kwargs for scaler
+        self._scaler = preprocessing.StandardScaler().fit(self._xms)
+        print("Construct AR part with SARIMAX")
+        self.num_workers = kwargs.get('sample_size_m', 1)
+        self.arima_x, self.arima_y = self.preprocess_arima_table()
+
+
+    def __getitem__(self, i: int):
+        """
+        get X, Y for given index `di`
+        For ARIMA + MLP Hybrid model, original Time series is considered as
+
+            Z = L + N
+
+        Then ARIMA predicts L, MLP Predicts Z - L
+        Due to stationarity, ARIMA(actually SARIMAX) needs longer data than MLP
+        This means we need two sample_size
+
+        1. ARIMA predicts 'target' from its `sample_size_a` series
+        2. Get In-sample prediction (for residual) & out-sample prediction (for loss function)
+        3. Compute Residual of Input (E = Z - L)
+        4. Return Residual and Output
+        5. (MLP Model part) Train E to get Residual prediction
+        6. Compute Loss function from summing MLP trained prediction & ARIMA trained prediction
+
+        Args:
+            i: where output starts
+
+        Returns:
+            Ndarray:
+            Tensor: transformed input (might be normalized)
+            Tensor: output without transform
+        """
+        # dataframe
+        key_date = self._dates[i + self.sample_size]
+        #hash_key_date = self.hash.update(key_date)
+        hash_key_date = hashlib.sha256(str(key_date).encode()).hexdigest()
+        xa = self.arima_x[hash_key_date]
+        ya = self.arima_y[hash_key_date]
+
+        # embed ar part
+        # copy dataframe not to Chained assignment
+        #xm = self._xms.iloc[i+self.sample_size_mo:i+self.sample_size].copy()
+        #xmi = xm.columns.tolist().index(self.target)
+
+        # only when AR input is longer than ML input
+        #xm.loc[:, self.target] = xa
+        xm = xa
+
+        y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+
+        # target in xm must be replaced after fit to ARIMA
+        # residual about to around zero, so I ignored scaling
+        # xm : squeeze last dimension, if I use batch, (batch_size, input_size, 1) -> (batch_size, input_size)
+        return ya.astype('float32'), \
+            xm.astype('float32'), \
+            np.reshape(y.to_numpy(), len(y)).astype('float32'), \
+            self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+
+    def preprocess_arima_table(self):
+        """
+        construct arima table
+
+        1. iterate len(dataset)
+        """
+
+        ## http://stackoverflow.com/questions/312443/how-do-you-split-a-list-into-evenly-sized-chunks-in-python
+        # get ieratable
+        def chunks(lst, n):
+            """
+            Yield successive n-sized chunks from lst.
+            """
+            for i in range(0, len(lst), n):
+                yield lst[i:i + n]
+
+        arima_x = {}
+        arima_y = {}
+
+        for i in tqdm(range(self.__len__())):
+            # ARIMA is precomputed
+            _xa = self._xas.iloc[i:i+self.sample_size].loc[:, self.target]
+            _xa.index.freq = 'H'
+            model = SARIMAX(_xa, order=self._arima_o,
+                            seasonal_order=self._arima_so, freq='H')
+            model_fit = model.fit(disp=False)
+
+            # in-sample & out-sample prediction
+            # its size is sample_size_m + output_size
+            _xa_pred = model_fit.predict(start=self.sample_size_mo, end=self.sample_size+self.output_size-1)
+            # residual for input
+            # i
+            # | --               sample_size            -- | -- output_size -- |
+            # | --              sample_size_a           -- | -- output_size -- |
+            # | -- sample_size_mo -- | -- sample_size_m -- | -- output_size -- |
+            # |        dropped       | --             what I need           -- |
+            # |        dropped       | --      xa       -- | --    ya       -- |
+            # |                                          key_date              |
+            # ARIMA sample_size is longer (most case)
+            xa = self._xas.iloc[i+self.sample_size_mo:i+self.sample_size].loc[:, self.target].to_numpy() - \
+                _xa_pred[0:self.sample_size_m]
+            ya = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
+                _xa_pred[self.sample_size_m:self.sample_size_m + self.output_size]
+
+            key_date = self._dates[i + self.sample_size]
+            # index for innner
+            key_date = self._dates[i + self.sample_size]
+            dates_x = self._dates[i+self.sample_size_mo:i+self.sample_size]
+            dates_y = self._dates[i+self.sample_size +
+                                1:i+self.sample_size+self.output_size+1]
+
+            hash_key_date = hashlib.sha256(str(key_date).encode()).hexdigest()
+            arima_x[hash_key_date] = xa
+            arima_y[hash_key_date] = ya
+
+
+        # if you want to filter by key
+        # df[df.index.get_level_values('key').isin(['some_key'])]
+
+        return arima_x, arima_y
+
+    def to_csv(self, fpath):
+        self._df.to_csv(fpath)
