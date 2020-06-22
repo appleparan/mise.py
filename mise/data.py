@@ -11,7 +11,7 @@ from statsmodels.tsa.arima_model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn import preprocessing
 
-from bokeh.models import DatetimeTickFormatter
+from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
 from bokeh.io import export_png
 
@@ -1229,7 +1229,7 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
         # MLP smaple_size
         self.sample_size_m = kwargs.get('sample_size_m', 48)
         # ARIMA sample_size
-        self.sample_size_a = kwargs.get('sample_size_a', 24*15)
+        self.sample_size_a = kwargs.get('sample_size_a', 24*30)
         self.sample_size = max(self.sample_size_m, self.sample_size_a)
         if self.sample_size_m > self.sample_size_a:
             raise ValueError("AR length should be larger than ML input length")
@@ -1276,7 +1276,11 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
 
         self._dates = self._df.index.to_pydatetime()
         self._arima_o = (1, 0, 1)
+        # daily
         self._arima_so = (0, 0, 0, 24)
+        # weekly
+        self._arima_so = (0, 0, 0, 24*7)
+
         # Original Input
         self._xs = self._df[self.features]
         # AR Input
@@ -1287,7 +1291,6 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
 
         # self._xms must not be available when creating instance so no kwargs for scaler
         self._scaler = preprocessing.StandardScaler().fit(self._xms)
-        print("Construct AR part with SARIMAX")
         self.num_workers = kwargs.get('sample_size_m', 1)
         self.arima_x, self.arima_y, self.arima_sub_x, self.arima_sub_y = self.preprocess_arima_table()
 
@@ -1359,9 +1362,10 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
         arima_sub_x = {}
         arima_sub_y = {}
 
+        print("Construct AR part with SARIMAX")
         for i in tqdm(range(self.__len__())):
             # ARIMA is precomputed
-            _xa = self._xas.iloc[i:i+self.sample_size].loc[:, self.target]
+            _xa = self._xs.iloc[i:i+self.sample_size].loc[:, self.target]
             _xa.index.freq = 'H'
             model = SARIMAX(_xa, order=self._arima_o,
                             seasonal_order=self._arima_so, freq='H')
@@ -1369,7 +1373,7 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
 
             # in-sample & out-sample prediction
             # its size is sample_size_m + output_size
-            _xa_pred = model_fit.predict(start=self.sample_size_mo, end=self.sample_size+self.output_size-1)
+            _xa_pred = model_fit.predict(start=0, end=self.sample_size+self.output_size-1)
             # residual for input
             # i
             # | --               sample_size            -- | -- output_size -- |
@@ -1382,20 +1386,21 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
             #                        |                  _xa_pred               |
             # |                     _xs                    |      _ys          |
             # ARIMA sample_size is longer (most case)
-            xa = _xa_pred[0:self.sample_size_m]
+            xa = _xa_pred[self.sample_size_mo:self.sample_size]
             xe = self._xs.iloc[i+self.sample_size_mo:i+self.sample_size].loc[:, self.target].to_numpy() - \
                 xa
 
-            ya = _xa_pred[self.sample_size_m:self.sample_size_m + self.output_size]
+            ya = _xa_pred[self.sample_size:self.sample_size + self.output_size]
             ye = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
                 ya
 
             # index for innner
+            # i = 0 -> where output starts = i + self.sample_size
             key_date = self._dates[i + self.sample_size]
             hash_key_date = hashlib.sha256(str(key_date).encode()).hexdigest()
 
-            arima_x[hash_key_date] = _xa_pred[0:self.sample_size_m]
-            arima_y[hash_key_date] = _xa_pred[self.sample_size_m:self.sample_size_m + self.output_size]
+            arima_x[hash_key_date] = xa
+            arima_y[hash_key_date] = ya
             arima_sub_x[hash_key_date] = xe
             arima_sub_y[hash_key_date] = ye
 
@@ -1404,6 +1409,94 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
         # df[df.index.get_level_values('key').isin(['some_key'])]
 
         return arima_x, arima_y, arima_sub_x, arima_sub_y
+
+    def plot_arima(self, data_dir, plot_dir):
+
+        values = {}
+        values['x'] = np.zeros((self.__len__(), self.sample_size_m), dtype=np.float32)
+        values['y'] = np.zeros((self.__len__(), self.output_size), dtype=np.float32)
+        values['xa'] = np.zeros((self.__len__(), self.sample_size_m), dtype=np.float32)
+        values['ya'] = np.zeros((self.__len__(), self.output_size), dtype=np.float32)
+        values['xe'] = np.zeros(
+            (self.__len__(), self.sample_size_m), dtype=np.float32)
+        values['ye'] = np.zeros((self.__len__(), self.output_size), dtype=np.float32)
+
+        print("Plotting AR part")
+        def i2date(i: int):
+            self._dates[i + self.sample_size]
+
+        for i in tqdm(range(self.__len__())):
+            # index for innner
+            key_date = self._dates[i + self.sample_size]
+            hash_key_date = hashlib.sha256(str(key_date).encode()).hexdigest()
+
+            values['x'][i, :] = self._xs.iloc[i:i+self.sample_size_m].loc[:, self.target].to_numpy()
+            values['y'][i, :] = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy()
+            values['xa'][i, :] = self.arima_x[hash_key_date]
+            values['ya'][i, :] = self.arima_y[hash_key_date]
+            values['xe'][i, :] = self.arima_sub_x[hash_key_date]
+            values['ye'][i, :] = self.arima_sub_y[hash_key_date]
+
+        plot_dir_in = plot_dir / "ARIMA_X"
+        Path.mkdir(plot_dir_in, parents=True, exist_ok=True)
+        data_dir_in = data_dir / "ARIMA_X"
+        Path.mkdir(data_dir_in, parents=True, exist_ok=True)
+
+        for t in range(self.sample_size_m):
+            plot_dir_h = plot_dir_in / str(t).zfill(2)
+            Path.mkdir(plot_dir_h, parents=True, exist_ok=True)
+            plt_path = plot_dir_h / ("arima_x_" + str(t).zfill(2) + "h.png")
+
+            data_dir_h = data_dir_in / str(t).zfill(2)
+            Path.mkdir(data_dir_h, parents=True, exist_ok=True)
+            csv_path = data_dir_h / ("arima_x_" + str(t).zfill(2) + "h.csv")
+
+            p = figure(title="Model/OBS")
+            p.toolbar.logo = None
+            p.toolbar_location = None
+            p.xaxis.axis_label = "OBS"
+            p.yaxis.axis_label = "Model"
+            maxval = np.nanmax([np.nanmax(values['x'][:, t]), np.nanmax(values['xa'][:, t])])
+            p.xaxis.bounds = (0.0, maxval)
+            p.yaxis.bounds = (0.0, maxval)
+            p.x_range = Range1d(0.0, maxval)
+            p.y_range = Range1d(0.0, maxval)
+            p.scatter(values['x'][:, t], values['xa'][:, t])
+            export_png(p, filename=plt_path)
+
+            df_scatter = pd.DataFrame(
+                {'x': values['x'][:, t], 'xa': values['xa'][:, t]})
+            df_scatter.to_csv(csv_path)
+
+        plot_dir_in = plot_dir / "ARIMA_Y"
+        Path.mkdir(plot_dir_in, parents=True, exist_ok=True)
+        data_dir_in = data_dir / "ARIMA_Y"
+        Path.mkdir(data_dir_in, parents=True, exist_ok=True)
+
+        for t in range(self.output_size):
+            plot_dir_h = plot_dir_in / str(t).zfill(2)
+            Path.mkdir(plot_dir_h, parents=True, exist_ok=True)
+            plt_path = plot_dir_h / ("arima_y_" + str(t).zfill(2) + "h.png")
+
+            data_dir_h = data_dir_in / str(t).zfill(2)
+            Path.mkdir(data_dir_h, parents=True, exist_ok=True)
+            csv_path = data_dir_h / ("arima_y_" + str(t).zfill(2) + "h.csv")
+
+            p = figure(title="Model/OBS")
+            p.toolbar.logo = None
+            p.toolbar_location = None
+            p.xaxis.axis_label = "OBS"
+            p.yaxis.axis_label = "Model"
+            maxval = np.nanmax([np.nanmax(values['y'][:, t]), np.nanmax(values['ya'][:, t])])
+            p.xaxis.bounds = (0.0, maxval)
+            p.yaxis.bounds = (0.0, maxval)
+            p.x_range = Range1d(0.0, maxval)
+            p.y_range = Range1d(0.0, maxval)
+            p.scatter(values['y'][:, t], values['ya'][:, t])
+            export_png(p, filename=plt_path)
+
+            df_scatter = pd.DataFrame({'y': values['y'][:, t], 'ya': values['ya'][:, t]})
+            df_scatter.to_csv(csv_path)
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)

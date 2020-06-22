@@ -498,8 +498,8 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
         data_dir_h = data_dir / str(t).zfill(2)
         Path.mkdir(data_dir_h, parents=True, exist_ok=True)
         csv_path = data_dir_h / ("scatter_" + str(t).zfill(2) + "h.csv")
-        df_line = pd.DataFrame({'obs': obs, 'sim': sim})
-        df_line.to_csv(csv_path)
+        df_scatter = pd.DataFrame({'obs': obs, 'sim': sim})
+        df_scatter.to_csv(csv_path)
 
 
 def plot_corr(hparams, df_obs, df_sim, data_dir, plot_dir):

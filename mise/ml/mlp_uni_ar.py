@@ -400,6 +400,9 @@ class BaseMLPModel(LightningModule):
         self.val_sampler = SequentialSampler(self.val_dataset)
         self.test_sampler = SequentialSampler(self.test_dataset)
 
+        # arima table preprocess in constructor
+        train_valid_set.plot_arima(self.data_dir, self.plot_dir)
+
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
             batch_size=self.hparams.batch_size,
@@ -507,8 +510,8 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
         data_dir_h = data_dir / str(t).zfill(2)
         Path.mkdir(data_dir_h, parents=True, exist_ok=True)
         csv_path = data_dir_h / ("scatter_" + str(t).zfill(2) + "h.csv")
-        df_line = pd.DataFrame({'obs': obs, 'sim': sim})
-        df_line.to_csv(csv_path)
+        df_scatter = pd.DataFrame({'obs': obs, 'sim': sim})
+        df_scatter.to_csv(csv_path)
 
 
 def plot_corr(hparams, df_obs, df_sim, data_dir, plot_dir):
