@@ -50,10 +50,11 @@ def ml_mlp_uni_ar(station_name="종로구"):
     learning_rate = 1e-3
 
     train_fdate = dt.datetime(2012, 1, 1, 0).astimezone(SEOULTZ)
+    #train_fdate = dt.datetime(2018, 7, 1, 0).astimezone(SEOULTZ)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
-    #test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
+    #test_tdate = dt.datetime(2019, 2, 28, 23).astimezone(SEOULTZ)
 
     # check date range assumption
     assert test_tdate > train_fdate
@@ -202,6 +203,7 @@ class BaseMLPModel(LightningModule):
         return Adam(self.parameters(), lr=self.hparams.lr|self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
+        # linear, residual, y, dates
         yas, xms, ys, dates = batch
 
         y_hat = self.forward(xms)

@@ -606,12 +606,16 @@ class MultivariateAutoRegressiveDataset(MultivariateDataset):
         #args -- tuple of anonymous arguments
         #kwargs -- dictionary of named arguments
         super().__init__(*args, **kwargs)
+        # univariate
+        self.features = [self.target]
 
         # MLP smaple_size
         self.sample_size_m = kwargs.get('sample_size_m', 48)
         # ARIMA sample_size
-        self.sample_size_a = kwargs.get('sample_size_a', 24*30)
+        self.sample_size_a = kwargs.get('sample_size_a', 24*15)
         self.sample_size = max(self.sample_size_m, self.sample_size_a)
+        if self.sample_size_m > self.sample_size_a:
+            raise ValueError("AR length should be larger than ML input length")
         # i.e.
         # sample_size_a = 12
         # sample_size_m = 5
@@ -646,7 +650,7 @@ class MultivariateAutoRegressiveDataset(MultivariateDataset):
                              parse_dates=[0])
         # filter by station_name
         self._df = raw_df.query('stationCode == "' +
-                            str(SEOUL_STATIONS[self.station_name]) + '"')
+                                str(SEOUL_STATIONS[self.station_name]) + '"')
         # filter by date
         self._df = self._df[self.fdate -
                             dt.timedelta(hours=self.sample_size):self.tdate]
@@ -656,8 +660,10 @@ class MultivariateAutoRegressiveDataset(MultivariateDataset):
         self._dates = self._df.index.to_pydatetime()
         self._arima_o = (1, 0, 1)
         self._arima_so = (0, 0, 0, 24)
+        # Original Input
+        self._xs = self._df[self.features]
         # AR Input
-        self._xas = self._df[self.target]
+        self._xas = self._df[self.features]
         # ML Input
         self._xms = self._df[self.features]
         self._ys = self._df[self.target]
@@ -665,6 +671,7 @@ class MultivariateAutoRegressiveDataset(MultivariateDataset):
         # self._xms must not be available when creating instance so no kwargs for scaler
         self._scaler = preprocessing.StandardScaler().fit(self._xms)
         print("Construct AR part with SARIMAX")
+        self.num_workers = kwargs.get('sample_size_m', 1)
         self.arima_x, self.arima_y = self.preprocess_arima_table()
 
     def __getitem__(self, i: int):
@@ -693,19 +700,34 @@ class MultivariateAutoRegressiveDataset(MultivariateDataset):
             Tensor: transformed input (might be normalized)
             Tensor: output without transform
         """
-        xa = self.arima_x[self.arima_x.index.get_level_values('key').isin([i])]['xa'].to_numpy()
-        ya = self.arima_y[self.arima_y.index.get_level_values(
-            'key').isin([i])]['ya'].to_numpy()
-        xm = self._xms.iloc[i+self.sample_size_mo:i+self.sample_size]
-        y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+        # dataframe
+        key_date = self._dates[i + self.sample_size]
+        #hash_key_date = self.hash.update(key_date)
+        hash_key_date = hashlib.sha256(str(key_date).encode()).hexdigest()
+        xa = self.arima_x[hash_key_date]
+        ya = self.arima_y[hash_key_date]
+
+        # embed ar part
+        # copy dataframe not to Chained assignment
+        #xm = self._xms.iloc[i+self.sample_size_mo:i+self.sample_size].copy()
+        #xmi = xm.columns.tolist().index(self.target)
+
+        # only when AR input is longer than ML input
+        #xm.loc[:, self.target] = xa
+        xm = xa
+
+        y = self._ys.iloc[(i+self.sample_size)
+                           :(i+self.sample_size+self.output_size)]
 
         # target in xm must be replaced after fit to ARIMA
         # residual about to around zero, so I ignored scaling
-        return xa.astype('float32'), ya.astype('float32'), \
-            self._scaler.transform(xm), \
-            xm.columns.tolist().index(self.target), \
+        # xm : squeeze last dimension, if I use batch, (batch_size, input_size, 1) -> (batch_size, input_size)
+
+        return ya.astype('float32'), \
+            self._scaler.transform(xm).astype('float32'), \
             np.reshape(y.to_numpy(), len(y)).astype('float32'), \
-            self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+            self._dates[(i+self.sample_size)
+                         :(i+self.sample_size+self.output_size)]
 
     def preprocess_arima_table(self):
         """
@@ -714,66 +736,59 @@ class MultivariateAutoRegressiveDataset(MultivariateDataset):
         1. iterate len(dataset)
         """
 
-        df_xs = []
-        df_ys = []
+        ## http://stackoverflow.com/questions/312443/how-do-you-split-a-list-into-evenly-sized-chunks-in-python
+        # get ieratable
+        def chunks(lst, n):
+            """
+            Yield successive n-sized chunks from lst.
+            """
+            for i in range(0, len(lst), n):
+                yield lst[i:i + n]
+
+        arima_x = {}
+        arima_y = {}
+
         for i in tqdm(range(self.__len__())):
-            # where output starts
-            key_idx = i
             # ARIMA is precomputed
-            _xa = self._xas.iloc[i+self.sample_size_ao:i+self.sample_size]
+            _xa = self._xas.iloc[i:i+self.sample_size].loc[:, self.target]
             _xa.index.freq = 'H'
             model = SARIMAX(_xa, order=self._arima_o,
                             seasonal_order=self._arima_so, freq='H')
             model_fit = model.fit(disp=False)
 
-            if self.sample_size == self.sample_size_a:
-                # in-sample & out-sample prediction
-                # its size is sample_size_m + output_size
-                _xa_pred = model_fit.predict(
-                    start=self.sample_size_mo, end=self.sample_size+self.output_size-1)
-                xa = self._xas.iloc[i+self.sample_size_mo:i+self.sample_size].to_numpy() - \
-                    _xa_pred[0:self.sample_size_m]
-                ya = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
-                    _xa_pred[self.sample_size_m:self.sample_size_m+self.output_size]
-            else:
-                # in-sample & out-sample prediction
-                # its size is sample_size_m + output_size
-                _xa_pred = model_fit.predict(
-                    start=self.sample_size_ao, stop=self.sample_size+self.output_size)
-                xa = self._xas.iloc[i+self.sample_size_mo:i+self.sample_size].to_numpy() - \
-                    _xa_pred[0:self.sample_size_m]
-                ya = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
-                    _xa_pred[self.sample_size_m:self.sample_size_m+self.output_size]
-            # index for outer
-            keys = np.repeat(i, self.sample_size_m)
+            # in-sample & out-sample prediction
+            # its size is sample_size_m + output_size
+            _xa_pred = model_fit.predict(
+                start=self.sample_size_mo, end=self.sample_size+self.output_size-1)
+            # residual for input
+            # i
+            # | --               sample_size            -- | -- output_size -- |
+            # | --              sample_size_a           -- | -- output_size -- |
+            # | -- sample_size_mo -- | -- sample_size_m -- | -- output_size -- |
+            # |        dropped       | --             what I need           -- |
+            # |        dropped       | --      xa       -- | --    ya       -- |
+            # |                                          key_date              |
+            # ARIMA sample_size is longer (most case)
+            xa = self._xas.iloc[i+self.sample_size_mo:i+self.sample_size].loc[:, self.target].to_numpy() - \
+                _xa_pred[0:self.sample_size_m]
+            ya = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
+                _xa_pred[self.sample_size_m:self.sample_size_m + self.output_size]
+
+            key_date = self._dates[i + self.sample_size]
             # index for innner
+            key_date = self._dates[i + self.sample_size]
             dates_x = self._dates[i+self.sample_size_mo:i+self.sample_size]
             dates_y = self._dates[i+self.sample_size +
                                   1:i+self.sample_size+self.output_size+1]
 
-            # same key -> get x & y
-
-            _df_x = pd.DataFrame({
-                    'key': np.repeat(i, self.sample_size_m),
-                    'date': dates_x,
-                    'xa': xa})
-            _df_x.set_index(['key', 'date'], inplace=True)
-            _df_x.sort_index(inplace=True)
-            _df_y = pd.DataFrame(pd.DataFrame({
-                    'key': np.repeat(i, self.output_size),
-                    'date': dates_y,
-                    'ya': ya}))
-            _df_y.set_index(['key', 'date'], inplace=True)
-            _df_y.sort_index(inplace=True)
-            df_xs.append(_df_x)
-            df_ys.append(_df_y)
-        df_x = pd.concat(df_xs)
-        df_y = pd.concat(df_ys)
+            hash_key_date = hashlib.sha256(str(key_date).encode()).hexdigest()
+            arima_x[hash_key_date] = xa
+            arima_y[hash_key_date] = ya
 
         # if you want to filter by key
         # df[df.index.get_level_values('key').isin(['some_key'])]
 
-        return df_x, df_y
+        return arima_x, arima_y
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
@@ -1274,7 +1289,7 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
         self._scaler = preprocessing.StandardScaler().fit(self._xms)
         print("Construct AR part with SARIMAX")
         self.num_workers = kwargs.get('sample_size_m', 1)
-        self.arima_x, self.arima_y = self.preprocess_arima_table()
+        self.arima_x, self.arima_y, self.arima_sub_x, self.arima_sub_y = self.preprocess_arima_table()
 
 
     def __getitem__(self, i: int):
@@ -1307,8 +1322,13 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
         key_date = self._dates[i + self.sample_size]
         #hash_key_date = self.hash.update(key_date)
         hash_key_date = hashlib.sha256(str(key_date).encode()).hexdigest()
+        # \hat{L}
         xa = self.arima_x[hash_key_date]
         ya = self.arima_y[hash_key_date]
+
+        # y - \hat{L}
+        xe = self.arima_sub_x[hash_key_date]
+        ye = self.arima_sub_y[hash_key_date]
 
         # embed ar part
         # copy dataframe not to Chained assignment
@@ -1317,16 +1337,14 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
 
         # only when AR input is longer than ML input
         #xm.loc[:, self.target] = xa
-        xm = xa
-
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
         # target in xm must be replaced after fit to ARIMA
         # residual about to around zero, so I ignored scaling
         # xm : squeeze last dimension, if I use batch, (batch_size, input_size, 1) -> (batch_size, input_size)
         return ya.astype('float32'), \
-            xm.astype('float32'), \
-            np.reshape(y.to_numpy(), len(y)).astype('float32'), \
+            xe.astype('float32'), \
+            np.squeeze(y).astype('float32'), \
             self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
     def preprocess_arima_table(self):
@@ -1336,17 +1354,10 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
         1. iterate len(dataset)
         """
 
-        ## http://stackoverflow.com/questions/312443/how-do-you-split-a-list-into-evenly-sized-chunks-in-python
-        # get ieratable
-        def chunks(lst, n):
-            """
-            Yield successive n-sized chunks from lst.
-            """
-            for i in range(0, len(lst), n):
-                yield lst[i:i + n]
-
         arima_x = {}
         arima_y = {}
+        arima_sub_x = {}
+        arima_sub_y = {}
 
         for i in tqdm(range(self.__len__())):
             # ARIMA is precomputed
@@ -1364,31 +1375,35 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
             # | --               sample_size            -- | -- output_size -- |
             # | --              sample_size_a           -- | -- output_size -- |
             # | -- sample_size_mo -- | -- sample_size_m -- | -- output_size -- |
+            # i                  i+sample_size_m       i+sample_size
             # |        dropped       | --             what I need           -- |
             # |        dropped       | --      xa       -- | --    ya       -- |
             # |                                          key_date              |
+            #                        |                  _xa_pred               |
+            # |                     _xs                    |      _ys          |
             # ARIMA sample_size is longer (most case)
-            xa = self._xas.iloc[i+self.sample_size_mo:i+self.sample_size].loc[:, self.target].to_numpy() - \
-                _xa_pred[0:self.sample_size_m]
-            ya = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
-                _xa_pred[self.sample_size_m:self.sample_size_m + self.output_size]
+            xa = _xa_pred[0:self.sample_size_m]
+            xe = self._xs.iloc[i+self.sample_size_mo:i+self.sample_size].loc[:, self.target].to_numpy() - \
+                xa
 
-            key_date = self._dates[i + self.sample_size]
+            ya = _xa_pred[self.sample_size_m:self.sample_size_m + self.output_size]
+            ye = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)].to_numpy() - \
+                ya
+
             # index for innner
             key_date = self._dates[i + self.sample_size]
-            dates_x = self._dates[i+self.sample_size_mo:i+self.sample_size]
-            dates_y = self._dates[i+self.sample_size +
-                                1:i+self.sample_size+self.output_size+1]
-
             hash_key_date = hashlib.sha256(str(key_date).encode()).hexdigest()
-            arima_x[hash_key_date] = xa
-            arima_y[hash_key_date] = ya
+
+            arima_x[hash_key_date] = _xa_pred[0:self.sample_size_m]
+            arima_y[hash_key_date] = _xa_pred[self.sample_size_m:self.sample_size_m + self.output_size]
+            arima_sub_x[hash_key_date] = xe
+            arima_sub_y[hash_key_date] = ye
 
 
         # if you want to filter by key
         # df[df.index.get_level_values('key').isin(['some_key'])]
 
-        return arima_x, arima_y
+        return arima_x, arima_y, arima_sub_x, arima_sub_y
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
