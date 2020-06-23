@@ -207,8 +207,8 @@ class UnivariateDataset(BaseDataset):
                            :(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
-        return x.to_numpy().astype('float32'), \
-            np.reshape(y.to_numpy(), len(y)).astype('float32'), \
+        return np.squeeze(x).to_numpy().astype('float32'), \
+            np.squeeze(y).astype('float32'), \
             self._dates[(i+self.sample_size)
                          :(i+self.sample_size+self.output_size)]
 
@@ -866,7 +866,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
 
         # return X, Y, Y_dates
         return x.to_numpy().astype('float32'), \
-            np.reshape(y.to_numpy(), len(y)).astype('float32'), \
+            np.squeeze(y).astype('float32'), \
             self._dates[(i+self.sample_size)
                          :(i+self.sample_size+self.output_size)]
 
