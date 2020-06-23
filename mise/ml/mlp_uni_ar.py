@@ -25,6 +25,7 @@ from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+from statsmodels.tsa.tsatools import detrend
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
 from bokeh.io import export_png
@@ -50,11 +51,11 @@ def ml_mlp_uni_ar(station_name="종로구"):
     learning_rate = 1e-3
 
     train_fdate = dt.datetime(2012, 1, 1, 0).astimezone(SEOULTZ)
-    #train_fdate = dt.datetime(2018, 7, 1, 0).astimezone(SEOULTZ)
+    #train_fdate = dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
-    #test_tdate = dt.datetime(2019, 2, 28, 23).astimezone(SEOULTZ)
+    #test_tdate = dt.datetime(2019, 4, 30, 23).astimezone(SEOULTZ)
 
     # check date range assumption
     assert test_tdate > train_fdate
@@ -162,11 +163,11 @@ class BaseMLPModel(LightningModule):
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
         self.train_tdate = kwargs.get('train_tdate', dt.datetime(
-            2017, 12, 31, 23).astimezone(SEOULTZ))
-        self.test_fdate = kwargs.get('test_fdate', dt.datetime(
-            2018, 1, 1, 0).astimezone(SEOULTZ))
-        self.test_tdate = kwargs.get('test_tdate', dt.datetime(
             2018, 12, 31, 23).astimezone(SEOULTZ))
+        self.test_fdate = kwargs.get('test_fdate', dt.datetime(
+            2019, 1, 1, 0).astimezone(SEOULTZ))
+        self.test_tdate = kwargs.get('test_tdate', dt.datetime(
+            2019, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
             'output_dir', Path('/mnt/data/MLPARUnivariate/'))
@@ -359,10 +360,12 @@ class BaseMLPModel(LightningModule):
 
     def prepare_data(self):
         # create custom dataset
-        train_valid_set = data.UnivariateAutoRegressiveSubDataset(
+        train_valid_set = data.UnivariateMeanSeasonalityAutoRegressiveSubDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
+            sample_size_m=self.hparams.sample_size,
+            sample_size_a=self.hparams.sample_size*40,
             features=[self.target],
             fdate=self.train_fdate,
             tdate=self.train_tdate,
@@ -370,15 +373,20 @@ class BaseMLPModel(LightningModule):
             output_size=self.hparams.output_size,
             train_valid_ratio=0.8,
             num_workers=4)
-        test_set = data.UnivariateAutoRegressiveSubDataset(
+        test_set = data.UnivariateMeanSeasonalityAutoRegressiveSubDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
+            sample_size_m=self.hparams.sample_size,
+            sample_size_a=self.hparams.sample_size*40,
             features=[self.target],
             fdate=self.test_fdate,
             tdate=self.test_tdate,
             sample_size=self.hparams.sample_size,
             output_size=self.hparams.output_size,
+            avg_daily=train_valid_set.dict_avg_daily,
+            avg_weekly=train_valid_set.dict_avg_weekly,
+            avg_annual=train_valid_set.dict_avg_annual,
             num_workers=4)
 
         # save train/valid set
@@ -401,7 +409,8 @@ class BaseMLPModel(LightningModule):
         self.test_sampler = SequentialSampler(self.test_dataset)
 
         # arima table preprocess in constructor
-        train_valid_set.plot_arima(self.data_dir, self.plot_dir)
+        #train_valid_set.plot_arima(self.data_dir, self.plot_dir)
+        train_valid_set.plot_acf(24*10, self.plot_dir)
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
