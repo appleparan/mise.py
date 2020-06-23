@@ -12,7 +12,13 @@ from scipy.stats import boxcox
 import statsmodels.tsa.arima_model as arm
 import statsmodels.tsa.stattools as stls
 import statsmodels.graphics.tsaplots as tpl
+from statsmodels.tsa.stattools import acf, pacf
+from statsmodels.tsa.tsatools import detrend
 import tqdm
+
+from bokeh.models import Range1d, DatetimeTickFormatter
+from bokeh.plotting import figure, output_file, show
+from bokeh.io import export_png
 
 import data
 from constants import SEOUL_STATIONS
@@ -50,9 +56,12 @@ def stats_arima(station_name = "종로구"):
     assert train_tdate + dt.timedelta(hours=1) == test_fdate
 
     for target in targets:
-        dir_prefix = Path("/mnt/data/arima/" + station_name + "/" + target + "/")
-        Path.mkdir(dir_prefix, parents=True, exist_ok=True)
-
+        output_dir = Path('/mnt/data/ARIMA/' +
+                          station_name + "/" + target + "/")
+        plot_dir = output_dir / Path('png/')
+        data_dir = output_dir / Path('csv/')
+        Path.mkdir(data_dir, parents=True, exist_ok=True)
+        Path.mkdir(plot_dir, parents=True, exist_ok=True)
         norm_values, norm_maxlog = boxcox(df_h[target])
         norm_target = "norm_" + target
 
@@ -64,33 +73,40 @@ def stats_arima(station_name = "종로구"):
         df_test = df_ta.loc[(df_ta.index.get_level_values(level='date') >= test_fdate) &
                           (df_ta.index.get_level_values(level='date') <= test_tdate)]
 
+        print("ACF analysis with " + target + "...")
+        # plot acf and pacf
+        nlags_acf = 24*10
+        _acf = acf(df_train[target], nlags=nlags_acf)
+        _pacf = pacf(df_train[target])
+        plot_acf(df_train[target], nlags_acf, _acf, _pacf, data_dir, plot_dir)
+
         print("ARIMA with " + target + "...")
         def run_arima(order):
             df_obs = mw_df(df_ta, target, output_size,
                         test_fdate, test_tdate)
-            df_sim = sim_arima(df_train, df_test, 
+            df_sim = sim_arima(df_train, df_test,
                                norm_target, order, test_fdate, test_tdate,
                                norm_maxlog, output_size)
 
             # join df
-            plot_arima(df_sim, df_obs, target, order, test_fdate,
+            plot_arima(df_sim, df_obs, target, order, data_dir, plot_dir, test_fdate,
                        test_tdate, station_name, output_size)
             # save to csv
             csv_fname = "obs_arima(" + \
                 str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
                 target + ".csv"
-            df_obs.to_csv(dir_prefix / csv_fname)
+            df_obs.to_csv(data_dir / csv_fname)
 
             csv_fname = "sim_arima(" + \
                 str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
                 target + ".csv"
-            df_sim.to_csv(dir_prefix / csv_fname)
-        print("ARIMA(1, 0, 0)...")
-        run_arima((1, 0, 0))
-        print("ARIMA(0, 0, 1)...")
-        run_arima((0, 0, 1))
-        print("ARIMA(1, 0, 1)...")
-        run_arima((1, 0, 1))
+            df_sim.to_csv(data_dir / csv_fname)
+        #print("ARIMA(1, 0, 0)...")
+        #run_arima((1, 0, 0))
+        #print("ARIMA(0, 0, 1)...")
+        #run_arima((0, 0, 1))
+        #print("ARIMA(1, 0, 1)...")
+        #run_arima((1, 0, 1))
 
 
 def mw_df(df_org, target, output_size, fdate, tdate):
@@ -105,7 +121,7 @@ def mw_df(df_org, target, output_size, fdate, tdate):
     dates = [fdate + dt.timedelta(hours=x) for x in range(len(df) - output_size + 1)]
     values = np.zeros((len(dates), output_size), dtype=df[target].dtype)
     assert len(dates) == len(df) - output_size + 1
-    
+
     for i, (_index, _row) in enumerate(df.iterrows()):
         # findex ~ tindex = output_size
         findex = _index
@@ -137,7 +153,9 @@ def sim_arima(_df_train, _df_test, target, order, fdate, tdate, norm_maxlog, out
     df_sim = pd.DataFrame(columns=cols)
 
     # train -> initial data
-    endog = df_train[target].tolist()
+    detr_x = detrend(df_train[target], order=2)
+    endog = detr_x
+    #endog = df_train[target].tolist()
     sz = len(endog)
     duration = tdate - fdate
     dates_hours = duration.days * 24 + duration.seconds // 3600
@@ -149,7 +167,10 @@ def sim_arima(_df_train, _df_test, target, order, fdate, tdate, norm_maxlog, out
     for i, (index, row) in tqdm.tqdm(enumerate(df_test.iterrows()), total=len(dates)-1):
         if i > len(dates) - 1:
             break
-
+        print(df_train.iloc[index-sz*df_train.freq:index].loc[:, target].shape)
+        detr_x = detrend(
+            df_train.iloc[index-sz*df_train.freq:index].loc[:, target], order=2)
+        endog = detr_x
         model = arm.ARIMA(endog[-sz:], order)
         model_fit = model.fit(disp = 0)
 
@@ -169,7 +190,7 @@ def sim_arima(_df_train, _df_test, target, order, fdate, tdate, norm_maxlog, out
     return df_sim
 
 
-def plot_arima(df_sim, df_obs, target, order, _test_fdate, _test_tdate, station_name, output_size):
+def plot_arima(df_sim, df_obs, target, order, data_dir, plot_dir, _test_fdate, _test_tdate, station_name, output_size):
     dir_prefix = Path("/mnt/data/arima/" + station_name + "/" + target + "/")
 
     times = list(range(0, output_size+1))
@@ -195,20 +216,20 @@ def plot_arima(df_sim, df_obs, target, order, _test_fdate, _test_tdate, station_
 
         scatter_fname = "scatter_arima(" + \
             str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-            target + "_h" + str(t).zfill(2) + ".png"
-        plot_scatter(obs, sim, output_dir / scatter_fname)
+            target + "_" + str(t).zfill(2) + "h.png"
+        plot_scatter(obs, sim, plot_dir, scatter_fname)
         # plot line
         line_fname = "line_arima(" + \
             str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-            target + "_h" + str(t).zfill(2) + ".png"
+            target + "_" + str(t).zfill(2) + "h.png"
         plot_dates = plot_line(obs, sim, test_fdate, test_tdate, target,
-                  output_size, output_dir / line_fname)
+                               plot_dir, line_fname)
 
         csv_fname = "data_arima(" + \
             str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-            target + "_h" + str(t).zfill(2) + ".csv"
+            target + "_" + str(t).zfill(2) + "h.csv"
         df_obs_sim = pd.DataFrame({'obs': obs, 'sim': sim}, index=plot_dates)
-        df_obs_sim.to_csv(output_dir / csv_fname)
+        df_obs_sim.to_csv(data_dir / csv_fname)
 
         # np.corrcoef -> [[1.0, corr], [corr, 1]]
         corrs.append(np.corrcoef(obs, sim)[0, 1])
@@ -223,11 +244,12 @@ def plot_arima(df_sim, df_obs, target, order, _test_fdate, _test_tdate, station_
         target + ".csv"
 
     df_corrs = pd.DataFrame({'time': times, 'corr': corrs})
-    df_corrs.to_csv(output_dir / csv_fname)
+    df_corrs.to_csv(data_dir / csv_fname)
 
-    plot_corr(times, corrs, output_dir / corr_fname)
+    plot_corr(times, corrs, data_dir, plot_dir)
 
-def plot_scatter(obs, sim, output_name):
+def plot_scatter(obs, sim, plot_dir, output_name):
+    plot_path = plot_dir / output_name
     plt.figure()
     plt.title("Model/OBS")
     plt.xlabel("OBS")
@@ -236,11 +258,13 @@ def plot_scatter(obs, sim, output_name):
     plt.xlim((0, maxval))
     plt.ylim((0, maxval))
     plt.scatter(obs, sim)
-    plt.savefig(output_name)
+    plt.savefig(plot_path)
     plt.close()
 
 
-def plot_line(obs, sim, test_fdate, test_tdate, target, output_size, output_name):
+def plot_line(obs, sim, test_fdate, test_tdate, target, plot_dir, output_name):
+    plot_path = plot_dir / output_name
+
     dates = np.array([test_fdate + dt.timedelta(hours=i) for i in range(len(obs))])
 
     plt.figure()
@@ -248,18 +272,68 @@ def plot_line(obs, sim, test_fdate, test_tdate, target, output_size, output_name
     plt.xlabel("dates")
     plt.ylabel(target)
     plt.plot(dates, obs, "b", dates, sim, "r")
-    plt.savefig(output_name)
+    plt.savefig(plot_path)
     plt.close()
 
     return dates
 
 
-def plot_corr(times, corrs, output_name):
+def plot_corr(times, corrs, plot_dir, output_name):
+    plot_path = plot_dir / output_name
+
     plt.figure()
     plt.title("Correlation of OBS & Model")
     plt.xlabel("lags")
     plt.ylabel("corr")
     plt.plot(times, corrs)
-    plt.savefig(output_name)
+    plt.savefig(plot_path)
     plt.close()
+
+def plot_acf(x, nlags, _acf, _pacf, data_dir, plot_dir):
+    lags_acf = range(len(_acf))
+    lags_pacf = range(len(_pacf))
+
+    plt_path = plot_dir / ("acf.png")
+    plt.figure()
+    fig = tpl.plot_acf(x, lags=nlags)
+    fig.savefig(plt_path)
+
+    csv_path = data_dir / ("acf.csv")
+    df_acf = pd.DataFrame({'lags': lags_acf, 'acf': _acf})
+    df_acf.set_index('lags', inplace=True)
+    df_acf.to_csv(csv_path)
+
+    plt_path = plot_dir / ("acf_default_lag.png")
+    plt.figure()
+    fig = tpl.plot_acf(x)
+    fig.savefig(plt_path)
+
+    plt_path = plot_dir / ("pacf.png")
+    plt.figure()
+    fig = tpl.plot_pacf(x)
+    fig.savefig(plt_path)
+
+    csv_path = data_dir / ("pacf.csv")
+    df_pacf = pd.DataFrame({'lags': lags_pacf, 'acf': _pacf})
+    df_pacf.set_index('lags', inplace=True)
+    df_pacf.to_csv(csv_path)
+
+    # detrened
+    detr_x = detrend(x, order=2)
+    plt_path = plot_dir / ("detrend_acf.png")
+    plt.figure()
+    fig = tpl.plot_acf(detr_x, lags=nlags)
+    fig.savefig(plt_path)
+
+    plt_path = plot_dir / ("detrend_acf_default_lag.png")
+    plt.figure()
+    fig = tpl.plot_acf(detr_x)
+    fig.savefig(plt_path)
+
+    plt_path = plot_dir / ("detrend_pacf.png")
+    plt.figure()
+    fig = tpl.plot_pacf(detr_x)
+    fig.savefig(plt_path)
+
+
 
