@@ -796,6 +796,38 @@ class MultivariateAutoRegressiveDataset(MultivariateDataset):
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
 
+class UnivariateRNNDataset(BaseDataset):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.features = [self.target]
+        self._xs = self._df[self.features]
+
+    def __getitem__(self, i: int):
+        """
+        get X, Y for given index `di`
+
+        Args:
+            di(datetime): datetime where output starts
+
+        Returns:
+            Tensor: transformed input (might be normalized)
+            Tensor: output without transform
+        """
+        x = self._xs.iloc[i:i+self.sample_size]
+        y0 = self._xs.iloc[i+self.sample_size-1]
+        y = self._ys.iloc[(i+self.sample_size)
+                           :(i+self.sample_size+self.output_size)]
+
+        # return X, Y, Y_dates
+        return np.squeeze(x).to_numpy().astype('float32'), \
+            y0.astype('float32'), \
+            np.squeeze(y).astype('float32'), \
+            self._dates[(i+self.sample_size)
+                         :(i+self.sample_size+self.output_size)]
+
+    def to_csv(self, fpath):
+        self._df.to_csv(fpath)
+
 class UnivariateMeanSeasonalityDataset(UnivariateDataset):
     def __init__(self, *args, **kwargs):
         #args -- tuple of anonymous arguments
