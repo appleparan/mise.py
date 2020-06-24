@@ -14,6 +14,7 @@ from sklearn import preprocessing
 
 import torch
 import torch.nn as nn
+from torch.nn.utils.rnn import pack_padded_sequence
 import torch.nn.functional as F
 from torch.utils.data import random_split, DataLoader
 from torch.utils.data import RandomSampler, SequentialSampler, BatchSampler
@@ -195,7 +196,7 @@ class DecoderRNN(nn.Module):
         # hidden = [n layers * n directions, batch size, hidden_size]
 
         prediction = self.out(hidden.squeeze(0))
-        #prediction = [1, batch size, hidden_size]
+        #prediction = [batch size, 1]
 
         # current hidden state is a input of next hidden state
         return prediction, hidden
@@ -260,6 +261,7 @@ class BaseSeq2SeqModel(LightningModule):
         # y  : [batch_size, output_size]
 
         # _x : [batch_size, sample_size, 1]
+        batch_size = x.shape[0]
         _x = x.unsqueeze(2)
         # last hidden state of the encoder is the context
         # hidden : [num_layers * num_direction, batch_size, hidden_size]
@@ -271,7 +273,8 @@ class BaseSeq2SeqModel(LightningModule):
         # x  : [batch_size, sample_size, 1]
         # y0 : [batch_size, 1]
         # y  : [batch_size, output_size]
-        outputs = torch.zeros(self.hparams.batch_size, self.hparams.output_size).to(device)
+
+        outputs = torch.zeros(batch_size, self.hparams.output_size).to(device)
 
         # iterate sequence
         # x[ei] : single value of PM10 or PM25
@@ -425,14 +428,14 @@ class BaseSeq2SeqModel(LightningModule):
         # single batch to dataframe
         # dataframe that index is starting date
         values, indicies = [], []
-        for _d, _y in zip(dates, ys):
+        for _d, _y in zip(dates.numpy(), ys):
             values.append(_y.cpu().detach().numpy())
             # just append single key date
             indicies.append(_d[0])
         _df_obs = pd.DataFrame(data=values, index=indicies, columns=cols)
 
         values, indicies = [], []
-        for _d, _y_hat in zip(dates, y_hats):
+        for _d, _y_hat in zip(dates.numpy(), y_hats):
             values.append(_y_hat.cpu().detach().numpy())
             # just append single key date
             indicies.append(_d[0])
