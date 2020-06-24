@@ -428,14 +428,14 @@ class BaseSeq2SeqModel(LightningModule):
         # single batch to dataframe
         # dataframe that index is starting date
         values, indicies = [], []
-        for _d, _y in zip(dates.numpy(), ys):
+        for _d, _y in zip(dates, ys):
             values.append(_y.cpu().detach().numpy())
             # just append single key date
             indicies.append(_d[0])
         _df_obs = pd.DataFrame(data=values, index=indicies, columns=cols)
 
         values, indicies = [], []
-        for _d, _y_hat in zip(dates.numpy(), y_hats):
+        for _d, _y_hat in zip(dates, y_hats):
             values.append(_y_hat.cpu().detach().numpy())
             # just append single key date
             indicies.append(_d[0])
