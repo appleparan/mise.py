@@ -21,6 +21,7 @@ from torch.utils.data.dataset import Dataset
 
 import statsmodels.api as sm
 import statsmodels.graphics.tsaplots as tpl
+from statsmodels.nonparametric.smoothers_lowess import lowess
 
 from constants import SEOUL_STATIONS, SEOULTZ
 
@@ -925,7 +926,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         self._df_h[self.target + "_raw"] = self._df_h[self.target]
         self._df_d[self.target + "_raw"] = self._df_d[self.target]
 
-        def periodic_mean(df, target, key, prefix_period, prefix_input, _dict_avg):
+        def periodic_mean(df, target, key, prefix_period, prefix_input, _dict_avg, smoothing=False):
             # if dictionary is empty, create new one
             if not _dict_avg:
                 # only compute on train/valid set
@@ -954,8 +955,20 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
 
                 sea = _dict_avg[target_key][datetime2key(index)]
                 res = row[target_key] - sea
+
                 df.at[index, target + '_' + prefix_period + 's'] = sea
                 df.at[index, target + '_' + prefix_period + 'r'] = res
+
+            if smoothing:
+                df[target + '_' + prefix_period + 's_raw'] = df[target + '_' + prefix_period + 's']
+
+                df[target + '_' + prefix_period + 's'] = lowess(
+                    df[target + '_' + prefix_period + 's_raw'], np.divide(df.index.astype('int'), 10e6), return_sorted=False, frac=0.05)
+                for index, row in df.iterrows():
+                    sea = row[target + '_' + prefix_period + 's']
+                    res = row[target_key] - sea
+
+                    df.at[index, target + '_' + prefix_period + 'r'] = res
 
             return _dict_avg
 
@@ -996,7 +1009,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         # remove (preassumed) seasonality
         # 1. Annual Seasonality (yymmdd: 010100 ~ 123123)
         self._dict_avg_annual = periodic_mean(
-            self._df_d, self.target, "key_year", "y", None, self._dict_avg_annual)
+            self._df_d, self.target, "key_year", "y", None, self._dict_avg_annual, smoothing=True)
         # 2. Weekly Seasonality (w: 0 ~ 6)
         self._dict_avg_weekly = periodic_mean(
             self._df_d, self.target, "key_week", "w", "yr", self._dict_avg_weekly)
@@ -1020,7 +1033,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
 
-    def plot_seasonality(self, data_dir, plot_dir, nlags=24*30):
+    def plot_seasonality(self, data_dir, plot_dir, nlags=24*30, smoothing=True):
         """
         Plot seasonality and residual, and their autocorrealtions
 
@@ -1047,7 +1060,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         df_year.set_index('date', inplace=True)
         df_year.to_csv(csv_path)
 
-        plt_path = plot_dir / ("annual_seasonality_daily_avg_" +
+        plt_path = plot_dir / ("annual_seasonality_daily_avg_s_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
 
@@ -1059,11 +1072,69 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
                                                    months="%m/%d %H:%M",
                                                    hours="%m/%d %H:%M",
                                                    minutes="%m/%d %H:%M")
-        p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2,
-                legend_label="seasonality")
-        p1.line(year_range_plt, yr, line_color="lightcoral", line_width=2,
-                legend_label="residual")
+        p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2)
         export_png(p1, filename=plt_path)
+
+        plt_path = plot_dir / ("annual_seasonality_daily_avg_r_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+        p1 = figure(title="Annual Residual")
+        p1.xaxis.axis_label = "dates"
+        p1.toolbar.logo = None
+        p1.toolbar_location = None
+        p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
+                                                   months="%m/%d %H:%M",
+                                                   hours="%m/%d %H:%M",
+                                                   minutes="%m/%d %H:%M")
+        p1.line(year_range_plt, yr, line_color="dodgerblue", line_width=2)
+        export_png(p1, filename=plt_path)
+
+        if smoothing:
+            plt_path = plot_dir / ("annual_seasonality_daily_avg_s(smooth)_" +
+                                   dt1.strftime("%Y%m%d%H") + "_" +
+                                   dt2.strftime("%Y%m%d%H") + ".png")
+            p1 = figure(title="Annual Seasonality(Smooth)")
+            p1.xaxis.axis_label = "dates"
+            p1.toolbar.logo = None
+            p1.toolbar_location = None
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
+                                                    months="%m/%d %H:%M",
+                                                    hours="%m/%d %H:%M",
+                                                    minutes="%m/%d %H:%M")
+            p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2)
+            export_png(p1, filename=plt_path)
+
+            plt_path = plot_dir / ("annual_seasonality_daily_avg_s(raw)_" +
+                                   dt1.strftime("%Y%m%d%H") + "_" +
+                                   dt2.strftime("%Y%m%d%H") + ".png")
+            p1 = figure(title="Annual Seasonality(Raw)")
+            p1.xaxis.axis_label = "dates"
+            p1.toolbar.logo = None
+            p1.toolbar_location = None
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
+                                                       months="%m/%d %H:%M",
+                                                       hours="%m/%d %H:%M",
+                                                       minutes="%m/%d %H:%M")
+            ys_raw = [self._df_d.loc[y, self.target + '_ys_raw'] for y in year_range]
+            p1.line(year_range_plt, ys_raw, line_color="dodgerblue", line_width=2)
+            export_png(p1, filename=plt_path)
+
+            plt_path = plot_dir / ("annual_seasonality_daily_avg_s(both)_" +
+                                   dt1.strftime("%Y%m%d%H") + "_" +
+                                   dt2.strftime("%Y%m%d%H") + ".png")
+            p1 = figure(title="Annual Seasonality(Smooth & Raw)")
+            p1.xaxis.axis_label = "dates"
+            p1.toolbar.logo = None
+            p1.toolbar_location = None
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
+                                                       months="%m/%d %H:%M",
+                                                       hours="%m/%d %H:%M",
+                                                       minutes="%m/%d %H:%M")
+            ys_raw = [self._df_d.loc[y, self.target + '_ys_raw'] for y in year_range]
+            p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2, legend_label="smooth")
+            p1.line(year_range_plt, ys_raw, line_color="lightcoral", line_width=2, legend_label="raw")
+            export_png(p1, filename=plt_path)
+
 
         ## autocorrelation
         dt2 = dt1 + dt.timedelta(hours=nlags)
@@ -1112,7 +1183,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         df_week.set_index('date', inplace=True)
         df_week.to_csv(csv_path)
 
-        plt_path = plot_dir / ("weekly_seasonality_daily_avg_" +
+        plt_path = plot_dir / ("weekly_seasonality_daily_avg_s_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
 
@@ -1122,10 +1193,19 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p2.xaxis.axis_label = "dates"
         p2.xaxis.formatter = DatetimeTickFormatter(
             days="%w")
-        p2.line(week_range_plt, ws, line_color="dodgerblue", line_width=2,
-                legend_label="seasonality")
-        p2.line(week_range_plt, wr, line_color="lightcoral", line_width=2,
-                legend_label="residual")
+        p2.line(week_range_plt, ws, line_color="dodgerblue", line_width=2)
+        export_png(p2, filename=plt_path)
+
+        plt_path = plot_dir / ("weekly_seasonality_daily_avg_r_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+        p2 = figure(title="Weekly Residual")
+        p2.toolbar.logo = None
+        p2.toolbar_location = None
+        p2.xaxis.axis_label = "dates"
+        p2.xaxis.formatter = DatetimeTickFormatter(
+            days="%w")
+        p2.line(week_range_plt, wr, line_color="lightcoral", line_width=2)
         export_png(p2, filename=plt_path)
 
         ## autocorrelation
@@ -1175,7 +1255,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         df_day.set_index('date', inplace=True)
         df_day.to_csv(csv_path)
 
-        plt_path = plot_dir / ("daily_seasonality_hourly_avg_" +
+        plt_path = plot_dir / ("daily_seasonality_hourly_avg_s_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
 
@@ -1184,10 +1264,18 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p3.toolbar_location = None
         p3.xaxis.axis_label = "dates"
         p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
-        p3.line(day_range_plt, ds, line_color="dodgerblue", line_width=2,
-                legend_label="seasonality")
-        p3.line(day_range_plt, dr, line_color="lightcoral", line_width=2,
-                legend_label="residual")
+        p3.line(day_range_plt, ds, line_color="dodgerblue", line_width=2)
+        export_png(p3, filename=plt_path)
+
+        plt_path = plot_dir / ("daily_seasonality_hourly_avg_r_" +
+                        dt1.strftime("%Y%m%d%H") + "_" +
+                        dt2.strftime("%Y%m%d%H") + ".png")
+        p3 = figure(title="Daily Residual")
+        p3.toolbar.logo = None
+        p3.toolbar_location = None
+        p3.xaxis.axis_label = "dates"
+        p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
+        p3.line(day_range_plt, dr, line_color="lightcoral", line_width=2)
         export_png(p3, filename=plt_path)
 
         ## autocorrelation
@@ -1531,8 +1619,6 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
-
-
 class UnivariateMeanSeasonalityAutoRegressiveSubDataset(UnivariateDataset):
     def __init__(self, *args, **kwargs):
         #args -- tuple of anonymous arguments
