@@ -1165,6 +1165,12 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p1.line(range(len(yr_acf)), yr_acf, line_color="lightcoral", line_width=2)
         export_png(p1, filename=plt_path)
 
+        plt_path = plot_dir / ("acf(tpl)_annual_seasonality_daily_avg_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+        fig = tpl.plot_acf(self._df_d.loc[:, self.target + '_yr'], lags=30)
+        fig.savefig(plt_path)
+
         # weekly
         dt1 = nextMonday(self.fdate)
         dt2 = dt1 + dt.timedelta(days=6)
@@ -1238,6 +1244,12 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p2.line(range(len(wr_acf)), wr_acf, line_color="lightcoral", line_width=2)
         export_png(p2, filename=plt_path)
 
+        plt_path = plot_dir / ("acf(tpl)_weekly_seasonality_daily_avg_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+        fig = tpl.plot_acf(self._df_d.loc[:, self.target + '_wr'], lags=30)
+        fig.savefig(plt_path)
+
         # daily
         dt1 = nextMidnight(self.fdate)
         dt2 = dt1 + dt.timedelta(hours=23)
@@ -1306,6 +1318,12 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p3.yaxis.bounds = (min(0, min(dr_acf)), 1.1)
         p3.line(range(len(dr_acf)), dr_acf, line_color="lightcoral", line_width=2)
         export_png(p3, filename=plt_path)
+
+        plt_path = plot_dir / ("acf(tpl)_daily_seasonality_hourly_avg_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+        fig = tpl.plot_acf(self._df_h.loc[:, self.target + '_dr'], lags=24*30)
+        fig.savefig(plt_path)
 
     @property
     def dict_avg_annual(self):
