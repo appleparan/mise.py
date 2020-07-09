@@ -39,7 +39,8 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def ml_rnn_uni_seq2seq(station_name="종로구"):
+
+def ml_rnn_uni_attention(station_name="종로구"):
     print("Start Univariate Seq2Seq Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
@@ -72,7 +73,7 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/RNNSeq2SeqUnivariate/" +
+        output_dir = Path("/mnt/data/RNNAttentionUnivariate/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
 
@@ -87,34 +88,36 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
             hparams = Namespace(
                 seq_size=sample_size,
                 input_size=1,
-                hidden_size=16,
+                hidden_size_enc=32,
+                hidden_size_dec=32,
                 output_size=output_size,
                 learning_rate=learning_rate,
                 sample_size=sample_size,
                 batch_size=batch_size)
-            model = BaseSeq2SeqModel(hparams=hparams,
-                                 station_name=station_name,
-                                 target=target,
-                                 features=["PM10"],
-                                 train_fdate=train_fdate, train_tdate=train_tdate,
-                                 test_fdate=test_fdate, test_tdate=test_tdate,
-                                 output_dir=output_dir)
+            model = BaseAttentionModel(hparams=hparams,
+                                     station_name=station_name,
+                                     target=target,
+                                     features=["PM10"],
+                                     train_fdate=train_fdate, train_tdate=train_tdate,
+                                     test_fdate=test_fdate, test_tdate=test_tdate,
+                                     output_dir=output_dir)
         elif target == 'PM25':
             hparams = Namespace(
                 seq_size=sample_size,
                 input_size=1,
-                hidden_size=16,
+                hidden_size_enc=32,
+                hidden_size_dec=32,
                 output_size=output_size,
                 learning_rate=learning_rate,
                 sample_size=sample_size,
                 batch_size=batch_size)
-            model = BaseSeq2SeqModel(hparams=hparams,
-                                 station_name=station_name,
-                                 target=target,
-                                 features=["PM25"],
-                                 train_fdate=train_fdate, train_tdate=train_tdate,
-                                 test_fdate=test_fdate, test_tdate=test_tdate,
-                                 output_dir=output_dir)
+            model = BaseAttentionModel(hparams=hparams,
+                                     station_name=station_name,
+                                     target=target,
+                                     features=["PM25"],
+                                     train_fdate=train_fdate, train_tdate=train_tdate,
+                                     test_fdate=test_fdate, test_tdate=test_tdate,
+                                     output_dir=output_dir)
         # first, plot periodicity
         # second, univariate or multivariate
 
@@ -143,42 +146,133 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
 
 
 class EncoderRNN(nn.Module):
+    """Encoder for Attention model
+    
+    Args: 
+        input_size : The number of expected features in the input x
+        hidden_size : The number of features in the hidden state h
 
+    Reference:
+        * Neural Machine Translation by Jointly Learning to Align and Translate, Bahdanau et al.
+        * https://github.com/bentrevett/pytorch-seq2seq
+    """
     def __init__(self, input_size, hidden_size):
         super().__init__()
         self.hidden_size = hidden_size
-        self.gru = nn.GRU(input_size, hidden_size)
+        # usually input_size == 1
+        # hidden_size is given at hparams
+
+        # GRU input 1 : (L, N, H_in) 
+        #       where L : seq_len, N : batch_size, H_in : input_size (usually 1), the number of input feature
+        #       however, batch_first=True, (N, L, H_in)
+        # GRU output 1 : (L, N, H_all) where H_all = num_directions (== 1 now) * hidden_size
+        # GRU output 2 : (S, N, H_out) wehre S : num_layers * num_directions, H_out : hidden_size
+        self.gru = nn.GRU(input_size, hidden_size, batch_first=True)
+
+        self.fc = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, _input):
-        # no embedding
-        # _input: [sample_size, batch_size, input_size]
-        # _input.permute(1, 0, 2):  [batch_size, sample_size, input_size]
-        outputs, hidden = self.gru(_input.permute(1, 0, 2))
+        """Encode _input
 
-        # outputs: [sample_size, batch_size, num_directions*hidden_size]
+        Args:
+            _input: [batch_size, sample_size, input_size]
+
+        Returns:
+            outputs: [batch_size, sample_size, hidden]
+            hidden: [batch_size, num_layers * num_direction, hidden_size]
+        """
+        # no embedding
+        # _input: [batch_size, sample_size, input_size]
+        outputs, _hidden = self.gru(_input)
+
+        # create context vector for attention by simple linear layer
+        # _hidden: [batch_size, num_layers * num_direction, hidden_size]
+        # hidden: [batch_size, num_layers * num_direction, hidden_size]
+        hidden = torch.tanh(self.fc(_hidden))
+
+        # outputs: [batch_size, sample_size, num_directions*hidden_size]
         # hidden: [num_layers * num_direction, batch_size, hidden_size]
         return outputs, hidden
 
-    def initHidden(self):
-        return torch.zeros(1, 1, self.hidden_size, device=device)
+
+class Attention(nn.Module):
+    """ Attention Layer merging Encoder and Decoder
+
+    
+    Args:
+        hidden_size_enc
+        hidden_size_dec
+
+    Reference:
+        * https://github.com/bentrevett/pytorch-seq2seq
+    """
+    def __init__(self, hidden_size_enc, hidden_size_dec):
+        super().__init__()
+        # input: previous hidden state of decoder +
+        #   hidden state of encoder
+        # output: attention vector; length of source sentence
+        self.attn = nn.Linear(hidden_size_enc +
+                              hidden_size_dec, hidden_size_dec)
+        self.v = nn.Linear(hidden_size_dec, 1, bias=False)
+
+    def forward(self, hidden, encoder_outputs):
+        """
+        Args:
+            hidden: previous hidden state of the decoder [batch_size, hidden_size_dec]
+            encoder_outputs: outputs of encoder  [batch_size, sample_size, num_directions*hidden_size]
+        """
+        # hidden: [num_layers * num_direction, batch_size, hidden_size]
+        # encoder_outputs = [batch_size, sample_size, num_directions*hidden_size_enc]
+        # encoder_outputs: tensor containing the output features h_t from the 'last layer' of the GRU
+        batch_size = encoder_outputs.shape[0]
+        sample_size = encoder_outputs.shape[1]
+
+        # repeat decoder hidden state to sample_size times to compute energy with encoder_outputs
+        # hidden = [num_layers * num_direction, batch_size, hidden_size]
+        # ignore num_layers and num_direction (already 1)
+        hidden = hidden.squeeze(0)
+
+        # hidden = [batch size, sample_size, hidden_size_dec]
+        hidden = hidden.unsqueeze(1).repeat(1, sample_size, 1)
+
+        # encoder_outputs = [batch size, sample_size, num_directions*hidden_size_enc]
+        # energy: [batch size, sample_size, hidden_size_dec]
+        energy = torch.tanh(
+            self.attn(torch.cat((hidden, encoder_outputs), dim=2)))
+
+        # energy = [batch size, sample_size, hidden_size_dec]
+        attention = self.v(energy).squeeze(2)
+
+        # attention = [batch size, sample_size]
+        return F.softmax(attention, dim=1)
 
 
 class DecoderRNN(nn.Module):
-    def __init__(self, hidden_size, output_size):
+    """
+        Reference: https://github.com/bentrevett/pytorch-seq2seq
+    """
+
+    def __init__(self, output_size, hidden_size_enc, hidden_size_dec, attention):
         super().__init__()
-        self.hidden_size = hidden_size
+        self.hidden_size_enc = hidden_size_enc
+        self.hidden_size_dec = hidden_size_dec
+        # decoder's initial hidden state is encoder's last hidden state
+        assert hidden_size_enc == hidden_size_dec
         self.output_size = output_size
+        self.attention = attention
 
         # no embedding -> GRU input size is 1
-        self.gru = nn.GRU(1, hidden_size)
-        self.out = nn.Linear(hidden_size, 1)
+        self.gru = nn.GRU(hidden_size_enc + 1, hidden_size_dec)
+        self.out = nn.Linear(hidden_size_enc + 1 + hidden_size_dec, 1)
 
-    def forward(self, _input, hidden):
+    def forward(self, _input, hidden, encoder_outputs):
         """
+        Args:
             _input: [L, N, H_in] : (seq_len, batch_size, hidden_size)
-            hidden: [num_layers * num_direction, batch_size, hidden_size]
-            output : (seq_len, batch, num_directions * hidden_size)
-        https://github.com/bentrevett/pytorch-seq2seq/blob/master/2%20-%20Learning%20Phrase%20Representations%20using%20RNN%20Encoder-Decoder%20for%20Statistical%20Machine%20Translation.ipynb
+            hidden: previous hidden state of the decoder [batch_size, hidden_size_dec]
+            encoder_outputs: outputs of encoder  [batch_size, sample_size, num_directions*hidden_size_enc]
+        
+        https://github.com/bentrevett/pytorch-seq2seq
         Decoder : hidden state + context vector as input
         """
         # first input is output of key_date (where output starts)
@@ -186,29 +280,57 @@ class DecoderRNN(nn.Module):
         # we just truncated to output_size
 
         # no embeding
-        # [batch_size, 1] -> [1, batch_size, 1]
+        # [batch_size, hidden_size_enc] -> [1, batch_size, hidden_size_enc]
         _input = _input.unsqueeze(0)
 
+        # [batch size, sample_size]
+        a = self.attention(hidden, encoder_outputs)
+        
+        # [batch size, 1, sample_size]
+        a = a.unsqueeze(1)
+
+        # encoder_outputs: [batch size, sample_size, hidden_size_enc]
+        #encoder_outputs = encoder_outputs.permute(1, 0, 2)
+
+        # batch matrix multiplication for score function
+        # a = [batch size, 1, sample_size]
+        # encoder_outputs = [batch size, sample_size, hidden_size_enc]
+        # matrix multiplication -> 1xsample_size * sample_sizexhidden_size_enc
+        # weighted: [batch_size, 1, hidden_size_enc]
+        weighted = torch.bmm(a, encoder_outputs)
+
+        # weighted: [1, batch size, hidden_size_enc]
+        weighted = weighted.permute(1, 0, 2)
+
+        # _input: [1, batch_size, hidden_size_enc]
+        # weighted: [1, batch size, hidden_size_enc]
+        # rnn_input: [1, batch_size, hidden_size_enc + hidden_size_dec]
+        rnn_input = torch.cat((_input, weighted), dim = 2)
+
         # do rnn with hidden state (initial hidden state = hidden state from encoder)
-        output, hidden = self.gru(_input, hidden)
+        # rnn_input: [1, batch_size, hidden_size_enc + hidden_size_dec]
+        # output: [1, batch_size, hidden_size_dec]
+        # hidden: [1, batch_size, hidden_size_dec]
+        output, hidden = self.gru(rnn_input, hidden)
+        
+        assert (output == hidden).all()
 
-        # output = [1, batch size, hid dim * n directions]
-        # hidden = [n layers * n directions, batch size, hidden_size]
-
-        prediction = self.out(hidden.squeeze(0))
-        #prediction = [batch size, 1]
+        # prediction: [batch size, 1]
+        prediction = self.out(
+            torch.cat((output.squeeze(0), weighted.squeeze(0), _input.squeeze(0)), dim=1))
 
         # current hidden state is a input of next hidden state
         return prediction, hidden
 
 
-class BaseSeq2SeqModel(LightningModule):
+class BaseAttentionModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get('hparams', Namespace(
             seq_size=48,
             input_size=1,
-            hidden_size=16,
+            hidden_size_enc=16,
+            hidden_size_dec=32,
             output_size=24,
             learning_rate=1e-3,
             sample_size=48,
@@ -249,11 +371,11 @@ class BaseSeq2SeqModel(LightningModule):
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
 
         self.encoder = EncoderRNN(
-            self.hparams.input_size, self.hparams.hidden_size)
+            self.hparams.input_size, self.hparams.hidden_size_enc)
+        self.attention = Attention(
+            self.hparams.hidden_size_enc, self.hparams.hidden_size_dec)
         self.decoder = DecoderRNN(
-            self.hparams.hidden_size, self.hparams.output_size)
-        assert self.encoder.hidden_size == self.decoder.hidden_size, \
-            "Hidden dimensions of encoder and decoder must be equal!"
+            self.hparams.output_size, self.hparams.hidden_size_enc, self.hparams.hidden_size_dec, self.attention)
 
     def forward(self, x, y0, y):
         # x  : [batch_size, sample_size]
@@ -264,8 +386,8 @@ class BaseSeq2SeqModel(LightningModule):
         batch_size = x.shape[0]
         _x = x.unsqueeze(2)
         # last hidden state of the encoder is the context
-        # hidden : [num_layers * num_direction, batch_size, hidden_size]
-        _, hidden = self.encoder(_x)
+        # hidden : [num_layers * num_direction, batch_size, hidden_size_enc]
+        encoder_outputs, hidden = self.encoder(_x)
 
         # first input to the decoder is the first output of y
         _input = y0
@@ -273,13 +395,12 @@ class BaseSeq2SeqModel(LightningModule):
         # x  : [batch_size, sample_size, 1]
         # y0 : [batch_size, 1]
         # y  : [batch_size, output_size]
-
         outputs = torch.zeros(batch_size, self.hparams.output_size).to(device)
 
         # iterate sequence
         # x[ei] : single value of PM10 or PM25
         for t in range(self.hparams.output_size + 1):
-            output, hidden = self.decoder(_input, hidden)
+            output, hidden = self.decoder(_input, hidden, encoder_outputs)
 
             if t > 0:
                 # skip initial result
