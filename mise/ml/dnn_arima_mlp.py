@@ -389,15 +389,20 @@ class BaseDNNModel(LightningModule):
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
         data: list of tuple  (x, y, dates).
-            - xa: pandas DataFrame or numpy of shape (input_size, num_features);
-            - xm: pandas DataFrame or numpy of shape (input_size, num_features);
-            - y: pandas DataFrame or numpy of shape (output_size);
-            - date: pandas DateTimeIndex of shape (output_size):
+            - xas: pandas DataFrame or numpy of shape (input_size, num_features);
+            - yas: pandas DataFrame or numpy of shape (input_size, num_features);
+            - xms: pandas DataFrame or numpy of shape (input_size, num_features);
+            - xmi: integer
+            - ys: pandas DataFrame or numpy of shape (output_size);
+            - dates: pandas DateTimeIndex of shape (output_size):
 
         Returns:
-            - xs: torch Tensor of shape (batch_size, input_size, num_features);
-            - ys: torch Tensor of shape (batch_size, output_size);
-            - dates: pandas DateTimeIndex of shape (batch_size, output_size):
+            - xas: torch Tensor of shape (batch_size, input_size, num_features);
+            - Yas: torch Tensor of shape (batch_size, input_size, num_features);
+            - xms: torch Tensor of shape (batch_size, input_size, num_features);
+            - xmi: integer
+            - ys: pandas DataFrame or numpy of shape (output_size);
+            - dates: pandas DateTimeIndex of shape (output_size):
         """
 
         # seperate source and target sequences
@@ -469,6 +474,7 @@ def plot_corr(hparams, df_obs, df_sim, output_dir, fname_prefix):
     plt.close()
 
     df_corrs = pd.DataFrame({'time': times, 'corr': corrs})
+    df_corrs.set_index('time', inplace=True)
     df_corrs.to_csv(output_dir / csv_fname)
 
 

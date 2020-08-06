@@ -1,11 +1,14 @@
 import datetime as dt
-import random
-from pathlib import Path
+from functools import reduce
 import hashlib
+from pathlib import Path
+import random
+from typing import TypeVar, Iterable, Tuple, Union
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
 from tqdm import tqdm
 
 from statsmodels.tsa.arima_model import ARIMA
@@ -23,7 +26,13 @@ import statsmodels.api as sm
 import statsmodels.graphics.tsaplots as tpl
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
+from sklearn.preprocessing import StandardScaler
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+
 from constants import SEOUL_STATIONS, SEOULTZ
+import utils
 
 def load(filepath="/input/input.csv", datecol=[1]):
     # date column in raw data : 1
@@ -49,14 +58,12 @@ def load_imputed(filepath="/input/input.csv", datecol=[0]):
     # prints
     pd.set_option('display.max_rows', 10)
     pd.reset_option('display.max_rows')
-    print(df.head(10))
 
     return df
 
 def load_station(df, code=111123):
     #return df[df['stationCode'] == code]
     return df.query('stationCode == "' + str(code) + '"')
-
 
 class BaseDataset(Dataset):
     def __init__(self, *args, **kwargs):
@@ -90,7 +97,8 @@ class BaseDataset(Dataset):
         self._df = raw_df.query('stationCode == "' +
                                 str(SEOUL_STATIONS[self.station_name]) + '"')
         self._df.reset_index(level='stationCode', drop=True, inplace=True)
-        # filter by date
+
+        # filter by date range including train date
         # i is a start of output, so prepare sample_size
         self._df = self._df[self.fdate -
                             dt.timedelta(hours=self.sample_size):self.tdate]
@@ -130,7 +138,7 @@ class BaseDataset(Dataset):
 
         # return X, Y, Y_dates
         return self._scaler.transform(x).astype('float32'), \
-            np.reshape(y.to_numpy(), len(y)).astype('float32'), \
+            np.squeeze(y).astype('float32'), \
             self._dates[(i+self.sample_size)
                          :(i+self.sample_size+self.output_size)]
 
@@ -185,8 +193,7 @@ class MultivariateDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-
-class UnivariateDataset(BaseDataset):
+class MultivariateRNNDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.features = [self.target]
@@ -204,18 +211,19 @@ class UnivariateDataset(BaseDataset):
             Tensor: output without transform
         """
         x = self._xs.iloc[i:i+self.sample_size]
+        y0 = self._xs.iloc[i+self.sample_size-1]
         y = self._ys.iloc[(i+self.sample_size)
                            :(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
         return np.squeeze(x).to_numpy().astype('float32'), \
+            y0.astype('float32'), \
             np.squeeze(y).astype('float32'), \
             self._dates[(i+self.sample_size)
                          :(i+self.sample_size+self.output_size)]
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
-
 
 class MultivariateMeanSeasonalityDataset(MultivariateDataset):
     def __init__(self, *args, **kwargs):
@@ -796,6 +804,80 @@ class MultivariateAutoRegressiveDataset(MultivariateDataset):
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
+
+class UnivariateDataset(BaseDataset):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.features = [self.target]
+        self._xs = self._df[self.features]
+
+    def __getitem__(self, i: int):
+        """
+        get X, Y for given index `di`
+
+        Args:
+            di(datetime): datetime where output starts
+
+        Returns:
+            Tensor: transformed input (might be normalized)
+            Tensor: output without transform
+        """
+        x = self._xs.iloc[i:i+self.sample_size]
+        y = self._ys.iloc[(i+self.sample_size)
+                           :(i+self.sample_size+self.output_size)]
+
+        # return X, Y, Y_dates
+        return np.squeeze(x).to_numpy().astype('float32'), \
+            np.squeeze(y).astype('float32'), \
+            self._dates[(i+self.sample_size)
+                         :(i+self.sample_size+self.output_size)]
+
+    def to_csv(self, fpath):
+        self._df.to_csv(fpath)
+
+
+class UnivariateMeanSeasonalityDataset2(BaseDataset):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.features = [self.target]
+        self._xs = self._df[self.features]
+        # self._xs must not be available when creating instance so no kwargs for scaler
+        self._scaler = kwargs.get('scaler',
+            Pipeline([
+            ('Seasonality', SeasonalityDecompositor(target=self.target)),
+            ('StandardScaler', StandardScaler())]))
+        self._fit_scaler = kwargs.get('fit_scaler', False)
+        if self._fit_scaler:
+            self._scaler.fit(self._xs)
+
+    def __getitem__(self, i: int):
+        """
+        get X, Y for given index `di`
+
+        Args:
+            di(datetime): datetime where output starts
+
+        Returns:
+            Tensor: transformed input (might be normalized)
+            Tensor: output without transform
+        """
+        x = self._xs.iloc[i:i+self.sample_size]
+        y = self._ys.iloc[(i+self.sample_size)
+                           :(i+self.sample_size+self.output_size)]
+
+        # return X, Y, Y_dates
+        return np.squeeze(x).to_numpy().astype('float32'), \
+            np.squeeze(y).astype('float32'), \
+            self._dates[(i+self.sample_size)
+                         :(i+self.sample_size+self.output_size)]
+
+    def plot_seasonality(self, data_dir, plot_dir):
+        self._scaler['Seasonality'].plot(self._xs, self.target,
+                self.fdate, self.tdate, data_dir, plot_dir)
+
+    def to_csv(self, fpath):
+        self._df.to_csv(fpath)
+
 
 class UnivariateRNNDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
@@ -1637,6 +1719,7 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
+
 class UnivariateMeanSeasonalityAutoRegressiveSubDataset(UnivariateDataset):
     def __init__(self, *args, **kwargs):
         #args -- tuple of anonymous arguments
@@ -2124,6 +2207,529 @@ class UnivariateMeanSeasonalityAutoRegressiveSubDataset(UnivariateDataset):
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
 
+class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
+    def __init__(self, target='target', sea_annual=None,
+        sea_weekly=None, sea_hourly=None, smoothing=True):
+        """seasonality data initialization for test data (key-value structure)
 
-def run_arima(df, o):
-    pass
+        Args:
+            sea_annual: dict
+            sea_weekly: dict
+            sea_hourly: dict
+            smoothing: bool
+
+            * test data get input from train data rather than fit itself
+
+        * key format
+            * _sea_annual : YYMMDD: string (zero-padded)
+            * _sea_week : W: integer
+            * _sea_hour : HH: string (zero-padded)
+        """
+        self.target = target
+        self._sea_annual = sea_annual
+        self._sea_weekly = sea_weekly
+        self._sea_hourly = sea_hourly
+        #self._sea_annual_smooth = sea_annual_smooth
+
+    def fit(self, X_h, y=None):
+        """Compute seasonality,
+        Computed residuals in `fit` will be dropped.
+        In  `transform` residuals are computed again from seasonality from `fit`
+
+        Args:
+            X_h: DataFrame which have datetime as index
+
+        Return:
+            None
+        """
+        if X_h[self.target].isnull().values.any():
+            raise Exception(
+                'Invalid data in {} column, NULL value found'.format(self.target))
+
+        X_d = X_h.resample('D').mean()
+
+        # 1. Annual Seasonality (mmdd: 0101 ~ 1231)
+        # dictionary for key (mmdd) to value (daily average)
+        self._sea_annual, sea_annual, resid_annual = utils.periodic_mean(
+            X_d, self.target, 'y', self._sea_annual, smoothing=False)
+
+        if '0229' not in self._sea_annual:
+            raise KeyError("You must include leap year in train data")
+
+        # 2. Weekly Seasonality (w: 0 ~ 6)
+        # dictionary for key (w: 0~6) to value (daily average)
+        # Weekly seasonality computes seasonality from annual residaul
+        self._sea_weekly, sea_weekly, resid_weekly = utils.periodic_mean(
+            resid_annual, 'resid', 'w', self._sea_weekly)
+
+        # 3. Daily Seasonality (hh: 00 ~ 23)
+        # join seasonality to original X_h DataFrame
+        # populate residuals from daily averaged data to hourly data
+
+        # residuals are daily index, so populate to hourly
+
+        # 3.1. Add hourly keys to hourly DataFrame
+
+        ## Populate daily averaged to hourly data
+        ## 1. resid_weekly has residuals by daily data
+        ## 2. I want populate resid_weekly to hourly data which means residuals are copied to 2r hours
+        ## 3. That means key should be YYYYMMDD
+        def key_ymd(df): return [''.join(row) for row in zip(
+            np.char.zfill(df.index.year.to_numpy().astype(str), 4),
+            np.char.zfill(df.index.month.to_numpy().astype(str), 2),
+            np.char.zfill(df.index.day.to_numpy().astype(str), 2))]
+
+        resid_weekly['key_ymd'] = key_ymd(resid_weekly)
+        #X_h['key_h'] = utils.parse_key(X_h, 'h')
+        X_h.insert(X_h.shape[1], 'key_ymd', key_ymd(X_h))
+        # there shouldn't be 'resid' column in X_h -> no suffix for 'resid'
+
+        X_h_res_pop = resid_weekly.merge(X_h, how='left',
+            on='key_ymd', left_index=True, validate="1:m").dropna()
+
+        # 3.2. check no missing values
+        if len(X_h_res_pop.index) != len(X_h.index):
+            raise Exception(
+                "Merge Error: something missing when populate daily averaged DataFrame")
+
+        # 3.3 Compute seasonality
+        self._sea_hourly, sea_hourly, resid_hourly = utils.periodic_mean(
+            X_h_res_pop, 'resid', 'h', self._sea_hourly)
+
+    def transform(self, X: pd.DataFrame):
+        """Recompute residual by subtracting seasonality from X
+
+        Args:
+            X (pd.DataFrame):
+                Single column DataFrame, must have DataTimeIndex to get dates
+
+        Returns:
+            None
+
+        """
+        X.columns = 'raw'
+        X['key_y'] = utils.parse_key(X, 'y')
+        X['key_w'] = utils.parse_key(X, 'w')
+        X['key_h'] = utils.parse_key(X, 'h')
+
+        resid = X['raw'] - \
+            self._sea_annual[X['key_y']] - \
+            self._sea_weekly[X['key_w']] - \
+            self._sea_hourly[X['key_h']]
+
+        return resid
+
+    def inverse_transform(self, X: pd.DataFrame):
+        """Compose value from residuals
+        If smoothed annual seasonality is used,
+        compsed value might be different with original value
+
+        Args:
+            X (pd.DataFrame):
+                Single column DataFrame, must have DataTimeIndex to get dates
+
+        Returns:
+            raw (pd.DataFrame):
+
+
+        """
+        X.columns = 'resid'
+
+        X['key_y'] = utils.parse_key(X, 'y')
+        X['key_w'] = utils.parse_key(X, 'w')
+        X['key_h'] = utils.parse_key(X, 'h')
+
+        raw = X['resid'] + \
+            self._sea_annual[X['key_y']] + \
+            self._sea_weekly[X['key_w']] + \
+            self._sea_hourly[X['key_h']]
+
+        return raw
+
+    # utility functions
+    def ydt2key(self, d): return str(d.astimezone(SEOULTZ).month).zfill(
+            2) + str(d.astimezone(SEOULTZ).day).zfill(2)
+    def wdt2key(self, d): return str(d.astimezone(SEOULTZ).weekday())
+    def hdt2key(self, d): return str(d.astimezone(SEOULTZ).hour).zfill(2)
+    def confint_idx(self, acf, confint):
+        for i, (a, [c1, c2]) in enumerate(zip(acf, confint)):
+            if c1 - a < a and a < c2 - a:
+                return i
+
+    def plot_annual(self, df, target, data_dir, plot_dir,
+        target_year=2016, smoothing=True):
+        #def nextNewyearDay(_date): return _date.replace(
+        #    year=_date.year+1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        def nextNewyearDay(year): return _date.replace(
+            year=year+1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # annual (pick 1 year)
+        dt1 = dt.datetime(year=target_year, month=1, day=1, hour=0)
+        dt2 = dt.datetime(year=target_year, month=12, day=31, hour=23)
+        year_range = pd.date_range(start=dt1, end=dt2, tz=SEOULTZ).tolist()
+        year_range_plt = pd.DatetimeIndex([i.replace(tzinfo=None) for i in pd.date_range(
+            start=dt1, end=dt2, tz=SEOULTZ)])
+
+        # if not smoothing, just use predecomposed seasonality
+        ys = [self._sea_annual[self.ydt2key(y)] for y in year_range]
+        if smoothing:
+            _sea_annual_nonsmooth, _, _ = \
+                utils.periodic_mean(df, target, 'y', None, smoothing=False)
+            # if smoothing, predecomposed seasonality is already smoothed, so redecompose
+            ys_vanilla = [_sea_annual_nonsmooth[self.ydt2key(y)] for y in year_range]
+            ys_smooth = [self._sea_annual[self.ydt2key(y)] for y in year_range]
+
+        csv_path = data_dir / ("annual_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".csv")
+        df_year = pd.DataFrame.from_dict(
+            {'date': year_range, 'ys': ys})
+        if smoothing:
+            df_year = pd.DataFrame.from_dict(
+                {'date': year_range, 'ys_vanilla': ys_vanilla, 'ys_smooth': ys_smooth})
+        df_year.set_index('date', inplace=True)
+        df_year.to_csv(csv_path)
+
+        plt_path = plot_dir / ("annual_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+
+        p1 = figure(title="Annual Seasonality")
+        p1.xaxis.axis_label = "dates"
+        p1.toolbar.logo = None
+        p1.toolbar_location = None
+        p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
+                                                   months="%m/%d %H:%M",
+                                                   hours="%m/%d %H:%M",
+                                                   minutes="%m/%d %H:%M")
+        p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2)
+        export_png(p1, filename=plt_path)
+
+        if smoothing:
+            # 1. smooth
+            plt_path = plot_dir / ("annual_seasonality_(smooth)_" +
+                                   dt1.strftime("%Y%m%d%H") + "_" +
+                                   dt2.strftime("%Y%m%d%H") + ".png")
+            p1 = figure(title="Annual Seasonality(Smooth)")
+            p1.xaxis.axis_label = "dates"
+            p1.toolbar.logo = None
+            p1.toolbar_location = None
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
+                                                       months="%m/%d %H:%M",
+                                                       hours="%m/%d %H:%M",
+                                                       minutes="%m/%d %H:%M")
+            p1.line(year_range_plt, ys_smooth, line_color="dodgerblue", line_width=2)
+            export_png(p1, filename=plt_path)
+
+            # 2. vanila
+            plt_path = plot_dir / ("annual_seasonality_(vanilla)_" +
+                                   dt1.strftime("%Y%m%d%H") + "_" +
+                                   dt2.strftime("%Y%m%d%H") + ".png")
+            p1 = figure(title="Annual Seasonality(Raw)")
+            p1.xaxis.axis_label = "dates"
+            p1.toolbar.logo = None
+            p1.toolbar_location = None
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
+                                                       months="%m/%d %H:%M",
+                                                       hours="%m/%d %H:%M",
+                                                       minutes="%m/%d %H:%M")
+            p1.line(year_range_plt, ys_vanilla, line_color="dodgerblue", line_width=2)
+            export_png(p1, filename=plt_path)
+
+            # 3. smooth + vanila
+            plt_path = plot_dir / ("annual_seasonality_(both)_" +
+                                   dt1.strftime("%Y%m%d%H") + "_" +
+                                   dt2.strftime("%Y%m%d%H") + ".png")
+            p1 = figure(title="Annual Seasonality(Smooth & Vanilla)")
+            p1.xaxis.axis_label = "dates"
+            p1.toolbar.logo = None
+            p1.toolbar_location = None
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
+                                                       months="%m/%d %H:%M",
+                                                       hours="%m/%d %H:%M",
+                                                       minutes="%m/%d %H:%M")
+            p1.line(year_range_plt, ys_smooth, line_color="dodgerblue",
+                    line_width=2, legend_label="smooth")
+            p1.line(year_range_plt, ys_vanilla, line_color="lightcoral",
+                    line_width=2, legend_label="vanilla")
+            export_png(p1, filename=plt_path)
+
+    def plot_annual_acf(self, df, target, fdate, tdate, data_dir, plot_dir,
+        target_year=2016, nlags=15, smoothing=True):
+        ## residual autocorrelation by tsa.acf
+        dt1 = fdate.replace(hour=0, minute=0, second=0)
+        dt2 = tdate.replace(hour=0, minute=0, second=0)
+        year_range = pd.date_range(start=dt1, end=dt2, freq='D').tz_convert(SEOULTZ).tolist()
+        yr = [df.loc[y][target] -
+              self._sea_annual[self.ydt2key(y)] for y in year_range]
+
+        # 95% confidance intervals
+        yr_acf, confint, qstat, pvalues = sm.tsa.acf(yr, qstat=True, alpha=0.05, nlags=nlags)
+
+        # I need "hours" as unit, so multiply 24
+        int_scale = sum(yr_acf[0:self.confint_idx(yr_acf, confint)]) * 24
+        print("Annual Int Scale : ", int_scale)
+        print("Annual qstat : ", qstat)
+        print("Annual pvalues : ", pvalues)
+
+        csv_path = data_dir / ("acf_annual_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".csv")
+        df_year_acf = pd.DataFrame.from_dict(
+            {'lags': [i*24 for i in range(len(yr_acf))], 'yr_acf': yr_acf})
+        df_year_acf.set_index('lags', inplace=True)
+        df_year_acf.to_csv(csv_path)
+
+        plt_path = plot_dir / ("acf_annual_seasonalityy_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+        p1 = figure(title="Autocorrelation of Annual Residual")
+        p1.toolbar.logo = None
+        p1.toolbar_location = None
+        p1.xaxis.axis_label = "lags"
+        p1.yaxis.bounds = (min(0, min(yr_acf)), 1.1)
+        p1.line([i*24 for i in range(len(yr_acf))], yr_acf,
+                line_color="lightcoral", line_width=2)
+        export_png(p1, filename=plt_path)
+
+        ## residual autocorrelation by plot_acf
+        plt_path = plot_dir / ("acf(tpl)_annual_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+        fig = tpl.plot_acf(yr, lags=30)
+        fig.savefig(plt_path)
+
+    def plot_weekly(self, df, target, data_dir, plot_dir,
+        target_year=2016, target_week=10):
+
+        # Set datetime range
+        target_dt_str = str(target_year) + ' ' + str(target_week)
+        ## ISO 8601 starts weekday from Monday (1)
+        dt1 = dt.datetime.strptime(target_dt_str + ' 1', "%Y %W %w")
+        ## ISO 8601 ends weekday to Sunday (0)
+        dt2 = dt.datetime.strptime(target_dt_str + ' 0', "%Y %W %w")
+        ## set dt2 time as Sunday 23:59
+        dt2 = dt2.replace(hour=23, minute=59)
+        week_range = pd.date_range(
+            start=dt1, end=dt2, freq='D', tz=SEOULTZ).tolist()
+        week_range_plt = pd.DatetimeIndex([i.replace(tzinfo=None) for i in pd.date_range(
+            start=dt1, end=dt2, tz=SEOULTZ)])
+
+        # Compute Weekly seasonality
+        ws = [self._sea_weekly[self.wdt2key(w)] for w in week_range]
+
+        csv_path = data_dir / ("weekly_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".csv")
+        df_week = pd.DataFrame.from_dict(
+            {'date': week_range, 'ws': ws})
+        df_week.set_index('date', inplace=True)
+        df_week.to_csv(csv_path)
+
+        plt_path = plot_dir / ("weekly_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+
+        p2 = figure(title="Weekly Seasonality")
+        p2.toolbar.logo = None
+        p2.toolbar_location = None
+        p2.xaxis.axis_label = "dates"
+        p2.xaxis.formatter = DatetimeTickFormatter(
+            days="%w")
+        p2.line(week_range_plt, ws, line_color="dodgerblue", line_width=2)
+        export_png(p2, filename=plt_path)
+
+    def plot_weekly_acf(self, df, target, fdate, tdate, data_dir, plot_dir,
+        target_year=2016, target_week=10, nlags=15):
+        """
+            Residual autocorrelation by tsa.acf
+        """
+        # Set datetime range
+        target_dt_str = str(target_year) + ' ' + str(target_week)
+        dt1 = fdate.replace(hour=0, minute=0, second=0)
+        dt2 = tdate.replace(hour=0, minute=0, second=0)
+        week_range = pd.date_range(
+            start=dt1, end=dt2, freq='D').tz_convert(SEOULTZ).tolist()
+
+        wr = [df.loc[w][target] -
+              self._sea_weekly[self.wdt2key(w)] for w in week_range]
+        print(len(wr))
+        wr_acf, confint, qstat, pvalues = sm.tsa.acf(wr, qstat=True, alpha=0.05, nlags=nlags)
+
+        # I need "hours" as unit, so multiply 24
+        int_scale = sum(wr_acf[0:self.confint_idx(wr_acf, confint)]) * 24
+        print("Weekly Int Scale : ", int_scale)
+        print("Weekly qstat : ", qstat)
+        print("Weekly pvalues : ", pvalues)
+
+        csv_path = data_dir / ("acf_weekly_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".csv")
+        df_week_acf = pd.DataFrame.from_dict(
+            {'lags': [i*24 for i in range(len(wr_acf))], 'wr_acf': wr_acf})
+        df_week_acf.set_index('lags', inplace=True)
+        df_week_acf.to_csv(csv_path)
+
+        plt_path = plot_dir / ("acf_weekly_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+        p2 = figure(title="Autocorrelation of Weekly Residual")
+        p2.toolbar.logo = None
+        p2.toolbar_location = None
+        p2.xaxis.axis_label = "lags"
+        p2.yaxis.bounds = (min(0, min(wr_acf)), 1.1)
+        p2.line([i*24 for i in range(len(wr_acf))], wr_acf,
+                line_color="lightcoral", line_width=2)
+        export_png(p2, filename=plt_path)
+
+        ## residual autocorrelation by plot_acf
+        plt_path = plot_dir / ("acf(tpl)_weekly_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+        fig = tpl.plot_acf(wr, lags=30)
+        fig.savefig(plt_path)
+
+    def plot_hourly(self, df, target, data_dir, plot_dir,
+                    target_year=2016, target_month=5, target_day=1):
+
+        dt1 = dt.datetime(year=target_year, month=target_month, day=target_day,
+            hour=0)
+        dt2 = dt.datetime(year=target_year, month=target_month, day=target_day,
+            hour=23)
+        hour_range = pd.date_range(dt1, dt2, freq="1H", tz=SEOULTZ).tolist()
+        hour_range_plt = pd.DatetimeIndex([i.replace(tzinfo=None) for i in pd.date_range(
+            start=dt1, end=dt2, freq='1H', tz=SEOULTZ)]).tolist()
+
+        # Compute Hourly seasonality
+        hs = [self._sea_hourly[self.hdt2key(h)] for h in hour_range]
+
+        csv_path = data_dir / ("hourly_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".csv")
+        df_hour = pd.DataFrame.from_dict(
+            {'date': hour_range, 'hs': hs})
+        df_hour.set_index('date', inplace=True)
+        df_hour.to_csv(csv_path)
+
+        plt_path = plot_dir / ("hourly_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+
+        p3 = figure(title="Hourly Seasonality")
+        p3.toolbar.logo = None
+        p3.toolbar_location = None
+        p3.xaxis.axis_label = "dates"
+        p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
+        p3.line(hour_range_plt, hs, line_color="dodgerblue", line_width=2)
+        export_png(p3, filename=plt_path)
+
+    def plot_hourly_acf(self, df, target, fdate, tdate, data_dir, plot_dir,
+                        target_year=2016, target_month=5, target_day=1, nlags=24*15):
+
+        dt1 = fdate
+        dt2 = tdate
+        hour_range = pd.date_range(
+            dt1, dt2, freq="1H").tz_convert(SEOULTZ).tolist()
+
+        hr = [df.loc[h][target] -
+              self._sea_hourly[self.hdt2key(h)] for h in hour_range]
+        hr_acf, confint, qstat, pvalues = sm.tsa.acf(hr, qstat=True, alpha=0.05, nlags=nlags)
+
+        int_scale = sum(hr_acf[0:self.confint_idx(hr_acf, confint)])
+        print("Hourly Int Scale : ", int_scale)
+        #print("Hourly qstat : ", qstat)
+        #print("Hourly pvalues : ", pvalues)
+
+        csv_path = data_dir / ("acf_hourly_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".csv")
+        df_hour_acf = pd.DataFrame.from_dict(
+            {'lags': range(len(hr_acf)), 'hr_acf': hr_acf})
+        df_hour_acf.set_index('lags', inplace=True)
+        df_hour_acf.to_csv(csv_path)
+
+        plt_path = plot_dir / ("acf_hourly_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+        p3 = figure(title="Autocorrelation of Hourly Residual")
+        p3.toolbar.logo = None
+        p3.toolbar_location = None
+        p3.xaxis.axis_label = "lags"
+        p3.yaxis.bounds = (min(0, min(hr_acf)), 1.1)
+        p3.line(range(len(hr_acf)), hr_acf,
+                line_color="lightcoral", line_width=2)
+        export_png(p3, filename=plt_path)
+
+        ## residual autocorrelation by plot_acf
+        plt_path = plot_dir / ("acf(tpl)_hourly_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".png")
+        fig = tpl.plot_acf(hr, lags=30)
+        fig.savefig(plt_path)
+
+    def plot(self, df, target, fdate, tdate, data_dir, plot_dir,
+             target_year=2016, target_week=10, target_month=5, target_day=1,
+             nlags=15, smoothing=True):
+        """
+        Plot seasonality itself and autocorrelation of residuals
+
+        Args:
+            df (DataFrame):
+                Hourly DataFrame that includes whole data
+
+            target (str):
+                column name of DataFrame
+
+            fdate (DateTime):
+                acf plot from range between fdate ~ tdate
+
+            tdate (DateTime):
+                acf plot from range between fdate ~ tdate
+
+            data_dir (Path):
+                Directory location to save csv file
+                type(e.g. raw) / Simulation name (e.g. MLP) / station name (종로구) / target name (e.g. PM10) / seasonality
+
+            plot_dir (Path):
+                Directory location to save png file
+                type(e.g. raw) / Simulation name (e.g. MLP) / station name (종로구) / target name (e.g. PM10) / seasonality
+
+            target_year (int):
+                specified year for plot
+
+            target_week (int):
+                specified week number in target_year for plot
+
+            nlags (int):
+                nlags for autocorrelation (days)
+
+            smoothing (bool):
+                is smoothing used?
+
+        Return:
+            None
+        """
+
+        # filter by dates
+        df = df[(df.index > fdate) & (df.index < tdate)]
+        # daily averaged
+        df_d = df.resample('D').mean()
+
+        self.plot_annual(df_d, target, data_dir, plot_dir,
+            target_year=2016, smoothing=True)
+        self.plot_annual_acf(df_d, target, df.index[0], df.index[-1],
+            data_dir, plot_dir,
+            nlags=nlags, smoothing=True)
+
+        self.plot_weekly(df_d, target, data_dir, plot_dir,
+            target_year=target_year, target_week=target_week)
+        self.plot_weekly_acf(df_d, target, df.index[0], df.index[-1],
+            data_dir, plot_dir,
+            target_year=target_year, target_week=target_week, nlags=nlags)
+
+        self.plot_hourly(df, target, data_dir, plot_dir,
+            target_year=target_year, target_month=target_month, target_day=target_day)
+        self.plot_hourly_acf(df, target, df.index[0], df.index[-1],
+            data_dir, plot_dir,
+            target_year=target_year, target_month=target_month, target_day=target_day,
+            nlags=nlags*24)
