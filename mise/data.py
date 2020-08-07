@@ -866,7 +866,7 @@ class UnivariateMeanSeasonalityDataset2(BaseDataset):
                            :(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
-        return np.squeeze(x).to_numpy().astype('float32'), \
+        return np.squeeze(self._scaler.transform(x)).to_numpy().astype('float32'), \
             np.squeeze(y).astype('float32'), \
             self._dates[(i+self.sample_size)
                          :(i+self.sample_size+self.output_size)]
@@ -2231,7 +2231,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         self._sea_hourly = sea_hourly
         #self._sea_annual_smooth = sea_annual_smooth
 
-    def fit(self, X_h, y=None):
+    def fit(self, X, y=None):
         """Compute seasonality,
         Computed residuals in `fit` will be dropped.
         In  `transform` residuals are computed again from seasonality from `fit`
@@ -2242,10 +2242,10 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         Return:
             None
         """
-        if X_h[self.target].isnull().values.any():
+        X_h = X.copy()
+        if X_h.loc[:, self.target].isnull().values.any():
             raise Exception(
                 'Invalid data in {} column, NULL value found'.format(self.target))
-
         X_d = X_h.resample('D').mean()
 
         # 1. Annual Seasonality (mmdd: 0101 ~ 1231)
@@ -2261,7 +2261,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         # Weekly seasonality computes seasonality from annual residaul
         self._sea_weekly, sea_weekly, resid_weekly = utils.periodic_mean(
             resid_annual, 'resid', 'w', self._sea_weekly)
-
+        
         # 3. Daily Seasonality (hh: 00 ~ 23)
         # join seasonality to original X_h DataFrame
         # populate residuals from daily averaged data to hourly data
@@ -2274,16 +2274,20 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         ## 1. resid_weekly has residuals by daily data
         ## 2. I want populate resid_weekly to hourly data which means residuals are copied to 2r hours
         ## 3. That means key should be YYYYMMDD
-        def key_ymd(df): return [''.join(row) for row in zip(
-            np.char.zfill(df.index.year.to_numpy().astype(str), 4),
-            np.char.zfill(df.index.month.to_numpy().astype(str), 2),
-            np.char.zfill(df.index.day.to_numpy().astype(str), 2))]
+        #def key_ymd(idx): return ''.join(row) for row in zip(
+        #    np.char.zfill(index.year.to_numpy().astype(str), 4),
+        #    np.char.zfill(index.month.to_numpy().astype(str), 2),
+        #    np.char.zfill(index.day.to_numpy().astype(str), 2))
+        def key_ymd(idx): return ''.join((str(idx.year).zfill(4), 
+            str(idx.month).zfill(2), 
+            str(idx.day).zfill(2)))
 
-        resid_weekly['key_ymd'] = key_ymd(resid_weekly)
-        #X_h['key_h'] = utils.parse_key(X_h, 'h')
-        X_h.insert(X_h.shape[1], 'key_ymd', key_ymd(X_h))
+        resid_weekly['key_ymd'] = resid_weekly.index.map(key_ymd)
+        # Add column for key
+        X_h['key_ymd'] = X_h.index.map(key_ymd)
+        #X_h.insert(X_h.shape[1], 'key_ymd', key_ymd(X_h))
         # there shouldn't be 'resid' column in X_h -> no suffix for 'resid'
-
+        
         X_h_res_pop = resid_weekly.merge(X_h, how='left',
             on='key_ymd', left_index=True, validate="1:m").dropna()
 
@@ -2296,6 +2300,9 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         self._sea_hourly, sea_hourly, resid_hourly = utils.periodic_mean(
             X_h_res_pop, 'resid', 'h', self._sea_hourly)
 
+        # 3.4 drop key columns
+        X_h.drop('key_ymd', axis='columns')
+
     def transform(self, X: pd.DataFrame):
         """Recompute residual by subtracting seasonality from X
 
@@ -2307,16 +2314,17 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
             None
 
         """
-        X.columns = 'raw'
-        X['key_y'] = utils.parse_key(X, 'y')
-        X['key_w'] = utils.parse_key(X, 'w')
-        X['key_h'] = utils.parse_key(X, 'h')
+        def sub_seasonality(idx: pd.DatetimeIndex): 
+            return X.loc[idx, self.target] - \
+                self._sea_annual[utils.parse_ykey(idx)] - \
+                self._sea_weekly[utils.parse_wkey(idx)] - \
+                self._sea_hourly[utils.parse_hkey(idx)] 
 
-        resid = X['raw'] - \
-            self._sea_annual[X['key_y']] - \
-            self._sea_weekly[X['key_w']] - \
-            self._sea_hourly[X['key_h']]
+        # there is no way to pass row object of Series, 
+        # so I pass index and use Series.get() with closure
+        resid = X.index.map(sub_seasonality)
 
+        # Float64Index
         return resid
 
     def inverse_transform(self, X: pd.DataFrame):
@@ -2333,17 +2341,17 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
 
 
         """
-        X.columns = 'resid'
+        def add_seasonality(idx: pd.DatetimeIndex): 
+            return X.loc[idx, self.target] + \
+                self._sea_annual[utils.parse_ykey(idx)] + \
+                self._sea_weekly[utils.parse_wkey(idx)] + \
+                self._sea_hourly[utils.parse_hkey(idx)] 
 
-        X['key_y'] = utils.parse_key(X, 'y')
-        X['key_w'] = utils.parse_key(X, 'w')
-        X['key_h'] = utils.parse_key(X, 'h')
+        # there is no way to pass row object of Series, 
+        # so I pass index and use Series.get() with closure
+        raw = X.index.map(add_seasonality)
 
-        raw = X['resid'] + \
-            self._sea_annual[X['key_y']] + \
-            self._sea_weekly[X['key_w']] + \
-            self._sea_hourly[X['key_h']]
-
+        # Float64Index
         return raw
 
     # utility functions
@@ -2553,7 +2561,6 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
 
         wr = [df.loc[w][target] -
               self._sea_weekly[self.wdt2key(w)] for w in week_range]
-        print(len(wr))
         wr_acf, confint, qstat, pvalues = sm.tsa.acf(wr, qstat=True, alpha=0.05, nlags=nlags)
 
         # I need "hours" as unit, so multiply 24
