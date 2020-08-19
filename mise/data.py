@@ -836,11 +836,9 @@ class UnivariateDataset(BaseDataset):
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
 
-
 class UnivariateMeanSeasonalityDataset2(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.features = [self.target]
         self._xs = self._df[self.features]
         # self._xs must not be available when creating instance so no kwargs for scaler
 
@@ -2342,8 +2340,8 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
                 must have DataTimeIndex to get dates
 
         Returns:
-            resid (pd.DataFrame)
-
+            resid (np.ndarray):
+                doesn't need dates when transform
         """
         def sub_seasonality(idx: pd.DatetimeIndex):
             return X.iloc[:, 0].loc[idx] - \
@@ -2355,8 +2353,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         # so I pass index and use Series.get() with closure
         resid = X.index.map(sub_seasonality)
 
-        # resid is Float64Index, so convert it to DataFrame
-        return pd.DataFrame(resid.to_numpy(), index=X.index, columns=X.columns)
+        return resid.to_numpy().reshape(-1, 1)
 
     def inverse_transform(self, X: pd.DataFrame):
         """Compose value from residuals
@@ -2368,7 +2365,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
                 pd.Series must have DataTimeIndex to get dates
 
         Returns:
-            raw (pd.DataFrame):
+            raw (ndarray):
         """
         def add_seasonality(idx: pd.DatetimeIndex):
             return X.iloc[:, 0].loc[idx] + \
@@ -2380,8 +2377,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         # so I pass index and use Series.get() with closure
         raw = X.index.map(add_seasonality)
 
-        # raw is Float64Index, so convert it to DataFrame
-        return pd.DataFrame(raw.to_numpy(), index=X.index, columns=X.columns)
+        return raw.to_numpy().reshape(-1, 1)
 
     # utility functions
     def ydt2key(self, d): return str(d.astimezone(SEOULTZ).month).zfill(
@@ -2769,7 +2765,6 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
             data_dir, plot_dir,
             target_year=target_year, target_month=target_month, target_day=target_day,
             nlags=nlags*24)
-
 
 class StandardScalerWrapper(StandardScaler):
     """Convert type as Series, not ndarray
