@@ -6,7 +6,7 @@ from constants import SEOULTZ
 
 def parse_key(df, period):
     """parse DateTimeIndex to key by period
-    
+
     Args:
         df (DataFrame or Series):
             pandas object that have DateTimeIndex
@@ -46,19 +46,19 @@ def periodic_mean(df, target, period, dict_sea, smoothing=False):
 
     Args:
         df (pd.DataFrame or pd.Series):
-            If DataFrame, original data. 
+            If DataFrame, original data.
             If Series, this means residuals
             DataFrame and Series both must have Single DatetimeIndex
-        
+
         target (str): if target is not None, indicates column name in DataFrame.
             if None, this means DataFrame is from residuals with no column name
-        
-        period (str): 
+
+        period (str):
             Indicates periods, only paossible values, 'y', 'w', or 'd'
 
         dict_sea (dict): predefined seasonality
 
-        smoothing: 
+        smoothing:
             Only works if period is "y", smooth seasonality with LOWESS
 
     Returns:
@@ -66,8 +66,8 @@ def periodic_mean(df, target, period, dict_sea, smoothing=False):
             Assign seasonality directly to SeasonalityDecompositor
 
         sea (pd.Series):
-            Seasonality 
-        
+            Seasonality
+
         res (pd.Series):
             Residuals
     """
