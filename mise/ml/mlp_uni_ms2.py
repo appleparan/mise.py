@@ -189,6 +189,9 @@ class BaseMLPModel(LightningModule):
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
 
+        self.train_logs = {}
+        self.valid_logs = {}
+
     def forward(self, x):
         # vectorize
         x = x.view(-1, self.hparams.input_size).to(device)
@@ -223,10 +226,16 @@ class BaseMLPModel(LightningModule):
     def training_epoch_end(self, outputs):
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
         tensorboard_logs = {'train/loss': avg_loss}
+        _log = {}
         for name in self.metrics:
             tensorboard_logs['train/{}'.format(name)] = torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean()
+            _log[name] = float(torch.stack(
+                [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
+        _log['loss'] = float(avg_loss)
+
+        self.train_logs[self.current_epoch] = _log
 
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
@@ -256,10 +265,16 @@ class BaseMLPModel(LightningModule):
     def validation_epoch_end(self, outputs):
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
         tensorboard_logs = {'valid/loss': avg_loss}
+        _log = {}
         for name in self.metrics:
             tensorboard_logs['valid/{}'.format(name)] = torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean()
+            _log[name] = float(torch.stack(
+                [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
+        _log['loss'] = float(avg_loss)
+
+        self.valid_logs[self.current_epoch] = _log
 
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
@@ -319,6 +334,9 @@ class BaseMLPModel(LightningModule):
         plot_scatter(self.hparams, df_obs, df_sim,
             self.data_dir, self.plot_dir)
         plot_corr(self.hparams, df_obs, df_sim,
+            self.data_dir, self.plot_dir)
+
+        plot_logs(self.train_logs, self.valid_logs, self.target,
             self.data_dir, self.plot_dir)
 
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
@@ -403,7 +421,6 @@ class BaseMLPModel(LightningModule):
         self.valid_sampler = SequentialSampler(self.val_dataset)
         self.test_sampler = SequentialSampler(self.test_dataset)
 
-
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
             batch_size=self.hparams.batch_size,
@@ -441,12 +458,12 @@ class BaseMLPModel(LightningModule):
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, ys, dates = zip(*batch)
+        xs, ys, ys_raw, dates = zip(*batch)
 
         elem = batch[0]
         elem_type = type(elem)
 
-        return torch.as_tensor(xs), torch.as_tensor(ys), dates
+        return torch.as_tensor(xs), torch.as_tensor(ys), torch.as_tensor(ys_raw), dates
 
 
 def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
@@ -480,6 +497,47 @@ def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
         df_line.set_index('date', inplace=True)
         df_line.to_csv(csv_path)
 
+def plot_logs(train_logs, valid_logs, target,
+            data_dir, plot_dir):
+    Path.mkdir(data_dir, parents=True, exist_ok=True)
+    Path.mkdir(plot_dir, parents=True, exist_ok=True)
+
+    df_train_logs = pd.DataFrame.from_dict(train_logs, orient='index',
+        columns=['MAE', 'MSE', 'R2', 'LOSS'])
+    df_train_logs.index.rename('epoch', inplace=True)
+
+    df_valid_logs = pd.DataFrame.from_dict(valid_logs, orient='index',
+                                          columns=['MAE', 'MSE', 'R2', 'LOSS'])
+    df_valid_logs.index.rename('epoch', inplace=True)
+
+    print(df_train_logs.head(5))
+    print(df_valid_logs.head(5))
+
+    csv_path = data_dir / ("log_train.csv")
+    df_train_logs.to_csv(csv_path)
+
+    epochs = df_train_logs.index.to_numpy()
+    for col in df_train_logs.columns:
+        plt_path = plot_dir / ("log_train_" + col + ".png")
+        p = figure(title=col)
+        p.toolbar.logo = None
+        p.toolbar_location = None
+        p.xaxis.axis_label = "epoch"
+        p.line(epochs, df_train_logs[col].to_numpy(), line_color="dodgerblue")
+        export_png(p, filename=plt_path)
+
+    csv_path = data_dir / ("log_valid.csv")
+    df_valid_logs.to_csv(csv_path)
+
+    epochs = df_valid_logs.index.to_numpy()
+    for col in df_valid_logs.columns:
+        plt_path = plot_dir / ("log_valid_" + col + ".png")
+        p = figure(title=col)
+        p.toolbar.logo = None
+        p.toolbar_location = None
+        p.xaxis.axis_label = "epoch"
+        p.line(epochs, df_valid_logs[col].to_numpy(), line_color="dodgerblue")
+        export_png(p, filename=plt_path)
 
 def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
