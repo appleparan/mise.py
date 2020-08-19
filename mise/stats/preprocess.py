@@ -18,7 +18,6 @@ def stats_preprocess(station_name="종로구"):
 
     raw_df = data.load(datecol=[1])
     dfs_h = []
-    dfs_d = []
     for station_name in tqdm.tqdm(SEOUL_STATIONS.keys(), total=len(SEOUL_STATIONS.keys())):
         sdf = data.load_station(raw_df, SEOUL_STATIONS[station_name])
 
@@ -30,14 +29,6 @@ def stats_preprocess(station_name="종로구"):
 
         dfs_h.append(_df)
 
-        # daily average
-        _df.reset_index(level='stationCode', inplace=True)
-        _df_avg = _df.resample('D').mean()
-        _df_avg.set_index(keys='stationCode', append=True, inplace=True)
-        dfs_d.append(_df_avg)
-
     df = pd.concat(dfs_h)
     df.to_csv("/input/python/input_seoul_imputed_hourly_pandas.csv")
 
-    df = pd.concat(dfs_d)
-    df.to_csv("/input/python/input_seoul_imputed_daily_pandas.csv")
