@@ -71,11 +71,6 @@ def periodic_mean(df, target, period, dict_sea, smoothing=False):
         res (pd.Series):
             Residuals
     """
-
-    # create key for subtraction
-    #df.insert(df.shape[1], 'key', parse_key(df, period))
-    #df.loc[:, 'key'] = parse_key(df, period)
-
     # define function to convert datetime to key
     if period == 'y':
         # %m%d%H

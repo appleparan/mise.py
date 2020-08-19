@@ -11,6 +11,7 @@ from stats.preprocess import stats_preprocess
 #from ml.dnn import ml_dnn
 from ml.mlp_uni import ml_mlp_uni
 from ml.mlp_uni_ms import ml_mlp_uni_ms
+from ml.mlp_uni_ms2 import ml_mlp_uni_ms2
 from ml.mlp_uni_ar import ml_mlp_uni_ar
 from ml.rnn_uni_seq2seq import ml_rnn_uni_seq2seq
 from ml.rnn_uni_attention import ml_rnn_uni_attention

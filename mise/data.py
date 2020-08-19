@@ -1,6 +1,7 @@
 import datetime as dt
 from functools import reduce
 import hashlib
+import inspect
 from pathlib import Path
 import random
 from typing import TypeVar, Iterable, Tuple, Union
@@ -29,7 +30,7 @@ from statsmodels.nonparametric.smoothers_lowess import lowess
 from sklearn.preprocessing import StandardScaler
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import Pipeline, make_pipeline
 
 from constants import SEOUL_STATIONS, SEOULTZ
 import utils
@@ -842,13 +843,25 @@ class UnivariateMeanSeasonalityDataset2(BaseDataset):
         self.features = [self.target]
         self._xs = self._df[self.features]
         # self._xs must not be available when creating instance so no kwargs for scaler
-        self._scaler = kwargs.get('scaler',
-            Pipeline([
-            ('Seasonality', SeasonalityDecompositor(target=self.target)),
-            ('StandardScaler', StandardScaler())]))
+
+        # mix ColumnTransformer & Pipeline
+        # https://scikit-learn.org/stable/auto_examples/compose/plot_column_transformer_mixed_types.html
+
+        # pipeline for regression data
+        numeric_pipeline = make_pipeline(
+            SeasonalityDecompositor(smoothing=None),
+            StandardScalerWrapper(scaler=StandardScaler()))
+
+        # Univariate -> only tself.
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ('num', numeric_pipeline, self.features)])
+
+        # univaraite dataset only needs single pipeline
+        self._scaler = kwargs.get('scaler', preprocessor)
         self._fit_scaler = kwargs.get('fit_scaler', False)
         if self._fit_scaler:
-            self._scaler.fit(self._xs)
+            self._scaler.fit(self._xs, y=self._ys)
 
     def __getitem__(self, i: int):
         """
@@ -866,14 +879,18 @@ class UnivariateMeanSeasonalityDataset2(BaseDataset):
                            :(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
-        return np.squeeze(self._scaler.transform(x)).to_numpy().astype('float32'), \
+        # x and y are scaled not to execute inverse_transform
+        # why? because there is no efficient way to embed dates
+        return np.squeeze(self._scaler.transform(x)).astype('float32'), \
+            np.squeeze(self._scaler.transform(y)).astype('float32'), \
             np.squeeze(y).astype('float32'), \
             self._dates[(i+self.sample_size)
                          :(i+self.sample_size+self.output_size)]
 
     def plot_seasonality(self, data_dir, plot_dir):
-        self._scaler['Seasonality'].plot(self._xs, self.target,
-                self.fdate, self.tdate, data_dir, plot_dir)
+        p = self._scaler.named_transformers_['num']
+        p['seasonalitydecompositor'].plot(self._xs, self.target,
+            self.fdate, self.tdate, data_dir, plot_dir)
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
@@ -1817,7 +1834,7 @@ class UnivariateMeanSeasonalityAutoRegressiveSubDataset(UnivariateDataset):
         self._scaler = preprocessing.StandardScaler().fit(self._xms)
         self.num_workers = kwargs.get('num_workers', 1)
         print(self.sample_size, self.output_size)
-        print(self.__len__())
+        #print(self.__len__())
 
         self.arima_x, self.arima_y, self.arima_sub_x, self.arima_sub_y = self.preprocess_arima_table()
 
@@ -2208,7 +2225,7 @@ class UnivariateMeanSeasonalityAutoRegressiveSubDataset(UnivariateDataset):
         self._df.to_csv(fpath)
 
 class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
-    def __init__(self, target='target', sea_annual=None,
+    def __init__(self, sea_annual=None,
         sea_weekly=None, sea_hourly=None, smoothing=True):
         """seasonality data initialization for test data (key-value structure)
 
@@ -2221,20 +2238,26 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
             * test data get input from train data rather than fit itself
 
         * key format
-            * _sea_annual : YYMMDD: string (zero-padded)
-            * _sea_week : W: integer
-            * _sea_hour : HH: string (zero-padded)
+            * sea_annual : YYMMDD: string (zero-padded)
+            * sea_week : W: integer
+            * sea_hour : HH: string (zero-padded)
         """
-        self.target = target
-        self._sea_annual = sea_annual
-        self._sea_weekly = sea_weekly
-        self._sea_hourly = sea_hourly
-        #self._sea_annual_smooth = sea_annual_smooth
+        # http://danielhnyk.cz/creating-your-own-estimator-scikit-learn/
+        # Use inspect
 
-    def fit(self, X, y=None):
+        args, _, _, values = inspect.getargvalues(inspect.currentframe())
+        values.pop("self")
+
+        for arg, val in values.items():
+            setattr(self, arg, val)
+
+    def fit(self, X: pd.DataFrame, y=None):
         """Compute seasonality,
         Computed residuals in `fit` will be dropped.
         In  `transform` residuals are computed again from seasonality from `fit`
+
+        y is not used, but added for Pipeline compatibility
+        ref: https://scikit-learn.org/stable/developers/develop.html
 
         Args:
             X_h: DataFrame which have datetime as index
@@ -2242,26 +2265,33 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         Return:
             None
         """
+        # Decompose seasonality if there is no predefined seasonality (train/valid set)
+        if self.sea_annual != None and self.sea_weekly != None and \
+            self.sea_hourly != None:
+            return self
+        # for key, convert series to dataframe
         X_h = X.copy()
-        if X_h.loc[:, self.target].isnull().values.any():
+        X_h.columns = ['raw']
+
+        if X_h.isnull().values.any():
             raise Exception(
                 'Invalid data in {} column, NULL value found'.format(self.target))
         X_d = X_h.resample('D').mean()
 
         # 1. Annual Seasonality (mmdd: 0101 ~ 1231)
         # dictionary for key (mmdd) to value (daily average)
-        self._sea_annual, sea_annual, resid_annual = utils.periodic_mean(
-            X_d, self.target, 'y', self._sea_annual, smoothing=False)
+        self.sea_annual, df_sea_annual, resid_annual = utils.periodic_mean(
+            X_d, 'raw', 'y', self.sea_annual, smoothing=False)
 
-        if '0229' not in self._sea_annual:
+        if '0229' not in self.sea_annual:
             raise KeyError("You must include leap year in train data")
 
         # 2. Weekly Seasonality (w: 0 ~ 6)
         # dictionary for key (w: 0~6) to value (daily average)
         # Weekly seasonality computes seasonality from annual residaul
-        self._sea_weekly, sea_weekly, resid_weekly = utils.periodic_mean(
-            resid_annual, 'resid', 'w', self._sea_weekly)
-        
+        self.sea_weekly, df_sea_weekly, resid_weekly = utils.periodic_mean(
+            resid_annual, 'resid', 'w', self.sea_weekly)
+
         # 3. Daily Seasonality (hh: 00 ~ 23)
         # join seasonality to original X_h DataFrame
         # populate residuals from daily averaged data to hourly data
@@ -2278,8 +2308,8 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         #    np.char.zfill(index.year.to_numpy().astype(str), 4),
         #    np.char.zfill(index.month.to_numpy().astype(str), 2),
         #    np.char.zfill(index.day.to_numpy().astype(str), 2))
-        def key_ymd(idx): return ''.join((str(idx.year).zfill(4), 
-            str(idx.month).zfill(2), 
+        def key_ymd(idx): return ''.join((str(idx.year).zfill(4),
+            str(idx.month).zfill(2),
             str(idx.day).zfill(2)))
 
         resid_weekly['key_ymd'] = resid_weekly.index.map(key_ymd)
@@ -2287,7 +2317,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         X_h['key_ymd'] = X_h.index.map(key_ymd)
         #X_h.insert(X_h.shape[1], 'key_ymd', key_ymd(X_h))
         # there shouldn't be 'resid' column in X_h -> no suffix for 'resid'
-        
+
         X_h_res_pop = resid_weekly.merge(X_h, how='left',
             on='key_ymd', left_index=True, validate="1:m").dropna()
 
@@ -2297,35 +2327,36 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
                 "Merge Error: something missing when populate daily averaged DataFrame")
 
         # 3.3 Compute seasonality
-        self._sea_hourly, sea_hourly, resid_hourly = utils.periodic_mean(
-            X_h_res_pop, 'resid', 'h', self._sea_hourly)
+        self.sea_hourly, df_sea_hourly, resid_hourly = utils.periodic_mean(
+            X_h_res_pop, 'resid', 'h', self.sea_hourly)
 
         # 3.4 drop key columns
         X_h.drop('key_ymd', axis='columns')
+        return self
 
     def transform(self, X: pd.DataFrame):
         """Recompute residual by subtracting seasonality from X
 
         Args:
             X (pd.DataFrame):
-                Single column DataFrame, must have DataTimeIndex to get dates
+                must have DataTimeIndex to get dates
 
         Returns:
-            None
+            resid (pd.DataFrame)
 
         """
-        def sub_seasonality(idx: pd.DatetimeIndex): 
-            return X.loc[idx, self.target] - \
-                self._sea_annual[utils.parse_ykey(idx)] - \
-                self._sea_weekly[utils.parse_wkey(idx)] - \
-                self._sea_hourly[utils.parse_hkey(idx)] 
+        def sub_seasonality(idx: pd.DatetimeIndex):
+            return X.iloc[:, 0].loc[idx] - \
+                self.sea_annual[utils.parse_ykey(idx)] - \
+                self.sea_weekly[utils.parse_wkey(idx)] - \
+                self.sea_hourly[utils.parse_hkey(idx)]
 
-        # there is no way to pass row object of Series, 
+        # there is no way to pass row object of Series,
         # so I pass index and use Series.get() with closure
         resid = X.index.map(sub_seasonality)
 
-        # Float64Index
-        return resid
+        # resid is Float64Index, so convert it to DataFrame
+        return pd.DataFrame(resid.to_numpy(), index=X.index, columns=X.columns)
 
     def inverse_transform(self, X: pd.DataFrame):
         """Compose value from residuals
@@ -2334,25 +2365,23 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
 
         Args:
             X (pd.DataFrame):
-                Single column DataFrame, must have DataTimeIndex to get dates
+                pd.Series must have DataTimeIndex to get dates
 
         Returns:
             raw (pd.DataFrame):
-
-
         """
-        def add_seasonality(idx: pd.DatetimeIndex): 
-            return X.loc[idx, self.target] + \
-                self._sea_annual[utils.parse_ykey(idx)] + \
-                self._sea_weekly[utils.parse_wkey(idx)] + \
-                self._sea_hourly[utils.parse_hkey(idx)] 
+        def add_seasonality(idx: pd.DatetimeIndex):
+            return X.iloc[:, 0].loc[idx] + \
+                self.sea_annual[utils.parse_ykey(idx)] + \
+                self.sea_weekly[utils.parse_wkey(idx)] + \
+                self.sea_hourly[utils.parse_hkey(idx)]
 
-        # there is no way to pass row object of Series, 
+        # there is no way to pass row object of Series,
         # so I pass index and use Series.get() with closure
         raw = X.index.map(add_seasonality)
 
-        # Float64Index
-        return raw
+        # raw is Float64Index, so convert it to DataFrame
+        return pd.DataFrame(raw.to_numpy(), index=X.index, columns=X.columns)
 
     # utility functions
     def ydt2key(self, d): return str(d.astimezone(SEOULTZ).month).zfill(
@@ -2379,13 +2408,13 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
             start=dt1, end=dt2, tz=SEOULTZ)])
 
         # if not smoothing, just use predecomposed seasonality
-        ys = [self._sea_annual[self.ydt2key(y)] for y in year_range]
+        ys = [self.sea_annual[self.ydt2key(y)] for y in year_range]
         if smoothing:
             _sea_annual_nonsmooth, _, _ = \
                 utils.periodic_mean(df, target, 'y', None, smoothing=False)
             # if smoothing, predecomposed seasonality is already smoothed, so redecompose
             ys_vanilla = [_sea_annual_nonsmooth[self.ydt2key(y)] for y in year_range]
-            ys_smooth = [self._sea_annual[self.ydt2key(y)] for y in year_range]
+            ys_smooth = [self.sea_annual[self.ydt2key(y)] for y in year_range]
 
         csv_path = data_dir / ("annual_seasonality_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
@@ -2469,7 +2498,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         dt2 = tdate.replace(hour=0, minute=0, second=0)
         year_range = pd.date_range(start=dt1, end=dt2, freq='D').tz_convert(SEOULTZ).tolist()
         yr = [df.loc[y][target] -
-              self._sea_annual[self.ydt2key(y)] for y in year_range]
+              self.sea_annual[self.ydt2key(y)] for y in year_range]
 
         # 95% confidance intervals
         yr_acf, confint, qstat, pvalues = sm.tsa.acf(yr, qstat=True, alpha=0.05, nlags=nlags)
@@ -2524,7 +2553,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
             start=dt1, end=dt2, tz=SEOULTZ)])
 
         # Compute Weekly seasonality
-        ws = [self._sea_weekly[self.wdt2key(w)] for w in week_range]
+        ws = [self.sea_weekly[self.wdt2key(w)] for w in week_range]
 
         csv_path = data_dir / ("weekly_seasonality_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
@@ -2560,7 +2589,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
             start=dt1, end=dt2, freq='D').tz_convert(SEOULTZ).tolist()
 
         wr = [df.loc[w][target] -
-              self._sea_weekly[self.wdt2key(w)] for w in week_range]
+              self.sea_weekly[self.wdt2key(w)] for w in week_range]
         wr_acf, confint, qstat, pvalues = sm.tsa.acf(wr, qstat=True, alpha=0.05, nlags=nlags)
 
         # I need "hours" as unit, so multiply 24
@@ -2608,7 +2637,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
             start=dt1, end=dt2, freq='1H', tz=SEOULTZ)]).tolist()
 
         # Compute Hourly seasonality
-        hs = [self._sea_hourly[self.hdt2key(h)] for h in hour_range]
+        hs = [self.sea_hourly[self.hdt2key(h)] for h in hour_range]
 
         csv_path = data_dir / ("hourly_seasonality_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
@@ -2639,7 +2668,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
             dt1, dt2, freq="1H").tz_convert(SEOULTZ).tolist()
 
         hr = [df.loc[h][target] -
-              self._sea_hourly[self.hdt2key(h)] for h in hour_range]
+              self.sea_hourly[self.hdt2key(h)] for h in hour_range]
         hr_acf, confint, qstat, pvalues = sm.tsa.acf(hr, qstat=True, alpha=0.05, nlags=nlags)
 
         int_scale = sum(hr_acf[0:self.confint_idx(hr_acf, confint)])
@@ -2740,3 +2769,57 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
             data_dir, plot_dir,
             target_year=target_year, target_month=target_month, target_day=target_day,
             nlags=nlags*24)
+
+
+class StandardScalerWrapper(StandardScaler):
+    """Convert type as Series, not ndarray
+    """
+    def __init__(self, scaler):
+        self.scaler = scaler
+
+    def __getattr__(self, attr):
+        return getattr(self.scaler, attr)
+
+    # how to improve code?
+    # 1. remove duplicated structure
+    # 2. implement genarator? without knowledge of parent class
+    def partial_fit(self, X, y=None):
+        if isinstance(X, pd.DataFrame):
+            self.scaler.partial_fit(X.iloc[:, 0].to_numpy().reshape(-1, 1),
+                y=X.iloc[:, 0].to_numpy().reshape(-1, 1))
+            return self
+        elif isinstance(X, np.ndarray):
+            self.scaler.partial_fit(X, y=X)
+            return self
+        else:
+            raise TypeError("Type should be Pandas DataFrame or Numpy Array")
+
+    def fit(self, X, y=None):
+        if isinstance(X, pd.DataFrame):
+            self.scaler.fit(X.iloc[:, 0].to_numpy().reshape(-1, 1),
+                y=X.iloc[:, 0].to_numpy().reshape(-1, 1))
+            return self
+            #return self.scaler.fit(X.iloc[:, 0].to_numpy().reshape(1, -1),
+            #    y=X.iloc[:, 0].to_numpy().reshape(1, -1))
+        elif isinstance(X, np.ndarray):
+            self.scaler.fit(X, y=X)
+            return self
+        else:
+            raise TypeError("Type should be Pandas DataFrame or Numpy Array")
+
+    def transform(self, X):
+        if isinstance(X, pd.DataFrame):
+            return self.scaler.transform(X.iloc[:, 0].to_numpy().reshape(-1, 1))
+        elif isinstance(X, np.ndarray):
+            return self.scaler.transform(X)
+        else:
+            raise TypeError("Type should be Pandas Series or Numpy Array")
+
+    def inverse_transform(self, X):
+        if isinstance(X, pd.Series):
+            return self.scaler.inverse_transform(X.iloc[:, 0].to_numpy().reshape(-1, 1))
+        elif isinstance(X, np.ndarray):
+            return self.scaler.inverse_transform(X)
+        else:
+            raise TypeError("Type should be Pandas DataFrame or Numpy Array")
+
