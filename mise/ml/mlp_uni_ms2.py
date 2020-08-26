@@ -46,7 +46,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def ml_mlp_uni_ms2(station_name="종로구"):
     print("Start Multivariate MLP Mean Seasonality Decomposition Model")
     targets = ["PM10", "PM25"]
-    sample_size = 48
+    sample_size = 72
     output_size = 24
 
     # Hyper parameter
