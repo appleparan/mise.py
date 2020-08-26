@@ -134,7 +134,7 @@ def ml_mlp_uni_ms2(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          #fast_dev_run=True,
+                          fast_dev_run=False,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -383,8 +383,17 @@ class BaseMLPModel(LightningModule):
             tdate=self.train_tdate,
             sample_size=self.hparams.sample_size,
             output_size=self.hparams.output_size,
-            train_valid_ratio=0.8,
-            fit_scaler=True)
+            train_valid_ratio=0.8)
+
+        # first mkdir of seasonality 
+        Path.mkdir(self.plot_dir / "seasonality", parents=True, exist_ok=True)
+        Path.mkdir(self.data_dir / "seasonality", parents=True, exist_ok=True)
+
+        # fit & transform (seasonality)
+        train_valid_set.preprocess(
+            self.data_dir / "seasonality", self.plot_dir / "seasonality")
+
+        # create test_set after computing seasonality of train/valid set
         test_set = data.UnivariateMeanSeasonalityDataset2(
             station_name=self.station_name,
             target=self.target,
@@ -394,18 +403,13 @@ class BaseMLPModel(LightningModule):
             tdate=self.test_tdate,
             sample_size=self.hparams.sample_size,
             output_size=self.hparams.output_size,
-            scaler=train_valid_set.scaler,
-            fit_scaler=False)
+            scaler_X=train_valid_set.scaler_X,
+            scaler_Y=train_valid_set.scaler_Y)
 
-        # save train/valid set
+        # save dataset
         train_valid_set.to_csv(
             self.data_dir / ("df_train_valid_set_" + self.target + ".csv"))
         test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
-
-        Path.mkdir(self.plot_dir / "seasonality", parents=True, exist_ok=True)
-        Path.mkdir(self.data_dir / "seasonality", parents=True, exist_ok=True)
-        train_valid_set.plot_seasonality(
-            self.data_dir / "seasonality", self.plot_dir / "seasonality")
 
         # split train/valid/test set
         train_len = int(len(train_valid_set) * train_valid_set.train_valid_ratio)
@@ -460,11 +464,10 @@ class BaseMLPModel(LightningModule):
         # data goes to tuple (thanks to *) and zipped
         xs, ys, ys_raw, dates = zip(*batch)
 
-        elem = batch[0]
-        elem_type = type(elem)
-
-        return torch.as_tensor(xs), torch.as_tensor(ys), torch.as_tensor(ys_raw), dates
-
+        return torch.as_tensor(xs), \
+            torch.as_tensor(ys), \
+            torch.as_tensor(ys_raw), \
+            dates
 
 def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
@@ -509,9 +512,6 @@ def plot_logs(train_logs, valid_logs, target,
     df_valid_logs = pd.DataFrame.from_dict(valid_logs, orient='index',
                                           columns=['MAE', 'MSE', 'R2', 'LOSS'])
     df_valid_logs.index.rename('epoch', inplace=True)
-
-    print(df_train_logs.head(5))
-    print(df_valid_logs.head(5))
 
     csv_path = data_dir / ("log_train.csv")
     df_train_logs.to_csv(csv_path)
@@ -569,7 +569,6 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
         csv_path = data_dir_h / ("scatter_" + str(t).zfill(2) + "h.csv")
         df_scatter = pd.DataFrame({'obs': obs, 'sim': sim})
         df_scatter.to_csv(csv_path)
-
 
 def plot_corr(hparams, df_obs, df_sim, data_dir, plot_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
