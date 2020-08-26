@@ -42,8 +42,7 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
-def ml_mlp_uni_ms2(station_name="종로구"):
+def ml_mlp_mul_ms2(station_name="종로구"):
     print("Start Multivariate MLP Mean Seasonality Decomposition Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
@@ -137,7 +136,7 @@ def ml_mlp_uni_ms2(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          fast_dev_run=False,
+                          fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -291,7 +290,7 @@ class BaseMLPModel(LightningModule):
 
         # transformed y might be smoothed
         _y = y.detach().cpu().clone().numpy()
-        y_raw = _y_raw.detach().cpu().clone().numpy()
+        y_raw = y_raw.detach().cpu().clone().numpy()
         _y_hat = y_hat.detach().cpu().clone().numpy()
         y_hat_ = np.array(self.test_dataset.inverse_transform(_y_hat, dates))
 
