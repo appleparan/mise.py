@@ -174,7 +174,7 @@ class BaseMLPModel(LightningModule):
             2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
-            'output_dir', Path('/mnt/data/DNNMSUnivariate/'))
+            'output_dir', Path('/mnt/data/MLPMSUnivariate/'))
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.plot_dir = kwargs.get(
@@ -284,7 +284,7 @@ class BaseMLPModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, y, y_raw,  dates = batch
+        x, y, _y_raw,  dates = batch
         y_hat = self(x)
 
         _loss = self.loss(y, y_hat)
