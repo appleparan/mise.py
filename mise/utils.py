@@ -99,14 +99,15 @@ def periodic_mean(df, target, period, smoothing=False):
         return dict_sea[dt2key(key.name)]
 
     # convert dictionary to DataFrame
-    sea = pd.DataFrame.from_dict(dict_sea, orient='index')
+    sea = pd.DataFrame.from_dict(dict_sea, orient='index', columns=['sea'])
     # axis=1 in apply menas apply function `get_sea` to columns
     res = df[target] - df[target].to_frame().apply(get_sea, axis=1)
 
     # smoothing applies only to annual seasaonlity
     if period == 'y' and smoothing:
+        sea_values = sea.loc[:, 'sea'].to_numpy()
         sea_smoothed = lowess(
-            res.values, np.divide(res.index.astype('int'), 10e6),
+            sea_values, range(len(sea_values)),
             return_sorted=False, frac=0.05)
         dict_sea = dict(zip(sea.index, sea_smoothed))
         # redefine get function due to closure
