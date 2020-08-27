@@ -41,7 +41,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def ml_rnn_uni_attention(station_name="종로구"):
-    print("Start Univariate Seq2Seq Model")
+    print("Start Univariate Attention Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
     output_size = 24
@@ -134,8 +134,8 @@ def ml_rnn_uni_attention(station_name="종로구"):
                           precision=32,
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
-                          default_save_path=output_dir,
-                          #fast_dev_run=True,
+                          default_root_dir=output_dir,
+                          fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -147,8 +147,8 @@ def ml_rnn_uni_attention(station_name="종로구"):
 
 class EncoderRNN(nn.Module):
     """Encoder for Attention model
-    
-    Args: 
+
+    Args:
         input_size : The number of expected features in the input x
         hidden_size : The number of features in the hidden state h
 
@@ -162,7 +162,7 @@ class EncoderRNN(nn.Module):
         # usually input_size == 1
         # hidden_size is given at hparams
 
-        # GRU input 1 : (L, N, H_in) 
+        # GRU input 1 : (L, N, H_in)
         #       where L : seq_len, N : batch_size, H_in : input_size (usually 1), the number of input feature
         #       however, batch_first=True, (N, L, H_in)
         # GRU output 1 : (L, N, H_all) where H_all = num_directions (== 1 now) * hidden_size
@@ -198,7 +198,7 @@ class EncoderRNN(nn.Module):
 class Attention(nn.Module):
     """ Attention Layer merging Encoder and Decoder
 
-    
+
     Args:
         hidden_size_enc
         hidden_size_dec
@@ -271,7 +271,7 @@ class DecoderRNN(nn.Module):
             _input: [L, N, H_in] : (seq_len, batch_size, hidden_size)
             hidden: previous hidden state of the decoder [batch_size, hidden_size_dec]
             encoder_outputs: outputs of encoder  [batch_size, sample_size, num_directions*hidden_size_enc]
-        
+
         https://github.com/bentrevett/pytorch-seq2seq
         Decoder : hidden state + context vector as input
         """
@@ -285,7 +285,7 @@ class DecoderRNN(nn.Module):
 
         # [batch size, sample_size]
         a = self.attention(hidden, encoder_outputs)
-        
+
         # [batch size, 1, sample_size]
         a = a.unsqueeze(1)
 
@@ -312,7 +312,7 @@ class DecoderRNN(nn.Module):
         # output: [1, batch_size, hidden_size_dec]
         # hidden: [1, batch_size, hidden_size_dec]
         output, hidden = self.gru(rnn_input, hidden)
-        
+
         assert (output == hidden).all()
 
         # prediction: [batch size, 1]
@@ -369,6 +369,9 @@ class BaseAttentionModel(LightningModule):
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
+
+        self.train_logs = {}
+        self.valid_logs = {}
 
         self.encoder = EncoderRNN(
             self.hparams.input_size, self.hparams.hidden_size_enc)
@@ -434,12 +437,18 @@ class BaseAttentionModel(LightningModule):
         }
 
     def training_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu()
         tensorboard_logs = {'train/loss': avg_loss}
+        _log = {}
         for name in self.metrics:
             tensorboard_logs['train/{}'.format(name)] = torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean()
+            _log[name] = float(torch.stack(
+                [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
+        _log['loss'] = float(avg_loss.detach().cpu())
+
+        self.train_logs[self.current_epoch] = _log
 
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
@@ -464,12 +473,18 @@ class BaseAttentionModel(LightningModule):
         }
 
     def validation_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu()
         tensorboard_logs = {'valid/loss': avg_loss}
+        _log = {}
         for name in self.metrics:
             tensorboard_logs['valid/{}'.format(name)] = torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean()
+            _log[name] = float(torch.stack(
+                [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
+        _log['loss'] = float(avg_loss.detach().cpu())
+
+        self.valid_logs[self.current_epoch] = _log
 
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
@@ -528,7 +543,7 @@ class BaseAttentionModel(LightningModule):
         plot_corr(self.hparams, df_obs, df_sim,
                   self.data_dir, self.plot_dir)
 
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu()
         tensorboard_logs = {'test/loss': avg_loss}
         for name in self.metrics:
             tensorboard_logs['test/{}'.format(name)] = torch.stack(
@@ -678,6 +693,46 @@ def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
             {'date': dates, 'obs': obs, 'sim': sim})
         df_line.set_index('date', inplace=True)
         df_line.to_csv(csv_path)
+
+
+def plot_logs(train_logs, valid_logs, target,
+              data_dir, plot_dir):
+    Path.mkdir(data_dir, parents=True, exist_ok=True)
+    Path.mkdir(plot_dir, parents=True, exist_ok=True)
+
+    df_train_logs = pd.DataFrame.from_dict(train_logs, orient='index',
+                                           columns=['MAE', 'MSE', 'R2', 'LOSS'])
+    df_train_logs.index.rename('epoch', inplace=True)
+
+    df_valid_logs = pd.DataFrame.from_dict(valid_logs, orient='index',
+                                           columns=['MAE', 'MSE', 'R2', 'LOSS'])
+    df_valid_logs.index.rename('epoch', inplace=True)
+
+    csv_path = data_dir / ("log_train.csv")
+    df_train_logs.to_csv(csv_path)
+
+    epochs = df_train_logs.index.to_numpy()
+    for col in df_train_logs.columns:
+        plt_path = plot_dir / ("log_train_" + col + ".png")
+        p = figure(title=col)
+        p.toolbar.logo = None
+        p.toolbar_location = None
+        p.xaxis.axis_label = "epoch"
+        p.line(epochs, df_train_logs[col].to_numpy(), line_color="dodgerblue")
+        export_png(p, filename=plt_path)
+
+    csv_path = data_dir / ("log_valid.csv")
+    df_valid_logs.to_csv(csv_path)
+
+    epochs = df_valid_logs.index.to_numpy()
+    for col in df_valid_logs.columns:
+        plt_path = plot_dir / ("log_valid_" + col + ".png")
+        p = figure(title=col)
+        p.toolbar.logo = None
+        p.toolbar_location = None
+        p.xaxis.axis_label = "epoch"
+        p.line(epochs, df_valid_logs[col].to_numpy(), line_color="dodgerblue")
+        export_png(p, filename=plt_path)
 
 
 def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):

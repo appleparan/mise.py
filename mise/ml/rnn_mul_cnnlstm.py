@@ -264,14 +264,15 @@ class BaseCNNLSTMModel(LightningModule):
 
         self.train_logs = {}
         self.valid_logs = {}
+
         # padding_size is determined by kernel_size to keep same height and width between input and output
         if self.hparams.kernel_size[0] % 2 == 0 or self.hparams.kernel_size[1] % 2 == 0:
             raise ValueError("kernel_size should be odd number: ", self.hparams.kernel_size)
-
         padding_size = (int((self.hparams.kernel_size[0] - 1)/2),
             0)
         self.conv = nn.Conv2d(1, self.hparams.hidCNN,
             self.hparams.kernel_size, padding=padding_size, padding_mode='replicate')
+
         self.encoder = EncoderRNN(
             self.hparams.hidCNN, self.hparams.hidRNN)
         self.decoder = DecoderRNN(

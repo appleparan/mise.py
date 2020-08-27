@@ -131,7 +131,7 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
                           precision=32,
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
-                          default_save_path=output_dir,
+                          default_root_dir=output_dir,
                           #fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
@@ -248,6 +248,9 @@ class BaseSeq2SeqModel(LightningModule):
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
 
+        self.train_logs = {}
+        self.valid_logs = {}
+
         self.encoder = EncoderRNN(
             self.hparams.input_size, self.hparams.hidden_size)
         self.decoder = DecoderRNN(
@@ -313,12 +316,18 @@ class BaseSeq2SeqModel(LightningModule):
         }
 
     def training_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu()
         tensorboard_logs = {'train/loss': avg_loss}
+        _log = {}
         for name in self.metrics:
             tensorboard_logs['train/{}'.format(name)] = torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean()
+            _log[name] = float(torch.stack(
+                [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
+        _log['loss'] = float(avg_loss.detach().cpu())
+
+        self.train_logs[self.current_epoch] = _log
 
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
@@ -343,12 +352,18 @@ class BaseSeq2SeqModel(LightningModule):
         }
 
     def validation_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu()
         tensorboard_logs = {'valid/loss': avg_loss}
+        _log = {}
         for name in self.metrics:
             tensorboard_logs['valid/{}'.format(name)] = torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean()
+            _log[name] = float(torch.stack(
+                [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
+        _log['loss'] = float(avg_loss.detach().cpu())
+
+        self.valid_logs[self.current_epoch] = _log
 
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
@@ -407,7 +422,10 @@ class BaseSeq2SeqModel(LightningModule):
         plot_corr(self.hparams, df_obs, df_sim,
                   self.data_dir, self.plot_dir)
 
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        plot_logs(self.train_logs, self.valid_logs, self.target,
+                  self.data_dir, self.plot_dir)
+
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu()
         tensorboard_logs = {'test/loss': avg_loss}
         for name in self.metrics:
             tensorboard_logs['test/{}'.format(name)] = torch.stack(
@@ -557,6 +575,46 @@ def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
             {'date': dates, 'obs': obs, 'sim': sim})
         df_line.set_index('date', inplace=True)
         df_line.to_csv(csv_path)
+
+
+def plot_logs(train_logs, valid_logs, target,
+              data_dir, plot_dir):
+    Path.mkdir(data_dir, parents=True, exist_ok=True)
+    Path.mkdir(plot_dir, parents=True, exist_ok=True)
+
+    df_train_logs = pd.DataFrame.from_dict(train_logs, orient='index',
+                                           columns=['MAE', 'MSE', 'R2', 'LOSS'])
+    df_train_logs.index.rename('epoch', inplace=True)
+
+    df_valid_logs = pd.DataFrame.from_dict(valid_logs, orient='index',
+                                           columns=['MAE', 'MSE', 'R2', 'LOSS'])
+    df_valid_logs.index.rename('epoch', inplace=True)
+
+    csv_path = data_dir / ("log_train.csv")
+    df_train_logs.to_csv(csv_path)
+
+    epochs = df_train_logs.index.to_numpy()
+    for col in df_train_logs.columns:
+        plt_path = plot_dir / ("log_train_" + col + ".png")
+        p = figure(title=col)
+        p.toolbar.logo = None
+        p.toolbar_location = None
+        p.xaxis.axis_label = "epoch"
+        p.line(epochs, df_train_logs[col].to_numpy(), line_color="dodgerblue")
+        export_png(p, filename=plt_path)
+
+    csv_path = data_dir / ("log_valid.csv")
+    df_valid_logs.to_csv(csv_path)
+
+    epochs = df_valid_logs.index.to_numpy()
+    for col in df_valid_logs.columns:
+        plt_path = plot_dir / ("log_valid_" + col + ".png")
+        p = figure(title=col)
+        p.toolbar.logo = None
+        p.toolbar_location = None
+        p.xaxis.axis_label = "epoch"
+        p.line(epochs, df_valid_logs[col].to_numpy(), line_color="dodgerblue")
+        export_png(p, filename=plt_path)
 
 
 def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
