@@ -41,7 +41,7 @@ def parse_wkey(idx):
 def parse_hkey(idx):
     return str(idx.hour).zfill(2)
 
-def periodic_mean(df, target, period, dict_sea, smoothing=False):
+def periodic_mean(df, target, period, smoothing=False):
     """compute periodic mean and residuals, annual and weekly means are daily average, hourly means are hourly raw data
 
     Args:
@@ -55,8 +55,6 @@ def periodic_mean(df, target, period, dict_sea, smoothing=False):
 
         period (str):
             Indicates periods, only paossible values, 'y', 'w', or 'd'
-
-        dict_sea (dict): predefined seasonality
 
         smoothing:
             Only works if period is "y", smooth seasonality with LOWESS
@@ -91,11 +89,11 @@ def periodic_mean(df, target, period, dict_sea, smoothing=False):
         raise KeyError("Wrong period! period should be in 'y', 'w', and 'h'")
 
     # if average dictionary not defined, create new one
-    if not dict_sea:
-        # only compute on train/valid set (fit method)
-        # test set will use mean of train/valid set which is fed on __init__
-        grp_sea = df.groupby(by='key').mean()[target]
-        dict_sea = grp_sea.to_dict()
+    # function periodic_mean is always executed in train/valid set (fit method)
+    # if test set, dict_sea was given and will not execute this function
+    # test set will use mean of train/valid set which is fed on __init__
+    grp_sea = df.groupby(by='key').mean()[target]
+    dict_sea = grp_sea.to_dict()
 
     def get_sea(key):
         return dict_sea[dt2key(key.name)]
@@ -114,7 +112,7 @@ def periodic_mean(df, target, period, dict_sea, smoothing=False):
         # redefine get function due to closure
         def get_sea(key): return dict_sea[dt2key(key.name)]
 
-        sea = pd.DataFrame.from_dict(dict_sea, columns=['sea'])
+        sea = pd.DataFrame.from_dict(dict_sea, orient='index', columns=['sea'])
         res = df[target] - df[target].to_frame().apply(get_sea, axis=1)
 
     # convert residual from Series to DataFrame

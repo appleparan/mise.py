@@ -88,7 +88,7 @@ def ml_mlp_mul_ms2(station_name="종로구"):
         if target == 'PM10':
             unit_size = 32
             hparams = Namespace(
-                input_size=sample_size,
+                input_size=sample_size * len(train_features),
                 layer1_size=32,
                 layer2_size=32,
                 output_size=output_size,
@@ -98,14 +98,14 @@ def ml_mlp_mul_ms2(station_name="종로구"):
             model = BaseMLPModel(hparams=hparams,
                                  station_name=station_name,
                                  target=target,
-                                 features=["PM10"],
+                                 features=train_features,
                                  train_fdate=train_fdate, train_tdate=train_tdate,
                                  test_fdate=test_fdate, test_tdate=test_tdate,
                                  output_dir=output_dir)
         elif target == 'PM25':
             unit_size = 16
             hparams = Namespace(
-                input_size=sample_size,
+                input_size=sample_size * len(train_features),
                 layer1_size=16,
                 layer2_size=16,
                 output_size=output_size,
@@ -115,7 +115,7 @@ def ml_mlp_mul_ms2(station_name="종로구"):
             model = BaseMLPModel(hparams=hparams,
                                  station_name=station_name,
                                  target=target,
-                                 features=["PM25"],
+                                 features=train_features,
                                  train_fdate=train_fdate, train_tdate=train_tdate,
                                  test_fdate=test_fdate, test_tdate=test_tdate,
                                  output_dir=output_dir)
@@ -161,7 +161,8 @@ class BaseMLPModel(LightningModule):
 
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
-        self.features = [self.target]
+        self.features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                         "temp", "u", "v", "pres", "humid", "prep", "snow"]
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
@@ -249,8 +250,8 @@ class BaseMLPModel(LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y, y_raw, dates = batch
         y_hat = self(x)
-
         _loss = self.loss(y, y_hat)
+
         _y = y.detach().cpu().clone().numpy()
         _y_hat = y_hat.detach().cpu().clone().numpy()
         _mae = mean_absolute_error(_y, _y_hat)
@@ -394,7 +395,7 @@ class BaseMLPModel(LightningModule):
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
-            features=[self.target],
+            features=self.features,
             fdate=self.train_fdate,
             tdate=self.train_tdate,
             sample_size=self.hparams.sample_size,
@@ -414,7 +415,7 @@ class BaseMLPModel(LightningModule):
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
-            features=[self.target],
+            features=self.features,
             fdate=self.test_fdate,
             tdate=self.test_tdate,
             sample_size=self.hparams.sample_size,
@@ -482,6 +483,7 @@ class BaseMLPModel(LightningModule):
         # data goes to tuple (thanks to *) and zipped
         xs, ys, ys_raw, dates = zip(*batch)
 
+        #return torch.as_tensor(xs.reshape(1, -1)), \
         return torch.as_tensor(xs), \
             torch.as_tensor(ys), \
             torch.as_tensor(ys_raw), \

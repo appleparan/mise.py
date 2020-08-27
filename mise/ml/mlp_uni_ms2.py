@@ -137,7 +137,7 @@ def ml_mlp_uni_ms2(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          fast_dev_run=False,
+                          #fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -391,7 +391,7 @@ class BaseMLPModel(LightningModule):
 
     def prepare_data(self):
         # create custom dataset
-        train_valid_set = data.MultivariateMeanSeasonalityDataset2(
+        train_valid_set = data.UnivariateMeanSeasonalityDataset2(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
@@ -411,7 +411,7 @@ class BaseMLPModel(LightningModule):
             self.data_dir / "seasonality", self.plot_dir / "seasonality")
 
         # create test_set after computing seasonality of train/valid set
-        test_set = data.MultivariateMeanSeasonalityDataset2(
+        test_set = data.UnivariateMeanSeasonalityDataset2(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
