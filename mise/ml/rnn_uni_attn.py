@@ -40,7 +40,7 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def ml_rnn_uni_attention(station_name="종로구"):
+def ml_rnn_uni_attn(station_name="종로구"):
     print("Start Univariate Attention Model")
     targets = ["PM10", "PM25"]
     sample_size = 48

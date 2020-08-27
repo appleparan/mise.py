@@ -14,7 +14,7 @@ from ml.mlp_uni_ms import ml_mlp_uni_ms
 from ml.mlp_uni_ms2 import ml_mlp_uni_ms2
 from ml.mlp_uni_ar import ml_mlp_uni_ar
 from ml.rnn_uni_seq2seq import ml_rnn_uni_seq2seq
-from ml.rnn_uni_attention import ml_rnn_uni_attention
+from ml.rnn_uni_attn import ml_rnn_uni_attn
 from ml.mlp_mul_ms2 import ml_mlp_mul_ms2
 from ml.rnn_mul_cnnlstm import ml_rnn_mul_cnnlstm
 
