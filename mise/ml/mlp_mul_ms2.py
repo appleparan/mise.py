@@ -50,7 +50,7 @@ def ml_mlp_mul_ms2(station_name="종로구"):
 
     # Hyper parameter
     epoch_size = 500
-    batch_size = 64
+    batch_size = 256
     learning_rate = 1e-3
 
     train_fdate = dt.datetime(2012, 1, 1, 0).astimezone(SEOULTZ)
