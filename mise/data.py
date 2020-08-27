@@ -823,7 +823,7 @@ class MultivariateMeanSeasonalityDataset2(BaseDataset):
         # 2D, in Univariate -> (row x 1)
         self._xs = self._df[self.features]
         self._xs_raw = self._xs.copy()
-        print(self._xs.head(5))
+
         # 1D
         self._ys = self._df[self.target]
         self._ys.name = self.target
@@ -850,8 +850,8 @@ class MultivariateMeanSeasonalityDataset2(BaseDataset):
         # Multivariate -> Need ColumnTransformer
         preprocessor_X = ColumnTransformer(
             transformers=[
-                ('num_1', numeric_pipeline_X_1, self.features_1),
-                ('num_2', numeric_pipeline_X_2, self.features_2)])
+                ('num_2', numeric_pipeline_X_2, self.features_2),
+                ('num_1', numeric_pipeline_X_1, self.features_1)])
 
         # y is always 1D, so doesn't need ColumnTransfomer
         preprocessor_Y = numeric_pipeline_Y
@@ -937,7 +937,6 @@ class MultivariateMeanSeasonalityDataset2(BaseDataset):
     @property
     def scaler_Y(self):
         return self._scaler_Y
-
 
 class UnivariateDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
