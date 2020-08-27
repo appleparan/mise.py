@@ -50,7 +50,7 @@ def ml_mlp_mul_ms2(station_name="종로구"):
 
     # Hyper parameter
     epoch_size = 500
-    batch_size = 256
+    batch_size = 64
     learning_rate = 1e-3
 
     train_fdate = dt.datetime(2012, 1, 1, 0).astimezone(SEOULTZ)
@@ -163,6 +163,8 @@ class BaseMLPModel(LightningModule):
         self.target = kwargs.get('target', 'PM10')
         self.features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                          "temp", "u", "v", "pres", "humid", "prep", "snow"]
+        self.features_aerosols = ["SO2", "CO", "O3", "NO2", "PM10", "PM25"]
+        self.features_weather = ["temp", "u", "v", "pres", "humid", "prep", "snow"]
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
@@ -238,7 +240,7 @@ class BaseMLPModel(LightningModule):
             _log[name] = float(torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
-        _log['loss'] = float(avg_loss)
+        _log['loss'] = float(avg_loss.detach().cpu())
 
         self.train_logs[self.current_epoch] = _log
 
@@ -277,7 +279,7 @@ class BaseMLPModel(LightningModule):
             _log[name] = float(torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
-        _log['loss'] = float(avg_loss)
+        _log['loss'] = float(avg_loss.detach().cpu())
 
         self.valid_logs[self.current_epoch] = _log
 
@@ -346,7 +348,7 @@ class BaseMLPModel(LightningModule):
         plot_logs(self.train_logs, self.valid_logs, self.target,
                   self.data_dir, self.plot_dir)
 
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu()
         tensorboard_logs = {'test/loss': avg_loss}
         for name in self.metrics:
             tensorboard_logs['test/{}'.format(name)] = torch.stack(
@@ -416,6 +418,8 @@ class BaseMLPModel(LightningModule):
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
             features=self.features,
+            features_1=self.features_weather,
+            features_2=self.features_aerosols,
             fdate=self.test_fdate,
             tdate=self.test_tdate,
             sample_size=self.hparams.sample_size,

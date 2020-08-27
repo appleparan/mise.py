@@ -229,7 +229,7 @@ class BaseMLPModel(LightningModule):
         }
 
     def training_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu()
         tensorboard_logs = {'train/loss': avg_loss}
         _log = {}
         for name in self.metrics:
@@ -268,7 +268,7 @@ class BaseMLPModel(LightningModule):
         }
 
     def validation_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu()
         tensorboard_logs = {'valid/loss': avg_loss}
         _log = {}
         for name in self.metrics:
@@ -346,7 +346,7 @@ class BaseMLPModel(LightningModule):
         plot_logs(self.train_logs, self.valid_logs, self.target,
                   self.data_dir, self.plot_dir)
 
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu()
         tensorboard_logs = {'test/loss': avg_loss}
         for name in self.metrics:
             tensorboard_logs['test/{}'.format(name)] = torch.stack(
