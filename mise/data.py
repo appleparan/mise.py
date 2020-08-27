@@ -212,7 +212,7 @@ class MultivariateRNNDataset(BaseDataset):
             Tensor: output without transform
         """
         x = self._xs.iloc[i:i+self.sample_size]
-        y0 = self._xs.iloc[i+self.sample_size-1]
+        y0 = self._ys.iloc[i+self.sample_size]
         y = self._ys.iloc[(i+self.sample_size)
                            :(i+self.sample_size+self.output_size)]
 
@@ -926,6 +926,133 @@ class MultivariateMeanSeasonalityDataset2(BaseDataset):
         p = self._scaler_X.named_transformers_['num_2']
         p['seasonalitydecompositor'].plot(self._xs, self.target,
             self.fdate, self.tdate, data_dir, plot_dir)
+
+    def to_csv(self, fpath):
+        self._df.to_csv(fpath)
+
+    @property
+    def scaler_X(self):
+        return self._scaler_X
+
+    @property
+    def scaler_Y(self):
+        return self._scaler_Y
+
+class MultivariateRNNSeasonalityDataset2(BaseDataset):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._df_raw = self._df.copy()
+        # 2D, in Univariate -> (row x 1)
+        self._xs = self._df[self.features]
+        self._xs_raw = self._xs.copy()
+        # 1D
+        self._ys = self._df[self.target]
+        self._ys.name = self.target
+        # convert to DataFrame to apply ColumnTransformer easily
+        self._ys = self._ys.to_frame()
+        self._ys_raw = self._ys.copy()
+        # self._xs must not be available when creating instance so no kwargs for scaler
+
+        # mix ColumnTransformer & Pipeline
+        # https://scikit-learn.org/stable/auto_examples/compose/plot_column_transformer_mixed_types.html
+
+        # pipeline for regression data
+        numeric_pipeline_X = make_pipeline(
+            SeasonalityDecompositor(smoothing=True),
+            StandardScalerWrapper(scaler=StandardScaler()))
+
+        numeric_pipeline_Y = make_pipeline(
+            SeasonalityDecompositor(smoothing=True),
+            StandardScalerWrapper(scaler=StandardScaler()))
+
+        # Univariate -> only pipline needed
+        # Multivariate -> Need ColumnTransformer
+        preprocessor_X = ColumnTransformer(
+            transformers=[
+                ('num', numeric_pipeline_X, self.features)])
+
+        preprocessor_Y = numeric_pipeline_Y
+
+        # univaraite dataset only needs single pipeline
+        self._scaler_X = kwargs.get('scaler_X', preprocessor_X)
+        self._scaler_Y = kwargs.get('scaler_Y', preprocessor_Y)
+
+    def __getitem__(self, i: int):
+        """
+        get X, Y for given index `di`
+
+        Args:
+            di(datetime): datetime where output starts
+
+        Returns:
+            Tensor: transformed input (might be normalized)
+            Tensor: output without transform
+        """
+        x = self._xs.iloc[i:i+self.sample_size, :]
+        y = self._ys.iloc[(i+self.sample_size)                          :(i+self.sample_size+self.output_size), :]
+        y_raw = self._ys_raw.iloc[(i+self.sample_size)                                  :(i+self.sample_size+self.output_size), :]
+
+        # To embed dates, x and y is DataFrame
+
+        return x.to_numpy().astype('float32'), \
+            np.squeeze(y.to_numpy()).astype('float32'), \
+            np.squeeze(y_raw.to_numpy()).astype('float32'), \
+            y.index.to_numpy()
+
+    def preprocess(self, data_dir, plot_dir):
+        """Compute seasonality and transform by seasonality
+        """
+        # compute seasonality
+        self._scaler_X.fit(self._xs, y=self._xs)
+        self._scaler_Y.fit(self._ys, y=self._ys)
+
+        # plot
+        self.plot_seasonality(data_dir, plot_dir)
+
+        # fit and transform data by transformer
+        self._xs = self.transform_df(self._xs)
+        self._ys = self.transform_df(self._ys)
+
+    def transform_df(self, A: pd.DataFrame):
+        """transform accepts DataFrame, but output is always ndarray
+        so keep DataFrame structure
+        """
+        # execute ColumnTransformer's transform
+        _transA = self._scaler_X.transform(A)
+
+        # just alter data by transformed data
+        return pd.DataFrame(data=_transA,
+                            index=A.index,
+                            columns=A.columns)
+
+    def inverse_transform(self, Ys: tuple, dates: tuple):
+        """transform accepts DataFrame, but output is always ndarray
+        so keep DataFrame structure
+
+        Args:
+            Ys(tuple): batched ndarray, the shape of each element is (output_size,)
+            dates(tuple): batched ndarray, the shape of each element is (output_size,)
+
+        Return
+            Yhats(tuple): batched DataFrames, the shape of each element is (output_size,)
+        """
+        # temporary DataFrame to pass dates
+        dfs = list(map(lambda b: pd.DataFrame(data=b[0], index=b[1], columns=[self.target]),
+                       zip(Ys, dates)))
+
+        # execute pipeline's inverse transform
+        # transform : (DataFrame) -> SeasonalityDecompositor (needs date) -> StandardScaler -> (ndarray)
+        # inverse_transform : (ndarray) -> StandardScaler -> (ndarray) -> (DataFrame) -> SeasonaltyDecompositor -> (ndarray)
+
+        _inv_transYs = tuple(map(lambda b: np.squeeze(
+            self._scaler_Y.inverse_transform(b)), dfs))
+
+        return _inv_transYs
+
+    def plot_seasonality(self, data_dir, plot_dir):
+        p = self._scaler_X.named_transformers_['num']
+        p['seasonalitydecompositor'].plot(self._xs, self.target,
+                                          self.fdate, self.tdate, data_dir, plot_dir)
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
