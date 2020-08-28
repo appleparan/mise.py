@@ -17,6 +17,7 @@ from ml.rnn_uni_seq2seq import ml_rnn_uni_seq2seq
 from ml.rnn_uni_attn import ml_rnn_uni_attn
 from ml.mlp_mul_ms2 import ml_mlp_mul_ms2
 from ml.rnn_mul_cnnlstm import ml_rnn_mul_cnnlstm
+from ml.rnn_mul_lstnet_attn import ml_rnn_mul_lstnet_attn
 
 """
     plot(args)
