@@ -38,8 +38,8 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def ml_mlp_uni(station_name="종로구"):
-    print("Start Univariate MLP Model")
+def ml_mlp_mul(station_name="종로구"):
+    print("Start Multivariate MLP Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
     output_size = 24
@@ -69,7 +69,7 @@ def ml_mlp_uni(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/MLPUnivariate/" +
+        output_dir = Path("/mnt/data/MLPMultivariate/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
 
@@ -83,7 +83,7 @@ def ml_mlp_uni(station_name="종로구"):
         if target == 'PM10':
             unit_size = 32
             hparams = Namespace(
-                input_size=sample_size,
+                input_size=sample_size*len(train_features),
                 layer1_size=32,
                 layer2_size=32,
                 output_size=output_size,
@@ -93,14 +93,14 @@ def ml_mlp_uni(station_name="종로구"):
             model = BaseMLPModel(hparams=hparams,
                 station_name=station_name,
                 target=target,
-                features=["PM10"],
+                features=train_features,
                 train_fdate=train_fdate, train_tdate=train_tdate,
                 test_fdate=test_fdate, test_tdate=test_tdate,
                 output_dir=output_dir)
         elif target == 'PM25':
             unit_size = 16
             hparams = Namespace(
-                input_size=sample_size,
+                input_size=sample_size*len(train_features),
                 layer1_size=16,
                 layer2_size=16,
                 output_size=output_size,
@@ -110,7 +110,7 @@ def ml_mlp_uni(station_name="종로구"):
             model = BaseMLPModel(hparams=hparams,
                 station_name=station_name,
                 target=target,
-                features=["PM25"],
+                features=train_features,
                 train_fdate=train_fdate, train_tdate=train_tdate,
                 test_fdate=test_fdate, test_tdate=test_tdate,
                 output_dir=output_dir)
@@ -156,7 +156,7 @@ class BaseMLPModel(LightningModule):
 
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
-        self.features = [self.target]
+        self.features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp", "u", "v", "pres", "humid", "prep", "snow"]
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
@@ -168,7 +168,7 @@ class BaseMLPModel(LightningModule):
             2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
-            'output_dir', Path('/mnt/data/MLPUnivariate/'))
+            'output_dir', Path('/mnt/data/MLPMultivariate/'))
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.plot_dir = kwargs.get(
@@ -372,7 +372,7 @@ class BaseMLPModel(LightningModule):
 
     def prepare_data(self):
         # create custom dataset
-        train_valid_set = data.UnivariateDataset(
+        train_valid_set = data.MultivariateDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
@@ -382,7 +382,7 @@ class BaseMLPModel(LightningModule):
             sample_size=self.hparams.sample_size,
             output_size=self.hparams.output_size,
             train_valid_ratio=0.8)
-        test_set = data.UnivariateDataset(
+        test_set = data.MultivariateDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
@@ -450,10 +450,10 @@ class BaseMLPModel(LightningModule):
         # data goes to tuple (thanks to *) and zipped
         xs, ys, dates = zip(*batch)
 
-        elem = batch[0]
-        elem_type = type(elem)
-
-        return torch.as_tensor(xs), torch.as_tensor(ys), dates
+        #return torch.as_tensor(xs.reshape(1, -1)), \
+        return torch.as_tensor(xs), \
+            torch.as_tensor(ys), \
+            dates
 
 
 def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):

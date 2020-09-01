@@ -194,6 +194,30 @@ class MultivariateDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    def __getitem__(self, i: int):
+        """
+        get X, Y for given index `di`
+
+        Args:
+            di(datetime): datetime where output starts
+
+        Returns:
+            Tensor: transformed input (might be normalized)
+            Tensor: output without transform
+        """
+        x = self._xs.iloc[i:i+self.sample_size]
+        y = self._ys.iloc[(i+self.sample_size)
+                           :(i+self.sample_size+self.output_size)]
+
+        # return X, Y, Y_dates
+        return np.squeeze(x.to_numpy()).astype('float32'), \
+            np.squeeze(y).astype('float32'), \
+            self._dates[(i+self.sample_size)
+                         :(i+self.sample_size+self.output_size)]
+
+    def to_csv(self, fpath):
+        self._df.to_csv(fpath)
+
 class MultivariateRNNDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
