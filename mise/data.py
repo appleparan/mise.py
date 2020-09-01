@@ -193,6 +193,8 @@ class BaseDataset(Dataset):
 class MultivariateDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._xs = self._df[self.features]
+        self._scaler = preprocessing.StandardScaler().fit(self._xs)
 
     def __getitem__(self, i: int):
         """
@@ -210,7 +212,7 @@ class MultivariateDataset(BaseDataset):
                            :(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
-        return np.squeeze(x.to_numpy()).astype('float32'), \
+        return np.squeeze(self._scaler.transform(x.to_numpy())).astype('float32'), \
             np.squeeze(y).astype('float32'), \
             self._dates[(i+self.sample_size)
                          :(i+self.sample_size+self.output_size)]
@@ -222,7 +224,6 @@ class MultivariateRNNDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._xs = self._df[self.features]
-        print(self._xs.head(5))
 
     def __getitem__(self, i: int):
         """
