@@ -136,7 +136,7 @@ def ml_mlp_mul_ms2(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          #fast_dev_run=True,
+                          fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -176,7 +176,7 @@ class BaseMLPModel(LightningModule):
             2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
-            'output_dir', Path('/mnt/data/MLPMSMultivariate/'))
+            'output_dir', Path('/mnt/data/MLPMS2Multivariate/'))
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.plot_dir = kwargs.get(

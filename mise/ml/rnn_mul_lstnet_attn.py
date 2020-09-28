@@ -362,7 +362,7 @@ class BaseLSTNetModel(LightningModule):
             2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
-            'output_dir', Path('/mnt/data/RNNCNNLSTMMultivariate/'))
+            'output_dir', Path('/mnt/data/RNNLSTNetAttnMultivariate/'))
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.plot_dir = kwargs.get(
