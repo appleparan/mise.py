@@ -72,17 +72,17 @@ def periodic_mean(df, target, period, smoothing=False):
     # define function to convert datetime to key
     if period == 'y':
         # %m%d%H
-        df['key'] = df.index.map(parse_ykey)
+        df.loc[:, 'key'] = df.index.map(parse_ykey)
         def dt2key(d): return str(d.astimezone(SEOULTZ).month).zfill(
             2) + str(d.day).zfill(2)
     elif period == 'w':
         # %w, no padding
-        df['key'] = df.index.map(parse_wkey)
+        df.loc[:, 'key'] = df.index.map(parse_wkey)
         # weekday() is a function, not property
         def dt2key(d): return str(d.astimezone(SEOULTZ).weekday())
     elif period == 'h':
         # %H, zero-padded 24-hour clock
-        df['key'] = df.index.map(parse_hkey)
+        df.loc[:, 'key'] = df.index.map(parse_hkey)
         def dt2key(d): return str(d.astimezone(SEOULTZ).hour).zfill(2)
     else:
         # already raised in parse_key
