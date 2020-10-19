@@ -40,7 +40,7 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def ml_rnn_mul_cnngru(station_name="종로구"):
-    print("Start Multivariate CNN-LSTM Model")
+    print("Start Multivariate CNN-GRU Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
     output_size = 24
@@ -72,7 +72,7 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/RNNCNNLSTMMultivariate/" +
+        output_dir = Path("/mnt/data/RNNCNNGRUMultivariate/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
 
@@ -94,7 +94,7 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
                 learning_rate=learning_rate,
                 sample_size=sample_size,
                 batch_size=batch_size)
-            model = BaseCNNLSTMModel(hparams=hparams,
+            model = BaseCNNGRUModel(hparams=hparams,
                                      station_name=station_name,
                                      target=target,
                                      features=train_features,
@@ -112,7 +112,7 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
                 learning_rate=learning_rate,
                 sample_size=sample_size,
                 batch_size=batch_size)
-            model = BaseCNNLSTMModel(hparams=hparams,
+            model = BaseCNNGRUModel(hparams=hparams,
                                      station_name=station_name,
                                      target=target,
                                      features=train_features,
@@ -209,7 +209,7 @@ class DecoderRNN(nn.Module):
         return prediction, hidden
 
 
-class BaseCNNLSTMModel(LightningModule):
+class BaseCNNGRUModel(LightningModule):
     """
     Simple Encoder-Decoder GRU Model
     """
@@ -249,7 +249,7 @@ class BaseCNNLSTMModel(LightningModule):
             2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
-            'output_dir', Path('/mnt/data/RNNCNNLSTMMultivariate/'))
+            'output_dir', Path('/mnt/data/RNNCNNGRUMultivariate/'))
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.plot_dir = kwargs.get(
