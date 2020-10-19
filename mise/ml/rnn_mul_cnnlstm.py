@@ -42,7 +42,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def ml_rnn_mul_cnnlstm(station_name="종로구"):
     print("Start Multivariate CNN-LSTM Model")
     targets = ["PM10", "PM25"]
-    sample_size = 72
+    sample_size = 48
     output_size = 24
 
     # Hyper parameter
@@ -207,6 +207,9 @@ class DecoderRNN(nn.Module):
 
 
 class BaseCNNLSTMModel(LightningModule):
+    """
+    Simple Encoder-Decoder GRU Model
+    """
     def __init__(self, *args, **kwargs):
         super().__init__()
         # h_out = (h_in + 2 * padding[0] - dilation[0]*(kernel_size[0] - 1) - 1) / stride[0] + 1

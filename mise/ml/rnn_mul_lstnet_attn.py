@@ -42,7 +42,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def ml_rnn_mul_lstnet_attn(station_name="종로구"):
     print("Start Multivariate LSTNet (Attention) Model")
     targets = ["PM10", "PM25"]
-    sample_size = 72
+    sample_size = 48
     output_size = 24
 
     # Hyper parameter
@@ -88,8 +88,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
                 seq_size=sample_size,
                 input_size=1,
                 hidCNN=16,
-                hidden_size_enc=16,
-                hidden_size_dec=16,
+                hidden_size=16,
                 kernel_size=(5, len(train_features)),
                 hidRNN=16,
                 output_size=output_size,
@@ -108,8 +107,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
                 seq_size=sample_size,
                 input_size=1,
                 hidCNN=16,
-                hidden_size_enc=16,
-                hidden_size_dec=16,
+                hidden_size=16,
                 kernel_size=(5, len(train_features)),
                 hidRNN=16,
                 output_size=output_size,
@@ -140,7 +138,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          #fast_dev_run=True,
+                          fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -151,16 +149,31 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
 
 
 class EncoderRNN(nn.Module):
+    """
+    map data to hidden represeentation
+    """
     def __init__(self, input_size, hidden_size):
         super().__init__()
         self.hidden_size = hidden_size
-        self.gru = nn.GRU(input_size, hidden_size)
+        self.gru = nn.GRU(input_size, hidden_size, batch_first=True)
 
     def forward(self, _input):
+        """
+
+        Args:
+            _input: tensor containing the features of the input sequence.
+                [batch_size, input_size, sample_size]
+
+        Return:
+            outputs: tensor containing the output features h_t from the last layer of the GRU
+                [sample_size, batch_size, num_directions*hidden_size]
+            hidden: hidden state of last sequence (when t = batch_size)
+                [num_layers * num_direction, batch_size, hidden_size]
+        """
         # no embedding
         # _input: [batch_size, input_size, sample_size]
         # _input.permute(1, 0, 2):  [batch_size, sample_size, input_size]
-        outputs, hidden = self.gru(_input.permute(2, 0, 1))
+        outputs, hidden = self.gru(_input.permute(0, 2, 1))
 
         # outputs: [sample_size, batch_size, num_directions*hidden_size]
         # hidden: [num_layers * num_direction, batch_size, hidden_size]
@@ -171,159 +184,148 @@ class EncoderRNN(nn.Module):
 
 
 class Attention(nn.Module):
-    """ Attention Layer merging Encoder and Decoder
-
+    """ Attention Layer
 
     Args:
-        hidden_size_enc
-        hidden_size_dec
+        hidden_size
 
     Reference:
-        * https://github.com/bentrevett/pytorch-seq2seq
+        * http://www.phontron.com/class/nn4nlp2017/assets/slides/nn4nlp-09-attention.pdf
     """
 
-    def __init__(self, hidden_size_enc, hidden_size_dec):
+    def __init__(self, hidden_size):
         super().__init__()
         # input: previous hidden state of decoder +
         #   hidden state of encoder
         # output: attention vector; length of source sentence
-        self.hidden_size_enc = hidden_size_enc
-        self.hidden_size_dec = hidden_size_dec
+        self.hidden_size = hidden_size
 
-        self.attn = nn.Linear(hidden_size_enc +
-                              hidden_size_dec, hidden_size_dec)
-        self.v = nn.Linear(hidden_size_dec, 1, bias=False)
+        self.attn = nn.Linear(hidden_size + hidden_size, hidden_size)
+        self.v = nn.Linear(hidden_size, 1, bias=False)
 
-    def forward(self, hidden, encoder_outputs):
+    def forward(self, query, values):
         """
         Args:
-            hidden: previous hidden state of the decoder [batch_size, hidden_size_dec]
-            encoder_outputs: outputs of encoder  [batch_size, sample_size, num_directions*hidden_size]
+            query: single hidden state for querying its attention weights
+                [num_layer*num_direction, batch_size, hidden_size]
+                but in this model, [batch_size, 1]
+            values:
+                output of encoder, stacked matrix with the hidden representations.
+                used to compute attention weights,
+                [batch_size, sample_size, num_directions*hidden_size]
+
+        Returns
+            context: context vector for each sequence [batch_size, hidden_size]
+            attention_weights: attention weight for save [batch size, sample_size]
         """
-        # hidden: [num_layers * num_direction, batch_size, hidden_size]
-        # encoder_outputs = [batch_size, sample_size, num_directions*hidden_size_enc]
-        # encoder_outputs: tensor containing the output features h_t from the 'last layer' of the GRU
-        batch_size = encoder_outputs.shape[1]
-        sample_size = encoder_outputs.shape[0]
+        # query : [num_layer*num_direction, batch_size, hidden_size]
+        # in our model, num_directions always 1
+        # values : [batch_size, sample_size, hidden_size]
+        batch_size = values.shape[0]
+        sample_size = values.shape[1]
 
-        # repeat decoder hidden state to sample_size times to compute energy with encoder_outputs
-        # hidden = [num_layers * num_direction, batch_size, hidden_size]
-        # -> [num_layers * num_direction, batch_size, hidden_size]
-        # ignore num_layers and num_direction (already 1)
-        hidden = hidden.squeeze(0)
+        # https://www.tensorflow.org/tutorials/text/nmt_with_attention
+        # make query with time axis
+        # repeat hidden state (query) to sample_size times to compute energy by concat
+        query_pop = query.squeeze(0).unsqueeze(1).repeat(1, sample_size, 1)
+        # query : [num_layer*num_direction, batch_size, hidden_size]
+        # query.squeeze(0) : [batch_size, hidden_size]
+        # query.squeeze(0).unsqueeze(1) : [batch_size, 1, hidden_size]
+        # query.squeeze(0).unsqueeze(1).repeat(1, sample_size, 1) : [batch_size, sample_size, hidden_size]
 
-        # hidden = [batch size, sample_size, hidden_size_dec]
-        hidden = hidden.unsqueeze(1).repeat(1, sample_size, 1)
-        encoder_outputs = encoder_outputs.permute(1, 0, 2)
-        # encoder_outputs = [batch size, sample_size, num_directions*hidden_size_enc]
-        # energy: [batch size, sample_size, hidden_size_dec]
-
-        if hidden.shape[0] != batch_size or \
-            hidden.shape[1] != sample_size or \
-            hidden.shape[2] != self.hidden_size_dec:
-            raise Exception("Shape Error: Attention->hidden, ", hidden.shape,
-                            " should be (batch size, sample_size, hidden_size_dec)")
-
-        if encoder_outputs.shape[0] != batch_size or \
-            encoder_outputs.shape[1] != sample_size or \
-            encoder_outputs.shape[2] != self.hidden_size_enc:
-            raise Exception("Shape Error: Attention->encoder_outputs, ", encoder_outputs.shape,
-                            " should be (batch size, sample_size, hidden_size_enc)")
-
+        # precomputed attention
+        # use concat score
+        # energy : [batch_size, sample_size, hidden_size]
         energy = torch.tanh(
-            self.attn(torch.cat((hidden, encoder_outputs), dim=2)))
+            self.attn(torch.cat((query_pop, values), dim=2)))
 
-        # energy = [batch size, sample_size, hidden_size_dec]
-        attention = self.v(energy).squeeze(2)
+        score = self.v(energy)
+        attention_weights = F.softmax(score.squeeze(2), dim=1)
 
-        # attention = [batch size, sample_size]
-        return F.softmax(attention, dim=1)
+        # batch matrix multiplication for score function
+        # attention_weights.unsqueeze(1) = [batch size, 1, sample_size]
+        # values = [batch size, sample_size, hidden_size]
+        # matrix multiplication -> 1xsample_size * sample_sizexhidden_size
+        # context: [batch_size, hidden_size]
+        context = torch.bmm(attention_weights.unsqueeze(1), values).squeeze(1)
+
+        # context = [batch_size, hidden_size]
+        # attention_weights = [batch size, sample_size]
+        return context, attention_weights
 
 
 class DecoderRNN(nn.Module):
     """
-        Reference: https://github.com/bentrevett/pytorch-seq2seq
+    Decoder of Seq2Seq model
+
+    input is last hidden state of Encoder
+
+    # Reference
+    * https://arxiv.org/abs/1409.3215
+    * https://arxiv.org/abs/1406.1078
+    * https://github.com/bentrevett/pytorch-seq2seq
+    * https://arxiv.org/abs/1502.04681
     """
 
-    def __init__(self, hidden_size_enc, hidden_size_dec, output_size, attention):
+    def __init__(self, hidden_size, output_size, attention):
         super().__init__()
-        self.hidden_size_enc = hidden_size_enc
-        self.hidden_size_dec = hidden_size_dec
-        # decoder's initial hidden state is encoder's last hidden state
-        assert hidden_size_enc == hidden_size_dec
+        self.hidden_size = hidden_size
         self.output_size = output_size
         self.attention = attention
 
         # no embedding -> GRU input size is 1
-        self.gru = nn.GRU(hidden_size_enc + 1, hidden_size_dec)
-        self.out = nn.Linear(hidden_size_enc + 1 + hidden_size_dec, 1)
+        self.gru = nn.GRU(hidden_size + 1, hidden_size, batch_first=True)
+        self.out = nn.Linear(hidden_size, 1)
 
-    def forward(self, _input, hidden, encoder_outputs):
+    def forward(self, x, hidden, encoder_outputs):
         """
         Args:
-            _input: first step output, shape si [L, N, H_in] : (seq_len, batch_size, hidden_size_enc)
-            hidden: previous hidden state of the decoder [batch_size, hidden_size_enc]
-            encoder_outputs: outputs of encoder  [batch_size, sample_size, num_directions*hidden_size_enc]
+            x: x is a decoder input for single step, so shape must be (batch_size, 1)
+            hidden: previous hidden state of the decoder, and doesn't affect by batch_first
+                (num_layers * num_directions, batch, hidden_size)
+            encoder_outputs: outputs of encoder for context (batch_size, sample_size, num_directions*hidden_size)
 
-        https://github.com/bentrevett/pytorch-seq2seq
-        Decoder : hidden state + context vector as input
         Returns:
+            prediction: output for this step and input for next step,
+            hidden: hidden state for next step
+
+        # Reference
+        * https://github.com/bentrevett/pytorch-seq2seq
+        * https://www.tensorflow.org/tutorials/text/nmt_with_attention
+        * https://pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html
 
         """
-        # first input is output of key_date (where output starts)
-        # so actual output size is output_size + 1,
-        # we just truncated to output_size
+        # context = [batch_size, hidden_size]
+        # attention_weights = [batch size, sample_size]
+        # context is always composed of new hidden state and same encoder_outputs over sequences
+        context, a = self.attention(hidden, encoder_outputs)
 
-        # no embeding
-        # [batch_size, hidden_size_enc] -> [1, batch_size, hidden_size_enc]
-        _input = _input.unsqueeze(0)
-        if _input.shape[0] != 1 or _input.shape[2] != 1:
-            raise Exception("Shape Error: Decoder->_input, ", _input.shape,
-                            " should be (1, batch_size, hidden_size_enc)")
+        # every output needs ATTENTION!, so concat precomputed context vector
+        # x: [batch_size, 1]
+        # context: [batch_size, hidden_size]
+        # attention_vector: [batch_size, hidden_size + 1]
+        attention_vector = torch.cat((x, context), dim=1)
 
-        # [batch size, sample_size]
-        a = self.attention(hidden, encoder_outputs)
-
-        # [batch size, 1, sample_size]
-        a = a.unsqueeze(1)
-
-        # encoder_outputs: [batch size, sample_size, hidden_size_enc]
-        #encoder_outputs = encoder_outputs.permute(1, 0, 2)
-
-        # batch matrix multiplication for score function
-        # a = [batch size, 1, sample_size]
-        # encoder_outputs = [batch size, sample_size, hidden_size_enc]
-        # matrix multiplication -> 1xsample_size * sample_sizexhidden_size_enc
-        # weighted: [batch_size, 1, hidden_size_enc]
-        encoder_outputs = encoder_outputs.permute(1, 0, 2)
-
-        weighted = torch.bmm(a, encoder_outputs)
-
-        # weighted: [1, batch size, hidden_size_enc]
-        weighted = weighted.permute(1, 0, 2)
-
-        # _input: [1, batch_size, hidden_size_enc]
-        # weighted: [1, batch size, hidden_size_enc]
-        # rnn_input: [1, batch_size, hidden_size_enc + hidden_size_dec]
-        rnn_input = torch.cat((_input, weighted), dim=2)
-
-        # do rnn with hidden state (initial hidden state = hidden state from encoder)
-        # rnn_input: [1, batch_size, hidden_size_enc + hidden_size_dec]
-        # output: [1, batch_size, hidden_size_dec]
-        # hidden: [1, batch_size, hidden_size_dec]
-        output, hidden = self.gru(rnn_input, hidden)
-
-        assert (output == hidden).all()
+        # apply rnn(GRU) to attention_vector
+        # GRU input must be [batch_size, seq_len, hidden_size], because batch_first=True
+        # seq_len for Decoder is just 1
+        # attention_vector.unsqueeze(1) : [batch_size, 1, hidden_size + 1]
+        # hidden : [num_layers * num_directions, batch_size, hidden_size]
+        output, hidden = self.gru(attention_vector.unsqueeze(1), hidden)
 
         # prediction: [batch size, 1]
-        prediction = self.out(
-            torch.cat((output.squeeze(0), weighted.squeeze(0), _input.squeeze(0)), dim=1))
+        prediction = self.out(output).squeeze(2)
 
-        # current hidden state is a input of next hidden state
+        # prediction: [batch size, 1]
+        # current hidden state is a input of next step's hidden state
+        # hidden : [num_layers * num_directions, batch_size, hidden_size]
         return prediction, hidden
 
 
 class BaseLSTNetModel(LightningModule):
+    """
+    Encoder-Decoder Model with Attention (LSTNet)
+    """
     def __init__(self, *args, **kwargs):
         super().__init__()
         # h_out = (h_in + 2 * padding[0] - dilation[0]*(kernel_size[0] - 1) - 1) / stride[0] + 1
@@ -337,8 +339,7 @@ class BaseLSTNetModel(LightningModule):
         self.hparams = kwargs.get('hparams', Namespace(
             seq_size=72,
             hidCNN=4,
-            hidden_size_enc=16,
-            hidden_size_dec=16,
+            hidden_size=16,
             kernel_size=(5, 13),
             hidRNN=16,
             output_size=24,
@@ -396,44 +397,52 @@ class BaseLSTNetModel(LightningModule):
         self.encoder = EncoderRNN(
             self.hparams.hidCNN, self.hparams.hidRNN)
         self.attention = Attention(
-            self.hparams.hidden_size_enc, self.hparams.hidden_size_dec)
+            self.hparams.hidden_size)
         self.decoder = DecoderRNN(
-            self.hparams.hidden_size_enc, self.hparams.hidden_size_dec, self.hparams.output_size, self.attention)
+            self.hparams.hidden_size, self.hparams.output_size, self.attention)
 
-    def forward(self, x, y0, y):
+    def forward(self, _x, y0, y):
         """
         Args:
-            x  : Input feed to Encoder, shape is (batch_size, sample_size, feature_size)
+            _x  : Input feed to Encoder, shape is (batch_size, sample_size, feature_size)
             y0 : First step output feed to Decoder, shape is (batch_size, 1)
             y  : Output, shape is (batch_size, output_size)
         """
-
-
-        # x : [batch_size, sample_size, feature_size], NxHxW
+        # x : [batch_size, sample_size, feature_size]
         # x.unsqueeze(1) : [batch_size, 1, sample_size, feature_size], NxC_inxHxW
         # x_cnn : [batch_size, hidCNN, sample_size, feature_size], NxC_outxHxW
-        x_cnn = self.conv(x.unsqueeze(1))
-        batch_size = x_cnn.shape[0]
+        batch_size = _x.shape[0]
+        sample_size = _x.shape[1]
+        feature_size = _x.shape[2]
+        x_cnn = self.conv(_x.unsqueeze(1))
+
+        # compute hidden representation of data
         # last hidden state of the encoder is the context
-        # hidden : [num_layers * num_direction, batch_size, hidden_size]
-        encoder_outputs, hidden = self.encoder(np.squeeze(x_cnn))
+        # encoder_outputs : [batch_size, sample_size, hidden_size]
+        # encoder_hidden : [num_layers * num_direction, batch_size, hidden_size]
+        encoder_outputs, encoder_hidden = self.encoder(np.squeeze(x_cnn))
 
         # first input to the decoder is the first output of y
         _input = y0
+        # set input of decoder as last hidden state of encoder
+        # batch_first doesn't affect to hidden's size
+        hidden = encoder_hidden
 
+        # placeholder for multi-horization
         # x  : [batch_size, sample_size, 1]
         # y0 : [batch_size, 1]
         # y  : [batch_size, output_size]
         outputs = torch.zeros(batch_size, self.hparams.output_size).to(device)
 
-        # iterate sequence
-        # x[ei] : single value of PM10 or PM25
         for t in range(self.hparams.output_size + 1):
             output, hidden = self.decoder(_input, hidden, encoder_outputs)
 
             if t > 0:
-                # skip initial result
-                outputs[:, t - 1] = output[:, 0]
+                # skip initial result which is included in input
+                # first input is output of key_date (where output starts)
+                # so actual output size is output_size + 1,
+                # we just truncated output to output_size
+                outputs[:, t - 1] = output.squeeze(1)
 
             _input = output
 
