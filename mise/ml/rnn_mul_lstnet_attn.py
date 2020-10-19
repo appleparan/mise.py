@@ -138,7 +138,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          fast_dev_run=True,
+                          #fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -312,6 +312,10 @@ class DecoderRNN(nn.Module):
         # attention_vector.unsqueeze(1) : [batch_size, 1, hidden_size + 1]
         # hidden : [num_layers * num_directions, batch_size, hidden_size]
         output, hidden = self.gru(attention_vector.unsqueeze(1), hidden)
+
+        # decoders's seq_len is 1
+        # so output and hidden must be same
+        #assert output.size() == hidden.size()
 
         # prediction: [batch size, 1]
         prediction = self.out(output).squeeze(2)
