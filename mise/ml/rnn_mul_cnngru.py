@@ -39,7 +39,7 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def ml_rnn_mul_cnnlstm(station_name="종로구"):
+def ml_rnn_mul_cnngru(station_name="종로구"):
     print("Start Multivariate CNN-LSTM Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
@@ -136,7 +136,7 @@ def ml_rnn_mul_cnnlstm(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          #fast_dev_run=True,
+                          fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -196,10 +196,13 @@ class DecoderRNN(nn.Module):
         # do rnn with hidden state (initial hidden state = hidden state from encoder)
         output, hidden = self.gru(_input, hidden)
 
-        # output = [1, batch size, hid dim * n directions]
+        # output = [n layers * n directions, batch size, hid dim * n directions]
         # hidden = [n layers * n directions, batch size, hidden_size]
+        # decoders's seq_len is 1
+        # so output and hidden must be same
+        #assert output.size() == hidden.size()
 
-        prediction = self.out(hidden.squeeze(0))
+        prediction = self.out(output.squeeze(0))
         #prediction = [batch size, 1]
 
         # current hidden state is a input of next hidden state
