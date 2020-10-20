@@ -184,7 +184,7 @@ class EncoderRNN(nn.Module):
 
 
 class Attention(nn.Module):
-    """ Attention Layer
+    """ Attention Layer (Bahdanau Attention)
 
     Args:
         hidden_size
@@ -239,20 +239,20 @@ class Attention(nn.Module):
         energy = torch.tanh(
             self.attn(torch.cat((query_pop, values), dim=2)))
 
+        # score : [batch_size, sample_size, 1]
         score = self.v(energy)
+        # attention_weights : [batch_size, sample_size, 1]
         attention_weights = F.softmax(score.squeeze(2), dim=1)
 
-        # batch matrix multiplication for score function
-        # attention_weights.unsqueeze(1) = [batch size, 1, sample_size]
-        # values = [batch size, sample_size, hidden_size]
-        # matrix multiplication -> 1xsample_size * sample_sizexhidden_size
-        # context: [batch_size, hidden_size]
-        context = torch.bmm(attention_weights.unsqueeze(1), values).squeeze(1)
+        # multiply attention_weights to each encoder output sequences
+        # attention_weights.unsqueeze(2) : (batch size, sample_size, 1)
+        # values : [batch size, sample_size, hidden_size]
+        # context : [batch_size, hidden_size]
+        context = torch.sum(attention_weights.unsqueeze(2) * values, dim=1)
 
-        # context = [batch_size, hidden_size]
-        # attention_weights = [batch size, sample_size]
+        # context : [batch_size, hidden_size]
+        # attention_weights : [batch size, sample_size]
         return context, attention_weights
-
 
 class DecoderRNN(nn.Module):
     """
