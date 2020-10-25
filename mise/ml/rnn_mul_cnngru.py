@@ -136,7 +136,7 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          #fast_dev_run=True,
+                          fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -327,7 +327,7 @@ class BaseCNNGRUModel(LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        x, y0, y, dates = batch
+        x, x1d, y0, y, dates = batch
         y_hat = self(x, y0, y)
         _loss = self.loss(y_hat, y)
 
@@ -363,7 +363,7 @@ class BaseCNNGRUModel(LightningModule):
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
-        x, y0, y, dates = batch
+        x, x1d, y0, y, dates = batch
         y_hat = self(x, y0, y)
 
         _loss = self.loss(y, y_hat)
@@ -399,7 +399,7 @@ class BaseCNNGRUModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, y0, y, dates = batch
+        x, x1d, y0, y, dates = batch
         y_hat = self(x, y0, y)
 
         _loss = self.loss(y, y_hat)
@@ -556,24 +556,27 @@ class BaseCNNGRUModel(LightningModule):
 
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
-        data: list of tuple  (x, y, dates).
-            - x: pandas DataFrame or numpy of shape (input_size, num_features);
+        data: list of tuple  (x, x1d, y0, y, dates).
+            - x: pandas DataFrame or numpy of shape (sample_size, num_features);
+            - x1d: pandas DataFrma or numpy of shape (sample_size)
+            - y0: scalar
             - y: pandas DataFrame or numpy of shape (output_size);
             - date: pandas DateTimeIndex of shape (output_size):
 
         Returns:
-            - xs: torch Tensor of shape (batch_size, input_size, num_features);
+            - xs: torch Tensor of shape (batch_size, sample_size, num_features);
+            - xs_1d: torch Tensor of shape (batch_size, sample_size);
             - ys: torch Tensor of shape (batch_size, output_size);
+            - y0: torch scalar Tensor
             - dates: pandas DateTimeIndex of shape (batch_size, output_size):
         """
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, ys0, ys, dates = zip(*batch)
+        xs, xs_1d, ys0, ys, dates = zip(*batch)
 
-        # x : [batch_size x sample_size] -> [sample_size x batch_size]
-        # y : [batch_size x output_size] -> [output_size x batch_size]
-        return torch.as_tensor(xs), torch.as_tensor(ys0), torch.as_tensor(ys), dates
+        return torch.as_tensor(xs), torch.as_tensor(xs_1d), \
+            torch.as_tensor(ys0), torch.as_tensor(ys), dates
 
 
 def plot_line(hparams, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
