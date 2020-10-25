@@ -407,11 +407,14 @@ class BaseLSTNetModel(LightningModule):
             self.hparams.hidden_size)
         self.decoder = DecoderRNN(
             self.hparams.hidden_size, self.hparams.output_size, self.attention)
+        self.ar = nn.Linear(self.hparams.sample_size, 1)
+        torch.autograd.set_detect_anomaly(True)
 
-    def forward(self, _x, y0, y):
+    def forward(self, _x, _x1d, y0, y):
         """
         Args:
-            _x  : Input feed to Encoder, shape is (batch_size, sample_size, feature_size)
+            _x  : 2D Input (with input features), shape is (batch_size, sample_size, feature_size)
+            _x1d : 1D Input (only target column), shape is (batch_size, sample_size, feature_size)
             y0 : First step output feed to Decoder, shape is (batch_size, 1)
             y  : Output, shape is (batch_size, output_size)
         """
@@ -441,17 +444,16 @@ class BaseLSTNetModel(LightningModule):
         # y  : [batch_size, output_size]
         outputs = torch.zeros(batch_size, self.hparams.output_size).to(device)
 
-        for t in range(self.hparams.output_size + 1):
-            output, hidden = self.decoder(_input, hidden, encoder_outputs)
+        for t in range(self.hparams.output_size):
+            output1, hidden = self.decoder(_input, hidden, encoder_outputs)
 
-            if t > 0:
-                # skip initial result which is included in input
-                # first input is output of key_date (where output starts)
-                # so actual output size is output_size + 1,
-                # we just truncated output to output_size
-                outputs[:, t - 1] = output.squeeze(1)
+            # | ---- input (sample_size) --- | predicted results (output_size) |
+            # don't create variable for container, because the variable prevents autograd
+            output2 = self.ar(torch.cat((_x1d, outputs), dim=1)[:, -sample_size:])
 
-            _input = output
+            outputs[:, t] = (output1 + output2).squeeze(1)
+
+            _input = output1 + output2
 
         return outputs
 
@@ -459,8 +461,8 @@ class BaseLSTNetModel(LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        x, y0, y, dates = batch
-        y_hat = self(x, y0, y)
+        x, x1d, y0, y, dates = batch
+        y_hat = self(x, x1d, y0, y)
         _loss = self.loss(y_hat, y)
 
         _y = y.detach().cpu().clone().numpy()
@@ -495,8 +497,8 @@ class BaseLSTNetModel(LightningModule):
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
-        x, y0, y, dates = batch
-        y_hat = self(x, y0, y)
+        x, x1d, y0, y, dates = batch
+        y_hat = self(x, x1d, y0, y)
 
         _loss = self.loss(y, y_hat)
         _y = y.detach().cpu().clone().numpy()
@@ -531,8 +533,8 @@ class BaseLSTNetModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, y0, y, dates = batch
-        y_hat = self(x, y0, y)
+        x, x1d, y0, y, dates = batch
+        y_hat = self(x, x1d, y0, y)
 
         _loss = self.loss(y, y_hat)
         _y = y.detach().cpu().clone().numpy()
@@ -688,24 +690,27 @@ class BaseLSTNetModel(LightningModule):
 
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
-        data: list of tuple  (x, y, dates).
-            - x: pandas DataFrame or numpy of shape (input_size, num_features);
+        data: list of tuple  (x, x1d, y0, y, dates).
+            - x: pandas DataFrame or numpy of shape (sample_size, num_features);
+            - x1d: pandas DataFrma or numpy of shape (sample_size)
+            - y0: scalar
             - y: pandas DataFrame or numpy of shape (output_size);
             - date: pandas DateTimeIndex of shape (output_size):
 
         Returns:
-            - xs: torch Tensor of shape (batch_size, input_size, num_features);
+            - xs: torch Tensor of shape (batch_size, sample_size, num_features);
+            - xs_1d: torch Tensor of shape (batch_size, sample_size);
             - ys: torch Tensor of shape (batch_size, output_size);
+            - y0: torch scalar Tensor
             - dates: pandas DateTimeIndex of shape (batch_size, output_size):
         """
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, ys0, ys, dates = zip(*batch)
+        xs, xs_1d, ys0, ys, dates = zip(*batch)
 
-        # x : [batch_size x sample_size] -> [sample_size x batch_size]
-        # y : [batch_size x output_size] -> [output_size x batch_size]
-        return torch.as_tensor(xs), torch.as_tensor(ys0), torch.as_tensor(ys), dates
+        return torch.as_tensor(xs), torch.as_tensor(xs_1d), \
+            torch.as_tensor(ys0), torch.as_tensor(ys), dates
 
 
 def plot_line(hparams, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
