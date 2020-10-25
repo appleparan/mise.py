@@ -136,7 +136,7 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          fast_dev_run=True,
+                          #fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
