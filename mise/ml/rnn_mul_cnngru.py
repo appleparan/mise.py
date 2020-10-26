@@ -1,6 +1,7 @@
 from argparse import Namespace
 import copy
 import datetime as dt
+from math import sqrt
 import os
 from pathlib import Path
 
@@ -452,6 +453,8 @@ class BaseCNNGRUModel(LightningModule):
                      self.data_dir, self.png_dir, self.svg_dir)
         plot_corr(self.hparams, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
+        plot_rmse(self.hparams, df_obs, df_sim,
+                  self.data_dir, self.png_dir, self.svg_dir)
         plot_logs(self.train_logs, self.valid_logs, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
 
@@ -732,6 +735,38 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     export_svgs(p, filename=str(svg_path))
 
     df_corrs = pd.DataFrame({'time': times, 'corr': corrs})
+    df_corrs.set_index('time', inplace=True)
+    df_corrs.to_csv(csv_path)
+
+
+def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+    Path.mkdir(data_dir, parents=True, exist_ok=True)
+    Path.mkdir(png_dir, parents=True, exist_ok=True)
+    Path.mkdir(svg_dir, parents=True, exist_ok=True)
+
+    png_path = png_dir / ("rmse_time.png")
+    svg_path = svg_dir / ("rmse_time.svg")
+    csv_path = data_dir / ("rmse_time.csv")
+
+    times = list(range(1, hparams.output_size + 1))
+    rmses = []
+    for t in range(hparams.output_size):
+        obs = df_obs[str(t)].to_numpy()
+        sim = df_sim[str(t)].to_numpy()
+
+        rmses.append(sqrt(mean_squared_error(obs, sim)))
+
+    p = figure(title="RMSE of OBS & Model")
+    p.toolbar.logo = None
+    p.toolbar_location = None
+    p.xaxis.axis_label = "lags"
+    p.yaxis.axis_label = "RMSE"
+    p.line(times, rmses)
+    export_png(p, filename=png_path)
+    p.output_backend = "svg"
+    export_svgs(p, filename=str(svg_path))
+
+    df_corrs = pd.DataFrame({'time': times, 'rmse': rmses})
     df_corrs.set_index('time', inplace=True)
     df_corrs.to_csv(csv_path)
 
