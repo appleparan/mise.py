@@ -19,7 +19,7 @@ from sklearn import preprocessing
 
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
-from bokeh.io import export_png
+from bokeh.io import export_png, export_svgs
 
 from torch.utils.data.dataset import Dataset
 
@@ -2821,7 +2821,7 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
             if c1 - a < a and a < c2 - a:
                 return i
 
-    def plot_annual(self, df, target, data_dir, plot_dir,
+    def plot_annual(self, df, target, data_dir, png_dir, svg_dir,
         target_year=2016, smoothing=True):
         # annual (pick 1 year)
         dt1 = dt.datetime(year=target_year, month=1, day=1, hour=0)
@@ -2850,9 +2850,12 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         df_year.set_index('date', inplace=True)
         df_year.to_csv(csv_path)
 
-        plt_path = plot_dir / ("annual_seasonality_" +
+        png_path = png_dir / ("annual_seasonality_" +
                                dt1.strftime("%Y%m%d") + "_" +
                                dt2.strftime("%Y%m%d") + ".png")
+        svg_path = svg_dir / ("annual_seasonality_" +
+                               dt1.strftime("%Y%m%d") + "_" +
+                               dt2.strftime("%Y%m%d") + ".svg")
 
         p1 = figure(title="Annual Seasonality")
         p1.xaxis.axis_label = "dates"
@@ -2863,13 +2866,18 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
                                                    hours="%m/%d %H:%M",
                                                    minutes="%m/%d %H:%M")
         p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2)
-        export_png(p1, filename=plt_path)
+        export_png(p1, filename=png_path)
+        p1.output_backend = "svg"
+        export_svgs(p1, filename=str(svg_path))
 
         if smoothing:
             # 1. smooth
-            plt_path = plot_dir / ("annual_seasonality_(smooth)_" +
+            png_path = png_dir / ("annual_seasonality_(smooth)_" +
                                    dt1.strftime("%Y%m%d") + "_" +
                                    dt2.strftime("%Y%m%d") + ".png")
+            svg_path = svg_dir / ("annual_seasonality_(smooth)_" +
+                                   dt1.strftime("%Y%m%d") + "_" +
+                                   dt2.strftime("%Y%m%d") + ".svg")
             p1 = figure(title="Annual Seasonality(Smooth)")
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
@@ -2879,12 +2887,17 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
                                                        hours="%m/%d %H:%M",
                                                        minutes="%m/%d %H:%M")
             p1.line(year_range_plt, ys_smooth, line_color="dodgerblue", line_width=2)
-            export_png(p1, filename=plt_path)
+            export_png(p1, filename=png_path)
+            p1.output_backend = "svg"
+            export_svgs(p1, filename=str(svg_path))
 
             # 2. vanila
-            plt_path = plot_dir / ("annual_seasonality_(vanilla)_" +
+            png_path = png_dir / ("annual_seasonality_(vanilla)_" +
                                    dt1.strftime("%Y%m%d") + "_" +
                                    dt2.strftime("%Y%m%d") + ".png")
+            svg_path = svg_dir / ("annual_seasonality_(vanilla)_" +
+                                   dt1.strftime("%Y%m%d") + "_" +
+                                   dt2.strftime("%Y%m%d") + ".svg")
             p1 = figure(title="Annual Seasonality(Raw)")
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
@@ -2894,12 +2907,17 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
                                                        hours="%m/%d %H:%M",
                                                        minutes="%m/%d %H:%M")
             p1.line(year_range_plt, ys_vanilla, line_color="dodgerblue", line_width=2)
-            export_png(p1, filename=plt_path)
+            export_png(p1, filename=png_path)
+            p1.output_backend = "svg"
+            export_svgs(p1, filename=str(svg_path))
 
             # 3. smooth + vanila
-            plt_path = plot_dir / ("annual_seasonality_(both)_" +
+            png_path = png_dir / ("annual_seasonality_(both)_" +
                                    dt1.strftime("%Y%m%d") + "_" +
                                    dt2.strftime("%Y%m%d") + ".png")
+            svg_path = svg_dir / ("annual_seasonality_(both)_" +
+                                   dt1.strftime("%Y%m%d") + "_" +
+                                   dt2.strftime("%Y%m%d") + ".svg")
             p1 = figure(title="Annual Seasonality(Smooth & Vanilla)")
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
@@ -2912,9 +2930,11 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
                     line_width=2, legend_label="smooth")
             p1.line(year_range_plt, ys_vanilla, line_color="lightcoral",
                     line_width=2, legend_label="vanilla")
-            export_png(p1, filename=plt_path)
+            export_png(p1, filename=png_path)
+            p1.output_backend = "svg"
+            export_svgs(p1, filename=str(svg_path))
 
-    def plot_annual_acf(self, df, target, fdate, tdate, data_dir, plot_dir,
+    def plot_annual_acf(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
         target_year=2016, nlags=15, smoothing=True):
         ## residual autocorrelation by tsa.acf
         year_range = pd.date_range(start=fdate, end=tdate, freq='D').tz_convert(SEOULTZ).tolist()
@@ -2942,9 +2962,12 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         df_year_acf.set_index('lags', inplace=True)
         df_year_acf.to_csv(csv_path)
 
-        plt_path = plot_dir / ("acf_annual_seasonalityy_" +
+        png_path = png_dir / ("acf_annual_seasonalityy_" +
                                fdate.strftime("%Y%m%d") + "_" +
                                tdate.strftime("%Y%m%d") + ".png")
+        svg_path = svg_dir / ("acf_annual_seasonalityy_" +
+                               fdate.strftime("%Y%m%d") + "_" +
+                               tdate.strftime("%Y%m%d") + ".svg")
         p1 = figure(title="Autocorrelation of Annual Residual")
         p1.toolbar.logo = None
         p1.toolbar_location = None
@@ -2952,16 +2975,22 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         p1.yaxis.bounds = (min(0, min(yr_acf)), 1.1)
         p1.line([i*24 for i in range(len(yr_acf))], yr_acf,
                 line_color="lightcoral", line_width=2)
-        export_png(p1, filename=plt_path)
+        export_png(p1, filename=png_path)
+        p1.output_backend = "svg"
+        export_svgs(p1, filename=str(svg_path))
 
         ## residual autocorrelation by plot_acf
-        plt_path = plot_dir / ("acf(tpl)_annual_seasonality_" +
+        png_path = png_dir / ("acf(tpl)_annual_seasonality_" +
                                fdate.strftime("%Y%m%d") + "_" +
                                tdate.strftime("%Y%m%d") + ".png")
+        svg_path = svg_dir / ("acf(tpl)_annual_seasonality_" +
+                               fdate.strftime("%Y%m%d") + "_" +
+                               tdate.strftime("%Y%m%d") + ".svg")
         fig = tpl.plot_acf(yr, lags=nlags)
-        fig.savefig(plt_path)
+        fig.savefig(png_path)
+        fig.savefig(svg_path)
 
-    def plot_weekly(self, df, target, data_dir, plot_dir,
+    def plot_weekly(self, df, target, data_dir, png_dir, svg_dir,
         target_year=2016, target_week=10):
 
         # Set datetime range
@@ -2988,9 +3017,12 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         df_week.set_index('date', inplace=True)
         df_week.to_csv(csv_path)
 
-        plt_path = plot_dir / ("weekly_seasonality_" +
+        png_path = png_dir / ("weekly_seasonality_" +
                                dt1.strftime("%Y%m%d") + "_" +
                                dt2.strftime("%Y%m%d") + ".png")
+        svg_path = svg_dir / ("weekly_seasonality_" +
+                               dt1.strftime("%Y%m%d") + "_" +
+                               dt2.strftime("%Y%m%d") + ".svg")
 
         p2 = figure(title="Weekly Seasonality")
         p2.toolbar.logo = None
@@ -2999,9 +3031,11 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         p2.xaxis.formatter = DatetimeTickFormatter(
             days="%a")
         p2.line(week_range_plt, ws, line_color="dodgerblue", line_width=2)
-        export_png(p2, filename=plt_path)
+        export_png(p2, filename=png_path)
+        p2.output_backend = "svg"
+        export_svgs(p2, filename=str(svg_path))
 
-    def plot_weekly_acf(self, df, target, fdate, tdate, data_dir, plot_dir,
+    def plot_weekly_acf(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
         target_year=2016, target_week=10, nlags=15):
         """
             Residual autocorrelation by tsa.acf
@@ -3032,9 +3066,12 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         df_week_acf.set_index('lags', inplace=True)
         df_week_acf.to_csv(csv_path)
 
-        plt_path = plot_dir / ("acf_weekly_seasonality_" +
+        png_path = png_dir / ("acf_weekly_seasonality_" +
                                fdate.strftime("%Y%m%d") + "_" +
                                tdate.strftime("%Y%m%d") + ".png")
+        svg_path = svg_dir / ("acf_weekly_seasonality_" +
+                               fdate.strftime("%Y%m%d") + "_" +
+                               tdate.strftime("%Y%m%d") + ".svg")
         p2 = figure(title="Autocorrelation of Weekly Residual")
         p2.toolbar.logo = None
         p2.toolbar_location = None
@@ -3042,16 +3079,22 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         p2.yaxis.bounds = (min(0, min(wr_acf)), 1.1)
         p2.line([i*24 for i in range(len(wr_acf))], wr_acf,
                 line_color="lightcoral", line_width=2)
-        export_png(p2, filename=plt_path)
+        export_png(p2, filename=png_path)
+        p2.output_backend = "svg"
+        export_svgs(p2, filename=str(svg_path))
 
         ## residual autocorrelation by plot_acf
-        plt_path = plot_dir / ("acf(tpl)_weekly_seasonality_" +
+        png_path = png_dir / ("acf(tpl)_weekly_seasonality_" +
                                fdate.strftime("%Y%m%d") + "_" +
                                tdate.strftime("%Y%m%d") + ".png")
+        svg_path = svg_dir / ("acf(tpl)_weekly_seasonality_" +
+                               fdate.strftime("%Y%m%d") + "_" +
+                               tdate.strftime("%Y%m%d") + ".svg")
         fig = tpl.plot_acf(wr, lags=nlags)
-        fig.savefig(plt_path)
+        fig.savefig(png_path)
+        fig.savefig(svg_path)
 
-    def plot_hourly(self, df, target, data_dir, plot_dir,
+    def plot_hourly(self, df, target, data_dir, png_dir, svg_dir,
                     target_year=2016, target_month=5, target_day=1):
 
         dt1 = dt.datetime(year=target_year, month=target_month, day=target_day,
@@ -3073,9 +3116,12 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         df_hour.set_index('date', inplace=True)
         df_hour.to_csv(csv_path)
 
-        plt_path = plot_dir / ("hourly_seasonality_" +
+        png_path = png_dir / ("hourly_seasonality_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
+        svg_path = svg_dir / ("hourly_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".svg")
 
         p3 = figure(title="Hourly Seasonality")
         p3.toolbar.logo = None
@@ -3083,9 +3129,11 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         p3.xaxis.axis_label = "dates"
         p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
         p3.line(hour_range_plt, hs, line_color="dodgerblue", line_width=2)
-        export_png(p3, filename=plt_path)
+        export_png(p3, filename=png_path)
+        p3.output_backend = "svg"
+        export_svgs(p3, filename=str(svg_path))
 
-    def plot_hourly_acf(self, df, target, fdate, tdate, data_dir, plot_dir,
+    def plot_hourly_acf(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
                         target_year=2016, target_month=5, target_day=1, nlags=24*15):
 
         hour_range = pd.date_range(
@@ -3109,9 +3157,12 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         df_hour_acf.set_index('lags', inplace=True)
         df_hour_acf.to_csv(csv_path)
 
-        plt_path = plot_dir / ("acf_hourly_seasonality_" +
+        png_path = png_dir / ("acf_hourly_seasonality_" +
                                fdate.strftime("%Y%m%d%H") + "_" +
                                tdate.strftime("%Y%m%d%H") + ".png")
+        svg_path = svg_dir / ("acf_hourly_seasonality_" +
+                               fdate.strftime("%Y%m%d%H") + "_" +
+                               tdate.strftime("%Y%m%d%H") + ".svg")
         p3 = figure(title="Autocorrelation of Hourly Residual")
         p3.toolbar.logo = None
         p3.toolbar_location = None
@@ -3119,16 +3170,22 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         p3.yaxis.bounds = (min(0, min(hr_acf)), 1.1)
         p3.line(range(len(hr_acf)), hr_acf,
                 line_color="lightcoral", line_width=2)
-        export_png(p3, filename=plt_path)
+        export_png(p3, filename=png_path)
+        p3.output_backend = "svg"
+        export_svgs(p3, filename=str(svg_path))
 
         ## residual autocorrelation by plot_acf
-        plt_path = plot_dir / ("acf(tpl)_hourly_seasonality_" +
+        png_path = png_dir / ("acf(tpl)_hourly_seasonality_" +
                                fdate.strftime("%Y%m%d%H") + "_" +
                                tdate.strftime("%Y%m%d%H") + ".png")
+        svg_path = svg_dir / ("acf(tpl)_hourly_seasonality_" +
+                               fdate.strftime("%Y%m%d%H") + "_" +
+                               tdate.strftime("%Y%m%d%H") + ".svg")
         fig = tpl.plot_acf(hr, lags=nlags)
-        fig.savefig(plt_path)
+        fig.savefig(png_path)
+        fig.savefig(svg_path)
 
-    def plot(self, df, target, fdate, tdate, data_dir, plot_dir,
+    def plot(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
              target_year=2016, target_week=10, target_month=5, target_day=1,
              nlags=15, smoothing=True):
         """
@@ -3151,8 +3208,12 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
                 Directory location to save csv file
                 type(e.g. raw) / Simulation name (e.g. MLP) / station name (종로구) / target name (e.g. PM10) / seasonality
 
-            plot_dir (Path):
+            png_dir (Path):
                 Directory location to save png file
+                type(e.g. raw) / Simulation name (e.g. MLP) / station name (종로구) / target name (e.g. PM10) / seasonality
+
+            svg_dir (Path):
+                Directory location to save Svg file
                 type(e.g. raw) / Simulation name (e.g. MLP) / station name (종로구) / target name (e.g. PM10) / seasonality
 
             target_year (int):
@@ -3183,24 +3244,24 @@ class SeasonalityDecompositor(TransformerMixin, BaseEstimator):
         df_resid_weekly_pop.rename(columns={'resid': target}, inplace=True)
         df_resid_hourly.rename(columns={'resid': target}, inplace=True)
 
-        self.plot_annual(df_d, target, data_dir, plot_dir,
+        self.plot_annual(df_d, target, data_dir, png_dir, svg_dir,
             target_year=2016, smoothing=self.smoothing)
         self.plot_annual_acf(df_d, target, df.index[0], df.index[-1],
-            data_dir, plot_dir,
-                             nlags=nlags, smoothing=self.smoothing)
+            data_dir, png_dir, svg_dir,
+            nlags=nlags, smoothing=self.smoothing)
 
-        self.plot_weekly(df_resid_annual, target, data_dir, plot_dir,
+        self.plot_weekly(df_resid_annual, target, data_dir, png_dir, svg_dir,
             target_year=target_year, target_week=target_week)
         self.plot_weekly_acf(df_resid_annual, target, df.index[0], df.index[-1],
-            data_dir, plot_dir,
+            data_dir, png_dir, svg_dir,
             target_year=target_year, target_week=target_week, nlags=nlags)
 
-        self.plot_hourly(df_resid_weekly_pop, target, data_dir, plot_dir,
+        self.plot_hourly(df_resid_weekly_pop, target, data_dir, png_dir, svg_dir,
             target_year=target_year, target_month=target_month, target_day=target_day)
         self.plot_hourly_acf(df_resid_weekly_pop, target, df.index[0], df.index[-1],
-            data_dir, plot_dir,
-            target_year=target_year, target_month=target_month, target_day=target_day,
-            nlags=nlags*24)
+                             data_dir, png_dir, svg_dir,
+                            target_year=target_year, target_month=target_month, target_day=target_day,
+                            nlags=nlags*24)
 
 class SeasonalityDecompositor2(TransformerMixin, BaseEstimator):
     """Decompose Seasonality only to annual seasonality
@@ -3407,7 +3468,7 @@ class SeasonalityDecompositor2(TransformerMixin, BaseEstimator):
             if c1 - a < a and a < c2 - a:
                 return i
 
-    def plot_annual(self, df, target, data_dir, plot_dir,
+    def plot_annual(self, df, target, data_dir, png_dir, svg_dir,
                     target_year=2016, smoothing=True):
         # annual (pick 1 year)
         dt1 = dt.datetime(year=target_year, month=1, day=1, hour=0)
@@ -3439,9 +3500,12 @@ class SeasonalityDecompositor2(TransformerMixin, BaseEstimator):
         df_year.set_index('date', inplace=True)
         df_year.to_csv(csv_path)
 
-        plt_path = plot_dir / ("annual_seasonality_" +
+        png_path = png_dir / ("annual_seasonality_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
+        svg_path = svg_dir / ("annual_seasonality_" +
+                               dt1.strftime("%Y%m%d%H") + "_" +
+                               dt2.strftime("%Y%m%d%H") + ".svg")
 
         p1 = figure(title="Annual Seasonality")
         p1.xaxis.axis_label = "dates"
@@ -3452,13 +3516,18 @@ class SeasonalityDecompositor2(TransformerMixin, BaseEstimator):
                                                    hours="%m/%d %H:%M",
                                                    minutes="%m/%d %H:%M")
         p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2)
-        export_png(p1, filename=plt_path)
+        export_png(p1, filename=png_path)
+        p1.output_backend = "svg"
+        export_svgs(p1, filename=str(svg_path))
 
         if smoothing:
             # 1. smooth
-            plt_path = plot_dir / ("annual_seasonality_(smooth)_" +
+            png_path = png_dir / ("annual_seasonality_(smooth)_" +
                                    dt1.strftime("%Y%m%d%H") + "_" +
                                    dt2.strftime("%Y%m%d%H") + ".png")
+            svg_path = svg_dir / ("annual_seasonality_(smooth)_" +
+                                   dt1.strftime("%Y%m%d%H") + "_" +
+                                   dt2.strftime("%Y%m%d%H") + ".svg")
             p1 = figure(title="Annual Seasonality(Smooth)")
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
@@ -3469,12 +3538,17 @@ class SeasonalityDecompositor2(TransformerMixin, BaseEstimator):
                                                        minutes="%m/%d %H:%M")
             p1.line(year_range_plt, ys_smooth,
                     line_color="dodgerblue", line_width=2)
-            export_png(p1, filename=plt_path)
+            export_png(p1, filename=png_path)
+            p1.output_backend = "svg"
+            export_svgs(p1, filename=str(svg_path))
 
             # 2. vanila
-            plt_path = plot_dir / ("annual_seasonality_(vanilla)_" +
+            png_path = png_dir / ("annual_seasonality_(vanilla)_" +
                                    dt1.strftime("%Y%m%d%H") + "_" +
                                    dt2.strftime("%Y%m%d%H") + ".png")
+            svg_path = svg_dir / ("annual_seasonality_(vanilla)_" +
+                                   dt1.strftime("%Y%m%d%H") + "_" +
+                                   dt2.strftime("%Y%m%d%H") + ".svg")
             p1 = figure(title="Annual Seasonality(Raw)")
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
@@ -3485,12 +3559,17 @@ class SeasonalityDecompositor2(TransformerMixin, BaseEstimator):
                                                        minutes="%m/%d %H:%M")
             p1.line(year_range_plt, ys_vanilla,
                     line_color="dodgerblue", line_width=2)
-            export_png(p1, filename=plt_path)
+            export_png(p1, filename=png_path)
+            p1.output_backend = "svg"
+            export_svgs(p1, filename=str(svg_path))
 
             # 3. smooth + vanila
-            plt_path = plot_dir / ("annual_seasonality_(both)_" +
+            png_path = png_dir / ("annual_seasonality_(both)_" +
                                    dt1.strftime("%Y%m%d%H") + "_" +
                                    dt2.strftime("%Y%m%d%H") + ".png")
+            svg_path = svg_dir / ("annual_seasonality_(both)_" +
+                                   dt1.strftime("%Y%m%d%H") + "_" +
+                                   dt2.strftime("%Y%m%d%H") + ".svg")
             p1 = figure(title="Annual Seasonality(Smooth & Vanilla)")
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
@@ -3503,9 +3582,11 @@ class SeasonalityDecompositor2(TransformerMixin, BaseEstimator):
                     line_width=2, legend_label="smooth")
             p1.line(year_range_plt, ys_vanilla, line_color="lightcoral",
                     line_width=2, legend_label="vanilla")
-            export_png(p1, filename=plt_path)
+            export_png(p1, filename=png_path)
+            p1.output_backend = "svg"
+            export_svgs(p1, filename=str(svg_path))
 
-    def plot_annual_acf(self, df, target, fdate, tdate, data_dir, plot_dir,
+    def plot_annual_acf(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
                         target_year=2016, nlags=15*24, smoothing=True):
         ## residual autocorrelation by tsa.acf
         year_range = pd.date_range(
@@ -3533,9 +3614,12 @@ class SeasonalityDecompositor2(TransformerMixin, BaseEstimator):
         df_year_acf.set_index('lags', inplace=True)
         df_year_acf.to_csv(csv_path)
 
-        plt_path = plot_dir / ("acf_annual_seasonalityy_" +
+        png_path = png_dir / ("acf_annual_seasonalityy_" +
                                fdate.strftime("%Y%m%d%H") + "_" +
                                tdate.strftime("%Y%m%d%H") + ".png")
+        svg_path = svg_dir / ("acf_annual_seasonalityy_" +
+                               fdate.strftime("%Y%m%d%H") + "_" +
+                               tdate.strftime("%Y%m%d%H") + ".svg")
         p1 = figure(title="Autocorrelation of Annual Residual")
         p1.toolbar.logo = None
         p1.toolbar_location = None
@@ -3543,16 +3627,22 @@ class SeasonalityDecompositor2(TransformerMixin, BaseEstimator):
         p1.yaxis.bounds = (min(0, min(yr_acf)), 1.1)
         p1.line([i*24 for i in range(len(yr_acf))], yr_acf,
                 line_color="lightcoral", line_width=2)
-        export_png(p1, filename=plt_path)
+        export_png(p1, filename=png_path)
+        p1.output_backend = "svg"
+        export_svgs(p1, filename=str(svg_path))
 
         ## residual autocorrelation by plot_acf
-        plt_path = plot_dir / ("acf(tpl)_annual_seasonality_" +
+        png_path = png_dir / ("acf(tpl)_annual_seasonality_" +
                                fdate.strftime("%Y%m%d%H") + "_" +
                                tdate.strftime("%Y%m%d%H") + ".png")
+        svg_path = svg_dir / ("acf(tpl)_annual_seasonality_" +
+                               fdate.strftime("%Y%m%d%H") + "_" +
+                               tdate.strftime("%Y%m%d%H") + ".svg")
         fig = tpl.plot_acf(yr, lags=nlags)
-        fig.savefig(plt_path)
+        fig.savefig(png_path)
+        fig.savefig(svg_path)
 
-    def plot(self, df, target, fdate, tdate, data_dir, plot_dir,
+    def plot(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
              target_year=2016, target_week=10, target_month=5, target_day=1,
              nlags=15*24, smoothing=True):
         """
@@ -3575,8 +3665,12 @@ class SeasonalityDecompositor2(TransformerMixin, BaseEstimator):
                 Directory location to save csv file
                 type(e.g. raw) / Simulation name (e.g. MLP) / station name (종로구) / target name (e.g. PM10) / seasonality
 
-            plot_dir (Path):
+            png_dir (Path):
                 Directory location to save png file
+                type(e.g. raw) / Simulation name (e.g. MLP) / station name (종로구) / target name (e.g. PM10) / seasonality
+
+            svg_dir (Path):
+                Directory location to save Svg file
                 type(e.g. raw) / Simulation name (e.g. MLP) / station name (종로구) / target name (e.g. PM10) / seasonality
 
             target_year (int):
@@ -3605,10 +3699,10 @@ class SeasonalityDecompositor2(TransformerMixin, BaseEstimator):
         df_resid_annual.rename(columns={'resid': target}, inplace=True)
         df_resid_annual_pop.rename(columns={'resid': target}, inplace=True)
 
-        self.plot_annual(df, target, data_dir, plot_dir,
+        self.plot_annual(df, target, data_dir, png_dir, svg_dir,
                          target_year=2016, smoothing=self.smoothing)
         self.plot_annual_acf(df, target, df.index[0], df.index[-1],
-                             data_dir, plot_dir,
+                             data_dir, png_dir, svg_dir,
                              nlags=nlags, smoothing=self.smoothing)
 
 class StandardScalerWrapper(StandardScaler):
