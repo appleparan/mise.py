@@ -44,7 +44,7 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def ml_mlp_uni_ms2(station_name="종로구"):
+def ml_mlp_uni_ms(station_name="종로구"):
     print("Start Multivariate MLP Mean Seasonality Decomposition Model")
     targets = ["PM10", "PM25"]
     sample_size = 72
@@ -417,7 +417,7 @@ class BaseMLPModel(LightningModule):
             self.data_dir / "seasonality", self.png_dir / "seasonality", self.svg_dir / "seasonality")
 
         # create test_set after computing seasonality of train/valid set
-        test_set = data.UnivariateMeanSeasonalityDataset2(
+        test_set = data.UnivariateMeanSeasonalityDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",

@@ -148,7 +148,6 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
         # run test set
         trainer.test()
 
-
 class EncoderRNN(nn.Module):
     """
     Encoder, but not same as Seq2Seq's
@@ -183,7 +182,6 @@ class EncoderRNN(nn.Module):
 
     def initHidden(self):
         return torch.zeros(1, 1, self.hidden_size, device=device)
-
 
 class Attention(nn.Module):
     """ Attention Layer (Luong Attention)
@@ -254,7 +252,6 @@ class Attention(nn.Module):
         # attention_weights : [batch size, num_filters]
         return context, attention_weights
 
-
 class DecoderRNN(nn.Module):
     """
     Decoder, but not same as Seq2Seq's
@@ -323,7 +320,6 @@ class DecoderRNN(nn.Module):
         # current hidden state is a input of next step's hidden state
         # hidden : [num_layers * num_directions, batch_size, hidden_size]
         return prediction, hidden
-
 
 class BaseTPAAttnModel(LightningModule):
     """
@@ -715,7 +711,6 @@ class BaseTPAAttnModel(LightningModule):
         return torch.as_tensor(xs), torch.as_tensor(xs_1d), \
             torch.as_tensor(ys0), torch.as_tensor(ys), dates
 
-
 def plot_line(hparams, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
@@ -752,7 +747,6 @@ def plot_line(hparams, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
             {'date': dates, 'obs': obs, 'sim': sim})
         df_line.set_index('date', inplace=True)
         df_line.to_csv(csv_path)
-
 
 def plot_logs(train_logs, valid_logs, target,
               data_dir, png_dir, svg_dir):
@@ -800,7 +794,6 @@ def plot_logs(train_logs, valid_logs, target,
         p.output_backend = "svg"
         export_svgs(p, filename=str(svg_path))
 
-
 def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
@@ -838,7 +831,6 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
         df_scatter = pd.DataFrame({'obs': obs, 'sim': sim})
         df_scatter.to_csv(csv_path)
 
-
 def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
@@ -872,7 +864,6 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     df_corrs.set_index('time', inplace=True)
     df_corrs.to_csv(csv_path)
 
-
 def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
@@ -903,7 +894,6 @@ def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     df_rmses = pd.DataFrame({'time': times, 'rmse': rmses})
     df_rmses.set_index('time', inplace=True)
     df_rmses.to_csv(csv_path)
-
 
 def swish(_input, beta=1.0):
     """

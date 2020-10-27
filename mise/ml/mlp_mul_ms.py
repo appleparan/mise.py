@@ -43,7 +43,7 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def ml_mlp_mul_ms2(station_name="종로구"):
+def ml_mlp_mul_ms(station_name="종로구"):
     print("Start Multivariate MLP Mean Seasonality Decomposition Model")
     targets = ["PM10", "PM25"]
     sample_size = 72
@@ -398,7 +398,7 @@ class BaseMLPModel(LightningModule):
 
     def prepare_data(self):
         # create custom dataset
-        train_valid_set = data.MultivariateMeanSeasonalityDataset2(
+        train_valid_set = data.MultivariateMeanSeasonalityDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",

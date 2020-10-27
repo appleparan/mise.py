@@ -220,7 +220,7 @@ class UnivariateDataset(BaseDataset):
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
 
-class UnivariateMeanSeasonalityDataset2(BaseDataset):
+class UnivariateMeanSeasonalityDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._df_raw = self._df.copy()
@@ -416,7 +416,7 @@ class MultivariateDataset(BaseDataset):
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
 
-class MultivariateMeanSeasonalityDataset2(BaseDataset):
+class MultivariateMeanSeasonalityDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # 1-step transformer
