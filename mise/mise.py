@@ -18,8 +18,9 @@ from ml.rnn_uni_attn import ml_rnn_uni_attn
 
 from ml.mlp_mul import ml_mlp_mul
 from ml.mlp_mul_ms2 import ml_mlp_mul_ms2
-from ml.rnn_mul_cnnlstm import ml_rnn_mul_cnnlstm
+from ml.rnn_mul_cnngru import ml_rnn_mul_cnngru
 from ml.rnn_mul_lstnet_attn import ml_rnn_mul_lstnet_attn
+from ml.rnn_mul_tpa_attn import ml_rnn_mul_tpa_attn
 
 """
     plot(args)

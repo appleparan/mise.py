@@ -766,9 +766,9 @@ def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     p.output_backend = "svg"
     export_svgs(p, filename=str(svg_path))
 
-    df_corrs = pd.DataFrame({'time': times, 'rmse': rmses})
-    df_corrs.set_index('time', inplace=True)
-    df_corrs.to_csv(csv_path)
+    df_rmses = pd.DataFrame({'time': times, 'rmse': rmses})
+    df_rmses.set_index('time', inplace=True)
+    df_rmses.to_csv(csv_path)
 
 
 def swish(_input, beta=1.0):
