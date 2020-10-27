@@ -139,7 +139,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          fast_dev_run=True,
+                          #fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -202,7 +202,7 @@ class Attention(nn.Module):
         self.hidden_size = hidden_size
 
         self.attn = nn.Linear(hidden_size + hidden_size, hidden_size)
-        self.v = nn.Linear(hidden_size, 1, bias=False)
+        self.v = nn.Linear(hidden_size, 1)
 
     def forward(self, query, values):
         """
@@ -894,7 +894,7 @@ def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     p.toolbar.logo = None
     p.toolbar_location = None
     p.xaxis.axis_label = "lags"
-    p.yaxis.axis_label = "RMSE"    
+    p.yaxis.axis_label = "RMSE"
     p.line(times, rmses)
     export_png(p, filename=png_path)
     p.output_backend = "svg"
