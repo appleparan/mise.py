@@ -1,6 +1,7 @@
 from argparse import Namespace
 import copy
 import datetime as dt
+from math import sqrt
 import os
 from pathlib import Path
 
@@ -28,7 +29,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
-from bokeh.io import export_png
+from bokeh.io import export_png, export_svgs
 
 import data
 from constants import SEOUL_STATIONS, SEOULTZ
@@ -354,9 +355,12 @@ class BaseAttentionModel(LightningModule):
             'output_dir', Path('/mnt/data/RNNAttnUnivariate/'))
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
-        self.plot_dir = kwargs.get(
+        self.png_dir = kwargs.get(
             'plot_dir', self.output_dir / Path('png/'))
-        Path.mkdir(self.plot_dir, parents=True, exist_ok=True)
+        Path.mkdir(self.png_dir, parents=True, exist_ok=True)
+        self.svg_dir = kwargs.get(
+            'plot_dir', self.output_dir / Path('svg/'))
+        Path.mkdir(self.svg_dir, parents=True, exist_ok=True)
         self.data_dir = kwargs.get(
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
@@ -537,11 +541,15 @@ class BaseAttentionModel(LightningModule):
         df_sim.to_csv(self.data_dir / "df_test_sim.csv")
 
         plot_line(self.hparams, df_obs, df_sim, self.target,
-                  self.data_dir, self.plot_dir)
+                  self.data_dir, self.png_dir, self.svg_dir)
         plot_scatter(self.hparams, df_obs, df_sim,
-                     self.data_dir, self.plot_dir)
+                     self.data_dir, self.png_dir, self.svg_dir)
         plot_corr(self.hparams, df_obs, df_sim,
-                  self.data_dir, self.plot_dir)
+                  self.data_dir, self.png_dir, self.svg_dir)
+        plot_rmse(self.hparams, df_obs, df_sim,
+                  self.data_dir, self.png_dir, self.svg_dir)
+        plot_logs(self.train_logs, self.valid_logs, self.target,
+                  self.data_dir, self.png_dir, self.svg_dir)
 
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu()
         tensorboard_logs = {'test/loss': avg_loss}
@@ -663,16 +671,20 @@ class BaseAttentionModel(LightningModule):
         return torch.as_tensor(xs), torch.as_tensor(ys0), torch.as_tensor(ys), dates
 
 
-def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
+def plot_line(hparams, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
-    Path.mkdir(plot_dir, parents=True, exist_ok=True)
+    Path.mkdir(png_dir, parents=True, exist_ok=True)
+    Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
     for t in range(hparams.output_size):
         dates = df_obs.index + dt.timedelta(hours=t)
 
-        plot_dir_h = plot_dir / str(t).zfill(2)
-        Path.mkdir(plot_dir_h, parents=True, exist_ok=True)
-        plt_path = plot_dir_h / ("line_" + str(t).zfill(2) + "h.png")
+        png_dir_h = png_dir / str(t).zfill(2)
+        svg_dir_h = svg_dir / str(t).zfill(2)
+        Path.mkdir(png_dir_h, parents=True, exist_ok=True)
+        Path.mkdir(svg_dir_h, parents=True, exist_ok=True)
+        png_path = png_dir_h / ("line_" + str(t).zfill(2) + "h.png")
+        svg_path = svg_dir_h / ("line_" + str(t).zfill(2) + "h.svg")
 
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
@@ -684,7 +696,9 @@ def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
         p.xaxis.formatter = DatetimeTickFormatter()
         p.line(dates, obs, line_color="dodgerblue", legend_label="obs")
         p.line(dates, sim, line_color="lightcoral", legend_label="sim")
-        export_png(p, filename=plt_path)
+        export_png(p, filename=png_path)
+        p.output_backend = "svg"
+        export_svgs(p, filename=str(svg_path))
 
         data_dir_h = data_dir / str(t).zfill(2)
         Path.mkdir(data_dir_h, parents=True, exist_ok=True)
@@ -696,9 +710,10 @@ def plot_line(hparams, df_obs, df_sim, target, data_dir, plot_dir):
 
 
 def plot_logs(train_logs, valid_logs, target,
-              data_dir, plot_dir):
+              data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
-    Path.mkdir(plot_dir, parents=True, exist_ok=True)
+    Path.mkdir(png_dir, parents=True, exist_ok=True)
+    Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
     df_train_logs = pd.DataFrame.from_dict(train_logs, orient='index',
                                            columns=['MAE', 'MSE', 'R2', 'LOSS'])
@@ -713,36 +728,46 @@ def plot_logs(train_logs, valid_logs, target,
 
     epochs = df_train_logs.index.to_numpy()
     for col in df_train_logs.columns:
-        plt_path = plot_dir / ("log_train_" + col + ".png")
+        png_path = png_dir / ("log_train_" + col + ".png")
+        svg_path = svg_dir / ("log_train_" + col + ".svg")
         p = figure(title=col)
         p.toolbar.logo = None
         p.toolbar_location = None
         p.xaxis.axis_label = "epoch"
         p.line(epochs, df_train_logs[col].to_numpy(), line_color="dodgerblue")
-        export_png(p, filename=plt_path)
+        export_png(p, filename=png_path)
+        p.output_backend = "svg"
+        export_svgs(p, filename=str(svg_path))
 
     csv_path = data_dir / ("log_valid.csv")
     df_valid_logs.to_csv(csv_path)
 
     epochs = df_valid_logs.index.to_numpy()
     for col in df_valid_logs.columns:
-        plt_path = plot_dir / ("log_valid_" + col + ".png")
+        png_path = png_dir / ("log_valid_" + col + ".png")
+        svg_path = svg_dir / ("log_valid_" + col + ".svg")
         p = figure(title=col)
         p.toolbar.logo = None
         p.toolbar_location = None
         p.xaxis.axis_label = "epoch"
         p.line(epochs, df_valid_logs[col].to_numpy(), line_color="dodgerblue")
-        export_png(p, filename=plt_path)
+        export_png(p, filename=png_path)
+        p.output_backend = "svg"
+        export_svgs(p, filename=str(svg_path))
 
 
-def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
+def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
-    Path.mkdir(plot_dir, parents=True, exist_ok=True)
+    Path.mkdir(png_dir, parents=True, exist_ok=True)
+    Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
     for t in range(hparams.output_size):
-        plot_dir_h = plot_dir / str(t).zfill(2)
-        Path.mkdir(plot_dir_h, parents=True, exist_ok=True)
-        plt_path = plot_dir_h / ("scatter_" + str(t).zfill(2) + "h.png")
+        png_dir_h = png_dir / str(t).zfill(2)
+        svg_dir_h = svg_dir / str(t).zfill(2)
+        Path.mkdir(png_dir_h, parents=True, exist_ok=True)
+        Path.mkdir(svg_dir_h, parents=True, exist_ok=True)
+        png_path = png_dir_h / ("scatter_" + str(t).zfill(2) + "h.png")
+        svg_path = svg_dir_h / ("scatter_" + str(t).zfill(2) + "h.svg")
 
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
@@ -758,7 +783,9 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
         p.x_range = Range1d(0.0, maxval)
         p.y_range = Range1d(0.0, maxval)
         p.scatter(obs, sim)
-        export_png(p, filename=plt_path)
+        export_png(p, filename=png_path)
+        p.output_backend = "svg"
+        export_svgs(p, filename=str(svg_path))
 
         data_dir_h = data_dir / str(t).zfill(2)
         Path.mkdir(data_dir_h, parents=True, exist_ok=True)
@@ -767,11 +794,13 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, plot_dir):
         df_scatter.to_csv(csv_path)
 
 
-def plot_corr(hparams, df_obs, df_sim, data_dir, plot_dir):
+def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
-    Path.mkdir(plot_dir, parents=True, exist_ok=True)
+    Path.mkdir(png_dir, parents=True, exist_ok=True)
+    Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    plt_path = plot_dir / ("corr_time.png")
+    png_path = png_dir / ("corr_time.png")
+    svg_path = svg_dir / ("corr_time.svg")
     csv_path = data_dir / ("corr_time.csv")
 
     times = list(range(hparams.output_size + 1))
@@ -790,11 +819,45 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, plot_dir):
     p.yaxis.bounds = (0.0, 1.0)
     p.y_range = Range1d(0.0, 1.0)
     p.line(times, corrs)
-    export_png(p, filename=plt_path)
+    export_png(p, filename=png_path)
+    p.output_backend = "svg"
+    export_svgs(p, filename=str(svg_path))
 
     df_corrs = pd.DataFrame({'time': times, 'corr': corrs})
     df_corrs.set_index('time', inplace=True)
     df_corrs.to_csv(csv_path)
+
+
+def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+    Path.mkdir(data_dir, parents=True, exist_ok=True)
+    Path.mkdir(png_dir, parents=True, exist_ok=True)
+    Path.mkdir(svg_dir, parents=True, exist_ok=True)
+
+    png_path = png_dir / ("rmse_time.png")
+    svg_path = svg_dir / ("rmse_time.svg")
+    csv_path = data_dir / ("rmse_time.csv")
+
+    times = list(range(1, hparams.output_size + 1))
+    rmses = []
+    for t in range(hparams.output_size):
+        obs = df_obs[str(t)].to_numpy()
+        sim = df_sim[str(t)].to_numpy()
+
+        rmses.append(sqrt(mean_squared_error(obs, sim)))
+
+    p = figure(title="RMSE of OBS & Model")
+    p.toolbar.logo = None
+    p.toolbar_location = None
+    p.xaxis.axis_label = "lags"
+    p.yaxis.axis_label = "RMSE"
+    p.line(times, rmses)
+    export_png(p, filename=png_path)
+    p.output_backend = "svg"
+    export_svgs(p, filename=str(svg_path))
+
+    df_rmses = pd.DataFrame({'time': times, 'rmse': rmses})
+    df_rmses.set_index('time', inplace=True)
+    df_rmses.to_csv(csv_path)
 
 
 def swish(_input, beta=1.0):

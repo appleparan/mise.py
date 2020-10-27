@@ -414,7 +414,7 @@ class MultivariateMeanSeasonalityDataset(MultivariateDataset):
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
 
-    def plot_seasonality(self, data_dir, plot_dir, nlags=24*30):
+    def plot_seasonality(self, data_dir, png_dir, svg_dir, nlags=24*30):
         """
         Plot seasonality and residual, and their autocorrealtions
 
@@ -444,7 +444,7 @@ class MultivariateMeanSeasonalityDataset(MultivariateDataset):
         df_year.set_index('date', inplace=True)
         df_year.to_csv(csv_path)
 
-        plt_path = plot_dir / ("annual_seasonality_daily_avg_" +
+        plt_path = png_dir / ("annual_seasonality_daily_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
 
@@ -478,7 +478,7 @@ class MultivariateMeanSeasonalityDataset(MultivariateDataset):
         df_year_acf.set_index('lags', inplace=True)
         df_year_acf.to_csv(csv_path)
 
-        plt_path = plot_dir / ("acf_annual_seasonality_daily_avg_" +
+        plt_path = png_dir / ("acf_annual_seasonality_daily_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         p1 = figure(title="Autocorrelation of Annual Residual")
@@ -507,7 +507,7 @@ class MultivariateMeanSeasonalityDataset(MultivariateDataset):
         df_week.set_index('date', inplace=True)
         df_week.to_csv(csv_path)
 
-        plt_path = plot_dir / ("weekly_seasonality_daily_avg_" +
+        plt_path = png_dir / ("weekly_seasonality_daily_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
 
@@ -540,7 +540,7 @@ class MultivariateMeanSeasonalityDataset(MultivariateDataset):
         df_week_acf.set_index('lags', inplace=True)
         df_week_acf.to_csv(csv_path)
 
-        plt_path = plot_dir / ("acf_weekly_seasonality_daily_avg_" +
+        plt_path = png_dir / ("acf_weekly_seasonality_daily_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         p2 = figure(title="Autocorrelation of Weekly Residual")
@@ -568,7 +568,7 @@ class MultivariateMeanSeasonalityDataset(MultivariateDataset):
         df_day.set_index('date', inplace=True)
         df_day.to_csv(csv_path)
 
-        plt_path = plot_dir / ("daily_seasonality_hourly_avg_" +
+        plt_path = png_dir / ("daily_seasonality_hourly_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
 
@@ -599,7 +599,7 @@ class MultivariateMeanSeasonalityDataset(MultivariateDataset):
         df_day_acf.set_index('lags', inplace=True)
         df_day_acf.to_csv(csv_path)
 
-        plt_path = plot_dir / ("acf_daily_seasonality_hourly_avg_" +
+        plt_path = png_dir / ("acf_daily_seasonality_hourly_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         p3 = figure(title="Autocorrelation of Daily Residual")
@@ -909,14 +909,14 @@ class MultivariateMeanSeasonalityDataset2(BaseDataset):
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
             y.index.to_numpy()
 
-    def preprocess(self, data_dir, plot_dir):
+    def preprocess(self, data_dir, png_dir, svg_dir):
         """Compute seasonality and transform by seasonality
         """
         # compute seasonality
         self._scaler_X.fit(self._xs, y=self._xs)
         self._scaler_Y.fit(self._ys, y=self._ys)
         # plot
-        self.plot_seasonality(data_dir, plot_dir)
+        self.plot_seasonality(data_dir, png_dir, svg_dir)
 
         # fit and transform data by transformer
         self._xs = pd.DataFrame(data=self.scaler_X.transform(self._xs),
@@ -950,10 +950,10 @@ class MultivariateMeanSeasonalityDataset2(BaseDataset):
         # inverse_transform to Y always, so doesn't need dates (already have)
         return _inv_transYs
 
-    def plot_seasonality(self, data_dir, plot_dir):
+    def plot_seasonality(self, data_dir, png_dir, svg_dir):
         p = self._scaler_X.named_transformers_['num_2']
         p['seasonalitydecompositor'].plot(self._xs, self.target,
-            self.fdate, self.tdate, data_dir, plot_dir)
+            self.fdate, self.tdate, data_dir, png_dir, svg_dir)
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
@@ -1027,7 +1027,7 @@ class MultivariateRNNSeasonalityDataset2(BaseDataset):
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
             y.index.to_numpy()
 
-    def preprocess(self, data_dir, plot_dir):
+    def preprocess(self, data_dir, png_dir, svg_dir):
         """Compute seasonality and transform by seasonality
         """
         # compute seasonality
@@ -1035,7 +1035,7 @@ class MultivariateRNNSeasonalityDataset2(BaseDataset):
         self._scaler_Y.fit(self._ys, y=self._ys)
 
         # plot
-        self.plot_seasonality(data_dir, plot_dir)
+        self.plot_seasonality(data_dir, png_dir, svg_dir)
 
         # fit and transform data by transformer
         self._xs = self.transform_df(self._xs)
@@ -1077,10 +1077,10 @@ class MultivariateRNNSeasonalityDataset2(BaseDataset):
 
         return _inv_transYs
 
-    def plot_seasonality(self, data_dir, plot_dir):
+    def plot_seasonality(self, data_dir, png_dir, svg_dir):
         p = self._scaler_X.named_transformers_['num']
         p['seasonalitydecompositor'].plot(self._xs, self.target,
-                                          self.fdate, self.tdate, data_dir, plot_dir)
+                                          self.fdate, self.tdate, data_dir, png_dir, svg_dir)
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
@@ -1192,7 +1192,7 @@ class UnivariateMeanSeasonalityDataset2(BaseDataset):
         #        self._dates[(i+self.sample_size)
         #                    :(i+self.sample_size+self.output_size)]
 
-    def preprocess(self, data_dir, plot_dir):
+    def preprocess(self, data_dir, png_dir, svg_dir):
         """Compute seasonality and transform by seasonality
         """
         # compute seasonality
@@ -1200,7 +1200,7 @@ class UnivariateMeanSeasonalityDataset2(BaseDataset):
         self._scaler_Y.fit(self._ys, y=self._ys)
 
         # plot
-        self.plot_seasonality(data_dir, plot_dir)
+        self.plot_seasonality(data_dir, png_dir, svg_dir)
 
         # fit and transform data by transformer
         self._xs = self.transform_df(self._xs)
@@ -1241,10 +1241,10 @@ class UnivariateMeanSeasonalityDataset2(BaseDataset):
         #                    columns=[self.target]), zip(_inv_transYs, dates)))
         return _inv_transYs
 
-    def plot_seasonality(self, data_dir, plot_dir):
+    def plot_seasonality(self, data_dir, png_dir, svg_dir):
         p = self._scaler_X.named_transformers_['num']
         p['seasonalitydecompositor'].plot(self._xs, self.target,
-            self.fdate, self.tdate, data_dir, plot_dir)
+            self.fdate, self.tdate, data_dir, png_dir, svg_dir)
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
@@ -1493,7 +1493,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
 
-    def plot_seasonality(self, data_dir, plot_dir, nlags=24*30, smoothing=True):
+    def plot_seasonality(self, data_dir, png_dir, svg_dir, nlags=24*30, smoothing=True):
         """
         Plot seasonality and residual, and their autocorrealtions
 
@@ -1520,7 +1520,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         df_year.set_index('date', inplace=True)
         df_year.to_csv(csv_path)
 
-        plt_path = plot_dir / ("annual_seasonality_daily_avg_s_" +
+        plt_path = png_dir / ("annual_seasonality_daily_avg_s_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
 
@@ -1535,7 +1535,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2)
         export_png(p1, filename=plt_path)
 
-        plt_path = plot_dir / ("annual_seasonality_daily_avg_r_" +
+        plt_path = png_dir / ("annual_seasonality_daily_avg_r_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         p1 = figure(title="Annual Residual")
@@ -1550,7 +1550,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         export_png(p1, filename=plt_path)
 
         if smoothing:
-            plt_path = plot_dir / ("annual_seasonality_daily_avg_s(smooth)_" +
+            plt_path = png_dir / ("annual_seasonality_daily_avg_s(smooth)_" +
                                    dt1.strftime("%Y%m%d%H") + "_" +
                                    dt2.strftime("%Y%m%d%H") + ".png")
             p1 = figure(title="Annual Seasonality(Smooth)")
@@ -1564,7 +1564,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
             p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2)
             export_png(p1, filename=plt_path)
 
-            plt_path = plot_dir / ("annual_seasonality_daily_avg_s(raw)_" +
+            plt_path = png_dir / ("annual_seasonality_daily_avg_s(raw)_" +
                                    dt1.strftime("%Y%m%d%H") + "_" +
                                    dt2.strftime("%Y%m%d%H") + ".png")
             p1 = figure(title="Annual Seasonality(Raw)")
@@ -1579,7 +1579,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
             p1.line(year_range_plt, ys_raw, line_color="dodgerblue", line_width=2)
             export_png(p1, filename=plt_path)
 
-            plt_path = plot_dir / ("annual_seasonality_daily_avg_s(both)_" +
+            plt_path = png_dir / ("annual_seasonality_daily_avg_s(both)_" +
                                    dt1.strftime("%Y%m%d%H") + "_" +
                                    dt2.strftime("%Y%m%d%H") + ".png")
             p1 = figure(title="Annual Seasonality(Smooth & Raw)")
@@ -1614,7 +1614,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         df_year_acf.set_index('lags', inplace=True)
         df_year_acf.to_csv(csv_path)
 
-        plt_path = plot_dir / ("acf_annual_seasonality_daily_avg_" +
+        plt_path = png_dir / ("acf_annual_seasonality_daily_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         p1 = figure(title="Autocorrelation of Annual Residual")
@@ -1625,7 +1625,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p1.line(range(len(yr_acf)), yr_acf, line_color="lightcoral", line_width=2)
         export_png(p1, filename=plt_path)
 
-        plt_path = plot_dir / ("acf(tpl)_annual_seasonality_daily_avg_" +
+        plt_path = png_dir / ("acf(tpl)_annual_seasonality_daily_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         fig = tpl.plot_acf(self._df_d.loc[:, self.target + '_yr'], lags=30)
@@ -1649,7 +1649,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         df_week.set_index('date', inplace=True)
         df_week.to_csv(csv_path)
 
-        plt_path = plot_dir / ("weekly_seasonality_daily_avg_s_" +
+        plt_path = png_dir / ("weekly_seasonality_daily_avg_s_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
 
@@ -1662,7 +1662,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p2.line(week_range_plt, ws, line_color="dodgerblue", line_width=2)
         export_png(p2, filename=plt_path)
 
-        plt_path = plot_dir / ("weekly_seasonality_daily_avg_r_" +
+        plt_path = png_dir / ("weekly_seasonality_daily_avg_r_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         p2 = figure(title="Weekly Residual")
@@ -1693,7 +1693,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         df_week_acf.set_index('lags', inplace=True)
         df_week_acf.to_csv(csv_path)
 
-        plt_path = plot_dir / ("acf_weekly_seasonality_daily_avg_" +
+        plt_path = png_dir / ("acf_weekly_seasonality_daily_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         p2 = figure(title="Autocorrelation of Weekly Residual")
@@ -1704,7 +1704,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p2.line(range(len(wr_acf)), wr_acf, line_color="lightcoral", line_width=2)
         export_png(p2, filename=plt_path)
 
-        plt_path = plot_dir / ("acf(tpl)_weekly_seasonality_daily_avg_" +
+        plt_path = png_dir / ("acf(tpl)_weekly_seasonality_daily_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         fig = tpl.plot_acf(self._df_d.loc[:, self.target + '_wr'], lags=30)
@@ -1727,7 +1727,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         df_day.set_index('date', inplace=True)
         df_day.to_csv(csv_path)
 
-        plt_path = plot_dir / ("daily_seasonality_hourly_avg_s_" +
+        plt_path = png_dir / ("daily_seasonality_hourly_avg_s_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
 
@@ -1739,7 +1739,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p3.line(day_range_plt, ds, line_color="dodgerblue", line_width=2)
         export_png(p3, filename=plt_path)
 
-        plt_path = plot_dir / ("daily_seasonality_hourly_avg_r_" +
+        plt_path = png_dir / ("daily_seasonality_hourly_avg_r_" +
                         dt1.strftime("%Y%m%d%H") + "_" +
                         dt2.strftime("%Y%m%d%H") + ".png")
         p3 = figure(title="Daily Residual")
@@ -1768,7 +1768,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         df_day_acf.set_index('lags', inplace=True)
         df_day_acf.to_csv(csv_path)
 
-        plt_path = plot_dir / ("acf_daily_seasonality_hourly_avg_" +
+        plt_path = png_dir / ("acf_daily_seasonality_hourly_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         p3 = figure(title="Autocorrelation of Daily Residual")
@@ -1779,7 +1779,7 @@ class UnivariateMeanSeasonalityDataset(UnivariateDataset):
         p3.line(range(len(dr_acf)), dr_acf, line_color="lightcoral", line_width=2)
         export_png(p3, filename=plt_path)
 
-        plt_path = plot_dir / ("acf(tpl)_daily_seasonality_hourly_avg_" +
+        plt_path = png_dir / ("acf(tpl)_daily_seasonality_hourly_avg_" +
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".png")
         fig = tpl.plot_acf(self._df_h.loc[:, self.target + '_dr'], lags=24*30)
@@ -2007,7 +2007,7 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
 
         return arima_x, arima_y, arima_sub_x, arima_sub_y
 
-    def plot_arima(self, data_dir, plot_dir):
+    def plot_arima(self, data_dir, png_dir, svg_dir):
 
         values = {}
         values['x'] = np.zeros((self.__len__(), self.sample_size_m), dtype=np.float32)
@@ -2034,15 +2034,15 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
             values['xe'][i, :] = self.arima_sub_x[hash_key_date]
             values['ye'][i, :] = self.arima_sub_y[hash_key_date]
 
-        plot_dir_in = plot_dir / "ARIMA_X"
-        Path.mkdir(plot_dir_in, parents=True, exist_ok=True)
+        png_dir_in = png_dir / "ARIMA_X"
+        Path.mkdir(png_dir_in, parents=True, exist_ok=True)
         data_dir_in = data_dir / "ARIMA_X"
         Path.mkdir(data_dir_in, parents=True, exist_ok=True)
 
         for t in range(self.sample_size_m):
-            plot_dir_h = plot_dir_in / str(t).zfill(2)
-            Path.mkdir(plot_dir_h, parents=True, exist_ok=True)
-            plt_path = plot_dir_h / ("arima_x_" + str(t).zfill(2) + "h.png")
+            png_dir_h = png_dir_in / str(t).zfill(2)
+            Path.mkdir(png_dir_h, parents=True, exist_ok=True)
+            plt_path = png_dir_h / ("arima_x_" + str(t).zfill(2) + "h.png")
 
             data_dir_h = data_dir_in / str(t).zfill(2)
             Path.mkdir(data_dir_h, parents=True, exist_ok=True)
@@ -2065,15 +2065,15 @@ class UnivariateAutoRegressiveSubDataset(UnivariateDataset):
                 {'x': values['x'][:, t], 'xa': values['xa'][:, t]})
             df_scatter.to_csv(csv_path)
 
-        plot_dir_in = plot_dir / "ARIMA_Y"
-        Path.mkdir(plot_dir_in, parents=True, exist_ok=True)
+        png_dir_in = png_dir / "ARIMA_Y"
+        Path.mkdir(png_dir_in, parents=True, exist_ok=True)
         data_dir_in = data_dir / "ARIMA_Y"
         Path.mkdir(data_dir_in, parents=True, exist_ok=True)
 
         for t in range(self.output_size):
-            plot_dir_h = plot_dir_in / str(t).zfill(2)
-            Path.mkdir(plot_dir_h, parents=True, exist_ok=True)
-            plt_path = plot_dir_h / ("arima_y_" + str(t).zfill(2) + "h.png")
+            png_dir_h = png_dir_in / str(t).zfill(2)
+            Path.mkdir(png_dir_h, parents=True, exist_ok=True)
+            plt_path = png_dir_h / ("arima_y_" + str(t).zfill(2) + "h.png")
 
             data_dir_h = data_dir_in / str(t).zfill(2)
             Path.mkdir(data_dir_h, parents=True, exist_ok=True)
@@ -2433,7 +2433,7 @@ class UnivariateMeanSeasonalityAutoRegressiveSubDataset(UnivariateDataset):
 
         return arima_x, arima_y, arima_sub_x, arima_sub_y
 
-    def plot_arima(self, data_dir, plot_dir):
+    def plot_arima(self, data_dir, png_dir):
 
         values = {}
         values['x'] = np.zeros(
@@ -2468,15 +2468,15 @@ class UnivariateMeanSeasonalityAutoRegressiveSubDataset(UnivariateDataset):
             values['xe'][i, :] = self.arima_sub_x[hash_key_date]
             values['ye'][i, :] = self.arima_sub_y[hash_key_date]
 
-        plot_dir_in = plot_dir / "ARIMA_X"
-        Path.mkdir(plot_dir_in, parents=True, exist_ok=True)
+        png_dir_in = png_dir / "ARIMA_X"
+        Path.mkdir(png_dir_in, parents=True, exist_ok=True)
         data_dir_in = data_dir / "ARIMA_X"
         Path.mkdir(data_dir_in, parents=True, exist_ok=True)
 
         for t in range(self.sample_size_m):
-            plot_dir_h = plot_dir_in / str(t).zfill(2)
-            Path.mkdir(plot_dir_h, parents=True, exist_ok=True)
-            plt_path = plot_dir_h / ("arima_x_" + str(t).zfill(2) + "h.png")
+            png_dir_h = png_dir_in / str(t).zfill(2)
+            Path.mkdir(png_dir_h, parents=True, exist_ok=True)
+            plt_path = png_dir_h / ("arima_x_" + str(t).zfill(2) + "h.png")
 
             data_dir_h = data_dir_in / str(t).zfill(2)
             Path.mkdir(data_dir_h, parents=True, exist_ok=True)
@@ -2500,15 +2500,15 @@ class UnivariateMeanSeasonalityAutoRegressiveSubDataset(UnivariateDataset):
                 {'x': values['x'][:, t], 'xa': values['xa'][:, t]})
             df_scatter.to_csv(csv_path)
 
-        plot_dir_in = plot_dir / "ARIMA_Y"
-        Path.mkdir(plot_dir_in, parents=True, exist_ok=True)
+        png_dir_in = png_dir / "ARIMA_Y"
+        Path.mkdir(png_dir_in, parents=True, exist_ok=True)
         data_dir_in = data_dir / "ARIMA_Y"
         Path.mkdir(data_dir_in, parents=True, exist_ok=True)
 
         for t in range(self.output_size):
-            plot_dir_h = plot_dir_in / str(t).zfill(2)
-            Path.mkdir(plot_dir_h, parents=True, exist_ok=True)
-            plt_path = plot_dir_h / ("arima_y_" + str(t).zfill(2) + "h.png")
+            png_dir_h = png_dir_in / str(t).zfill(2)
+            Path.mkdir(png_dir_h, parents=True, exist_ok=True)
+            plt_path = png_dir_h / ("arima_y_" + str(t).zfill(2) + "h.png")
 
             data_dir_h = data_dir_in / str(t).zfill(2)
             Path.mkdir(data_dir_h, parents=True, exist_ok=True)
@@ -2532,20 +2532,20 @@ class UnivariateMeanSeasonalityAutoRegressiveSubDataset(UnivariateDataset):
                 {'y': values['y'][:, t], 'ya': values['ya'][:, t]})
             df_scatter.to_csv(csv_path)
 
-    def plot_acf(self, nlags, plot_dir):
+    def plot_acf(self, nlags, png_dir):
         endog = self._xs
 
-        plt_path = plot_dir / ("acf.png")
+        plt_path = png_dir / ("acf.png")
         plt.figure()
         fig = tpl.plot_acf(endog, lags=nlags)
         fig.savefig(plt_path)
 
-        plt_path = plot_dir / ("acf_default_lag.png")
+        plt_path = png_dir / ("acf_default_lag.png")
         plt.figure()
         fig = tpl.plot_acf(endog)
         fig.savefig(plt_path)
 
-        plt_path = plot_dir / ("pacf.png")
+        plt_path = png_dir / ("pacf.png")
         plt.figure()
         fig = tpl.plot_pacf(endog)
         fig.savefig(plt_path)

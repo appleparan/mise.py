@@ -409,9 +409,6 @@ class BaseTPAAttnModel(LightningModule):
 
         self.encoder = EncoderRNN(
             len(self.features), self.hparams.hidden_size)
-        #self.encoder = nn.GRU(len(self.features),
-        #                      self.hparams.hidden_size, batch_first=True)
-        #self.gru = nn.GRU(self.hparams.hidden_size + 1, self.hparams.hidden_size, batch_first=True)
         self.attention = Attention(
             self.hparams.hidden_size, self.hparams.num_filters, self.hparams.kernel_size[1])
         self.decoder = DecoderRNN(
@@ -494,7 +491,7 @@ class BaseTPAAttnModel(LightningModule):
             _log[name] = float(torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
-        _log['loss'] = float(avg_loss)
+        _log['loss'] = float(avg_loss.detach().cpu())
 
         self.train_logs[self.current_epoch] = _log
 
@@ -530,7 +527,7 @@ class BaseTPAAttnModel(LightningModule):
             _log[name] = float(torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
-        _log['loss'] = float(avg_loss)
+        _log['loss'] = float(avg_loss.detach().cpu())
 
         self.valid_logs[self.current_epoch] = _log
 

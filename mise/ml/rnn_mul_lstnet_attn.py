@@ -491,7 +491,7 @@ class BaseLSTNetModel(LightningModule):
             _log[name] = float(torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
-        _log['loss'] = float(avg_loss)
+        _log['loss'] = float(avg_loss.detach().cpu())
 
         self.train_logs[self.current_epoch] = _log
 
@@ -527,7 +527,7 @@ class BaseLSTNetModel(LightningModule):
             _log[name] = float(torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
-        _log['loss'] = float(avg_loss)
+        _log['loss'] = float(avg_loss.detach().cpu())
 
         self.valid_logs[self.current_epoch] = _log
 
