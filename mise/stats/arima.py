@@ -18,7 +18,7 @@ import tqdm
 
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
-from bokeh.io import export_png
+from bokeh.io import export_png, export_svgs
 
 import data
 from constants import SEOUL_STATIONS
@@ -216,12 +216,12 @@ def plot_arima(df_sim, df_obs, target, order, data_dir, plot_dir, _test_fdate, _
 
         scatter_fname = "scatter_arima(" + \
             str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-            target + "_" + str(t).zfill(2) + "h.png"
+            target + "_" + str(t).zfill(2) + "h"
         plot_scatter(obs, sim, plot_dir, scatter_fname)
         # plot line
         line_fname = "line_arima(" + \
             str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-            target + "_" + str(t).zfill(2) + "h.png"
+            target + "_" + str(t).zfill(2) + "h"
         plot_dates = plot_line(obs, sim, test_fdate, test_tdate, target,
                                plot_dir, line_fname)
 
@@ -238,7 +238,7 @@ def plot_arima(df_sim, df_obs, target, order, data_dir, plot_dir, _test_fdate, _
     # plot corr for all times
     corr_fname = "corr_arima(" + \
         str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-        target + ".png"
+        target
     csv_fname = "corr_hourly_arima(" + \
         str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
         target + ".csv"
@@ -249,7 +249,9 @@ def plot_arima(df_sim, df_obs, target, order, data_dir, plot_dir, _test_fdate, _
     plot_corr(times, corrs, data_dir, plot_dir)
 
 def plot_scatter(obs, sim, plot_dir, output_name):
-    plot_path = plot_dir / output_name
+    png_path = plot_dir / (output_name + ".png")
+    svg_path = plot_dir / (output_name + ".svg")
+
     plt.figure()
     plt.title("Model/OBS")
     plt.xlabel("OBS")
@@ -258,12 +260,14 @@ def plot_scatter(obs, sim, plot_dir, output_name):
     plt.xlim((0, maxval))
     plt.ylim((0, maxval))
     plt.scatter(obs, sim)
-    plt.savefig(plot_path)
+    plt.savefig(png_path)
+    plt.savefig(svg_path)
     plt.close()
 
 
 def plot_line(obs, sim, test_fdate, test_tdate, target, plot_dir, output_name):
-    plot_path = plot_dir / output_name
+    png_path = plot_dir / (output_name + ".png")
+    svg_path = plot_dir / (output_name + ".svg")
 
     dates = np.array([test_fdate + dt.timedelta(hours=i) for i in range(len(obs))])
 
@@ -272,46 +276,55 @@ def plot_line(obs, sim, test_fdate, test_tdate, target, plot_dir, output_name):
     plt.xlabel("dates")
     plt.ylabel(target)
     plt.plot(dates, obs, "b", dates, sim, "r")
-    plt.savefig(plot_path)
+    plt.savefig(png_path)
+    plt.savefig(svg_path)
     plt.close()
 
     return dates
 
 
 def plot_corr(times, corrs, plot_dir, output_name):
-    plot_path = plot_dir / output_name
+    png_path = plot_dir / (output_name + ".png")
+    svg_path = plot_dir / (output_name + ".svg")
 
     plt.figure()
     plt.title("Correlation of OBS & Model")
     plt.xlabel("lags")
     plt.ylabel("corr")
     plt.plot(times, corrs)
-    plt.savefig(plot_path)
+    plt.savefig(png_path)
+    plt.savefig(svg_path)
     plt.close()
 
 def plot_acf(x, nlags, _acf, _pacf, data_dir, plot_dir):
     lags_acf = range(len(_acf))
     lags_pacf = range(len(_pacf))
 
-    plt_path = plot_dir / ("acf.png")
+    png_path = plot_dir / ("acf.png")
+    svg_path = plot_dir / ("acf.svg")
     plt.figure()
     fig = tpl.plot_acf(x, lags=nlags)
-    fig.savefig(plt_path)
+    fig.savefig(png_path)
+    fig.savefig(svg_path)
 
     csv_path = data_dir / ("acf.csv")
     df_acf = pd.DataFrame({'lags': lags_acf, 'acf': _acf})
     df_acf.set_index('lags', inplace=True)
     df_acf.to_csv(csv_path)
 
-    plt_path = plot_dir / ("acf_default_lag.png")
+    png_path = plot_dir / ("acf_default_lag.png")
+    svg_path = plot_dir / ("acf_default_lag.svg")
     plt.figure()
     fig = tpl.plot_acf(x)
-    fig.savefig(plt_path)
+    fig.savefig(png_path)
+    fig.savefig(svg_path)
 
-    plt_path = plot_dir / ("pacf.png")
+    png_path = plot_dir / ("pacf.png")
+    svg_path = plot_dir / ("pacf.svg")
     plt.figure()
     fig = tpl.plot_pacf(x)
-    fig.savefig(plt_path)
+    fig.savefig(png_path)
+    fig.savefig(svg_path)
 
     csv_path = data_dir / ("pacf.csv")
     df_pacf = pd.DataFrame({'lags': lags_pacf, 'acf': _pacf})
@@ -320,20 +333,26 @@ def plot_acf(x, nlags, _acf, _pacf, data_dir, plot_dir):
 
     # detrened
     detr_x = detrend(x, order=2)
-    plt_path = plot_dir / ("detrend_acf.png")
+    png_path = plot_dir / ("detrend_acf.png")
+    svg_path = plot_dir / ("detrend_acf.svg")
     plt.figure()
     fig = tpl.plot_acf(detr_x, lags=nlags)
-    fig.savefig(plt_path)
+    fig.savefig(png_path)
+    fig.savefig(svg_path)
 
-    plt_path = plot_dir / ("detrend_acf_default_lag.png")
+    png_path = plot_dir / ("detrend_acf_default_lag.png")
+    svg_path = plot_dir / ("detrend_acf_default_lag.svg")
     plt.figure()
     fig = tpl.plot_acf(detr_x)
-    fig.savefig(plt_path)
+    fig.savefig(png_path)
+    fig.savefig(svg_path)
 
-    plt_path = plot_dir / ("detrend_pacf.png")
+    png_path = plot_dir / ("detrend_pacf.png")
+    svg_path = plot_dir / ("detrend_pacf.svg")
     plt.figure()
     fig = tpl.plot_pacf(detr_x)
-    fig.savefig(plt_path)
+    fig.savefig(png_path)
+    fig.savefig(svg_path)
 
 
 
