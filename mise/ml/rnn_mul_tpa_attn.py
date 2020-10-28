@@ -753,11 +753,11 @@ def plot_logs(train_logs, valid_logs, target,
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
     df_train_logs = pd.DataFrame.from_dict(train_logs, orient='index',
-                                           columns=['MAE', 'MSE', 'R2', 'LOSS'])
+                                           columns=['MAE', 'MSE', 'R2', 'loss'])
     df_train_logs.index.rename('epoch', inplace=True)
 
     df_valid_logs = pd.DataFrame.from_dict(valid_logs, orient='index',
-                                           columns=['MAE', 'MSE', 'R2', 'LOSS'])
+                                           columns=['MAE', 'MSE', 'R2', 'loss'])
     df_valid_logs.index.rename('epoch', inplace=True)
 
     csv_path = data_dir / ("log_train.csv")
