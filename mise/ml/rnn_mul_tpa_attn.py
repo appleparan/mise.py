@@ -139,7 +139,7 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          #fast_dev_run=True,
+                          fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -274,8 +274,7 @@ class DecoderRNN(nn.Module):
 
         # no embedding -> GRU input size is 1
         self.gru = nn.GRU(hidden_size + num_filters, hidden_size, batch_first=True)
-        self.out1 = nn.Linear(num_filters, 1)
-        self.out2 = nn.Linear(hidden_size, 1)
+        self.out = nn.Linear(hidden_size + num_filters, 1)
 
     def forward(self, hidden, encoder_outputs):
         """
@@ -300,13 +299,6 @@ class DecoderRNN(nn.Module):
         # context is always composed of new hidden state and same encoder_outputs over sequences
         context, a = self.attention(hidden, encoder_outputs)
 
-        # every output needs ATTENTION!, now I just use feedforward network to combine
-        # x: (batch_size, 1)
-        # context: (batch_size, num_filters)
-        # attention_vector: (batch_size, num_filters)
-        # prediction: (batch size, 1)
-        prediction = self.out1(context) + self.out2(hidden.squeeze(0))
-
         # apply rnn(GRU) to attention_vector
         # GRU input must be [batch_size, seq_len, hidden_size], because batch_first=True
         # seq_len for Decoder is just 1
@@ -315,6 +307,12 @@ class DecoderRNN(nn.Module):
         attention_vector = torch.cat((context, hidden.squeeze(0)), dim=1)
         # hidden : [num_layers * num_directions, batch_size, hidden_size]
         output, hidden = self.gru(attention_vector.unsqueeze(1), hidden)
+
+        # every output needs ATTENTION!, now I just use feedforward network to combine
+        # x: (batch_size, 1)
+        # attention_vector: (batch_size, num_filters)
+        # prediction: (batch size, 1)
+        prediction = self.out(attention_vector)
 
         # prediction: [batch size, 1]
         # current hidden state is a input of next step's hidden state
