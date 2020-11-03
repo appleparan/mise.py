@@ -340,7 +340,7 @@ class BaseAttentionModel(LightningModule):
 
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
-        self.features = [self.target]
+        self.features = kwargs.get('features', [self.target])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))

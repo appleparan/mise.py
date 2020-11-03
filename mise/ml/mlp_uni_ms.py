@@ -163,7 +163,7 @@ class BaseMLPModel(LightningModule):
 
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
-        self.features = [self.target]
+        self.features = kwargs.get('features', [self.target])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
@@ -210,7 +210,7 @@ class BaseMLPModel(LightningModule):
         return x
 
     def configure_optimizers(self):
-        return Adam(self.parameters(), lr=self.hparams.lr | self.hparams.learning_rate)
+        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr | self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
         x, y, y_raw, dates = batch
