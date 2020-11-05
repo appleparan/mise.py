@@ -86,17 +86,15 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
 
         if target == 'PM10':
             hparams = Namespace(
-                seq_size=sample_size,
-                input_size=1,
                 num_filters=32,
                 hidden_size=16,
-                # should be (smaple_size, filter_size)
-                kernel_size=(sample_size, 5),
-                output_size=output_size,
+                # kernel should be (sample_size, filter_size)
+                filter_size=3,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
                 batch_size=batch_size)
             model = BaseTPAAttnModel(hparams=hparams,
+                                     sample_size=sample_size,
+                                     output_size=output_size,
                                      station_name=station_name,
                                      target=target,
                                      features=train_features,
@@ -105,17 +103,15 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
                                      output_dir=output_dir)
         elif target == 'PM25':
             hparams = Namespace(
-                seq_size=sample_size,
-                input_size=1,
                 num_filters=32,
                 hidden_size=16,
-                # should be (smaple_size, filter_size)
-                kernel_size=(sample_size, 5),
-                output_size=output_size,
+                # kernel should be (sample_size, filter_size)
+                filter_size=3,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
                 batch_size=batch_size)
             model = BaseTPAAttnModel(hparams=hparams,
+                                     sample_size=sample_size,
+                                     output_size=output_size,
                                      station_name=station_name,
                                      target=target,
                                      features=train_features,
@@ -139,7 +135,7 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          fast_dev_run=True,
+                          #fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -173,15 +169,12 @@ class EncoderRNN(nn.Module):
                 [num_layers * num_direction, batch_size, hidden_size]
         """
         # no embedding
-        # _input: [batch_size, sample_size, input_size]
+        # _input: [batch_size, sample_size, input_size(=len(features))]
         outputs, hidden = self.gru(_input)
 
         # outputs: [sample_size, batch_size, num_directions*hidden_size]
         # hidden: [num_layers * num_direction, batch_size, hidden_size]
         return outputs, hidden
-
-    def initHidden(self):
-        return torch.zeros(1, 1, self.hidden_size, device=device)
 
 class Attention(nn.Module):
     """ Attention Layer (Luong Attention)
@@ -274,7 +267,7 @@ class DecoderRNN(nn.Module):
 
         # no embedding -> GRU input size is 1
         self.gru = nn.GRU(hidden_size + num_filters, hidden_size, batch_first=True)
-        self.out = nn.Linear(hidden_size + num_filters, 1)
+        self.out = nn.Linear(hidden_size + num_filters, output_size)
 
     def forward(self, hidden, encoder_outputs):
         """
@@ -306,7 +299,7 @@ class DecoderRNN(nn.Module):
         # attention_vector.unsqueeze(1) : [batch_size, 1, hidden_size + num_filters]
         attention_vector = torch.cat((context, hidden.squeeze(0)), dim=1)
         # hidden : [num_layers * num_directions, batch_size, hidden_size]
-        output, hidden = self.gru(attention_vector.unsqueeze(1), hidden)
+        #output, hidden = self.gru(attention_vector.unsqueeze(1), hidden)
 
         # every output needs ATTENTION!, now I just use feedforward network to combine
         # x: (batch_size, 1)
@@ -334,20 +327,17 @@ class BaseTPAAttnModel(LightningModule):
         # 2*padding[1] + 1 = kernel_size[1]
 
         self.hparams = kwargs.get('hparams', Namespace(
-            seq_size=72,
-            num_filters=16,
+            num_filters=24,
             hidden_size=16,
-            kernel_size=(1, 1),
-            output_size=24,
+            filter_size=1,
             learning_rate=1e-3,
-            sample_size=48,
             batch_size=32
         ))
 
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
-        self.features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
-                         "temp", "u", "v", "pres", "humid", "prep", "snow"]
+        self.features = kwargs.get('features', ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                                                "temp", "u", "v", "pres", "humid", "prep", "snow"])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
@@ -372,6 +362,10 @@ class BaseTPAAttnModel(LightningModule):
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
+        self.sample_size = kwargs.get('sample_size', 48)
+        self.output_size = kwargs.get('output_size', 24)
+        self.kernel_shape = (self.sample_size, self.hparams.filter_size)
+
         self.loss = nn.MSELoss(reduction='mean')
 
         self._train_set = None
@@ -384,29 +378,21 @@ class BaseTPAAttnModel(LightningModule):
         self.train_logs = {}
         self.valid_logs = {}
 
-        #if self.hparams.num_filters > \
-        #    pow(2, self.hparams.kernel_size[0] + self.hparams.kernel_size[1]):
-        #    raise ValueError("CNN channel size limit exceed: ", self.hparams.num_filters)
-
-        # padding_size is determined by kernel_size to keep same height and width between input and output
-        #if self.hparams.kernel_size[0] % 2 == 0 or self.hparams.kernel_size[1] % 2 == 0:
-        #    raise ValueError("kernel_size should be odd number: ", self.hparams.kernel_size)
-
         # kernel_size = 2*padding_size+1
         # convolution filter to time array
-        #padding_size = (int((self.hparams.kernel_size[0] - 1)/2), 0)
+        #padding_size = (int((self.hparams.filter_size - 1)/2), 0)
         # Time is horizontal axis
-        #padding_size = (0, int((self.hparams.kernel_size[1] - 1)/2))
+        #padding_size = (0, int((self.hparams.filter_size - 1)/2))
 
         # no padding
-        self.conv = nn.Conv2d(1, self.hparams.num_filters, self.hparams.kernel_size)
+        self.conv = nn.Conv2d(1, self.hparams.num_filters, self.kernel_shape)
 
         self.encoder = EncoderRNN(
             len(self.features), self.hparams.hidden_size)
         self.attention = Attention(
-            self.hparams.hidden_size, self.hparams.num_filters, self.hparams.kernel_size[1])
+            self.hparams.hidden_size, self.hparams.num_filters, self.hparams.filter_size)
         self.decoder = DecoderRNN(
-            self.hparams.hidden_size, self.hparams.num_filters, self.hparams.output_size, self.attention)
+            self.hparams.hidden_size, self.hparams.num_filters, self.output_size, self.attention)
 
     def forward(self, _x, y0, y):
         """
@@ -431,24 +417,28 @@ class BaseTPAAttnModel(LightningModule):
         # W : feature_size
         # x_rnn.unsqueeze(1): (batch_size, 1, sample_size, feature_size)
         # self.conv(x_rnn.unsqueeze(1)): (batch_size, num_filters, 1, feature_size)
-        # x_cnn: (batch_size, num_filters, (hidRNN - kernel_size[0] + 1))
+        # x_cnn: (batch_size, num_filters, (hidden_size - kernel_size[0] + 1))
+        # x_cnn: (batch_size, num_filters, attn_feature_size)
         x_cnn = self.conv(x_rnn.unsqueeze(1)).squeeze(2)
 
         # set input of decoder as last hidden state of encoder
         # batch_first doesn't affect to hidden's size
+        # hidden: (1, batch_size, hidden_size)
         hidden = encoder_hidden
 
         # placeholder for multi-horization
         # x  : [batch_size, sample_size, 1]
         # y0 : [batch_size, 1]
         # y  : [batch_size, output_size]
-        outputs = torch.zeros(batch_size, self.hparams.output_size).to(device)
+        #outputs = torch.zeros(batch_size, self.houtput_size).to(device)
 
-        for t in range(self.hparams.output_size):
-            # x_cnn is "Attention"
-            output, hidden = self.decoder(hidden, x_cnn)
-
-            outputs[:, t] = output.squeeze(1)
+        outputs, hidden = self.decoder(hidden, x_cnn)
+        #for t in range(self.output_size):
+        #    # ATTENDS x_cnn
+        #    # input is a hidden state
+        #    output, hidden = self.decoder(hidden, x_cnn)
+#
+        #    outputs[:, t] = output.squeeze(1)
 
         return outputs
 
@@ -552,7 +542,7 @@ class BaseTPAAttnModel(LightningModule):
 
     def test_epoch_end(self, outputs):
         # column to indicate offset to key_date
-        cols = [str(t) for t in range(self.hparams.output_size)]
+        cols = [str(t) for t in range(self.output_size)]
 
         df_obs = pd.DataFrame(columns=cols)
         df_sim = pd.DataFrame(columns=cols)
@@ -575,13 +565,13 @@ class BaseTPAAttnModel(LightningModule):
         df_obs.to_csv(self.data_dir / "df_test_obs.csv")
         df_sim.to_csv(self.data_dir / "df_test_sim.csv")
 
-        plot_line(self.hparams, df_obs, df_sim, self.target,
+        plot_line(self.output_size, df_obs, df_sim, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
-        plot_scatter(self.hparams, df_obs, df_sim,
+        plot_scatter(self.output_size, df_obs, df_sim,
                      self.data_dir, self.png_dir, self.svg_dir)
-        plot_corr(self.hparams, df_obs, df_sim,
+        plot_corr(self.output_size, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
-        plot_rmse(self.hparams, df_obs, df_sim,
+        plot_rmse(self.output_size, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
         plot_logs(self.train_logs, self.valid_logs, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
@@ -628,8 +618,8 @@ class BaseTPAAttnModel(LightningModule):
             features=self.features,
             fdate=self.train_fdate,
             tdate=self.train_tdate,
-            sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size,
+            sample_size=self.sample_size,
+            output_size=self.output_size,
             train_valid_ratio=0.8)
 
         # save train/valid set
@@ -650,8 +640,8 @@ class BaseTPAAttnModel(LightningModule):
             features=self.features,
             fdate=self.test_fdate,
             tdate=self.test_tdate,
-            sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size)
+            sample_size=self.sample_size,
+            output_size=self.output_size)
         test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
 
         # assign to use in dataloaders
@@ -709,12 +699,13 @@ class BaseTPAAttnModel(LightningModule):
         return torch.as_tensor(xs), torch.as_tensor(xs_1d), \
             torch.as_tensor(ys0), torch.as_tensor(ys), dates
 
-def plot_line(hparams, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
+
+def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         dates = df_obs.index + dt.timedelta(hours=t)
 
         png_dir_h = png_dir / str(t).zfill(2)
@@ -792,12 +783,12 @@ def plot_logs(train_logs, valid_logs, target,
         p.output_backend = "svg"
         export_svgs(p, filename=str(svg_path))
 
-def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_scatter(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         png_dir_h = png_dir / str(t).zfill(2)
         svg_dir_h = svg_dir / str(t).zfill(2)
         Path.mkdir(png_dir_h, parents=True, exist_ok=True)
@@ -829,7 +820,7 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
         df_scatter = pd.DataFrame({'obs': obs, 'sim': sim})
         df_scatter.to_csv(csv_path)
 
-def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_corr(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
@@ -838,9 +829,9 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     svg_path = svg_dir / ("corr_time.svg")
     csv_path = data_dir / ("corr_time.csv")
 
-    times = list(range(hparams.output_size + 1))
+    times = list(range(output_size + 1))
     corrs = [1.0]
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 
@@ -862,7 +853,7 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     df_corrs.set_index('time', inplace=True)
     df_corrs.to_csv(csv_path)
 
-def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_rmse(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
@@ -871,9 +862,9 @@ def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     svg_path = svg_dir / ("rmse_time.svg")
     csv_path = data_dir / ("rmse_time.csv")
 
-    times = list(range(1, hparams.output_size + 1))
+    times = list(range(1, output_size + 1))
     rmses = []
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 
@@ -892,6 +883,7 @@ def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     df_rmses = pd.DataFrame({'time': times, 'rmse': rmses})
     df_rmses.set_index('time', inplace=True)
     df_rmses.to_csv(csv_path)
+
 
 def swish(_input, beta=1.0):
     """

@@ -86,40 +86,36 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
 
         if target == 'PM10':
             hparams = Namespace(
-                seq_size=sample_size,
-                input_size=1,
                 hidCNN=16,
-                kernel_size=(5, len(train_features)),
+                filter_size=5,
                 hidRNN=16,
-                output_size=output_size,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
                 batch_size=batch_size)
             model = BaseCNNGRUModel(hparams=hparams,
-                                     station_name=station_name,
-                                     target=target,
-                                     features=train_features,
-                                     train_fdate=train_fdate, train_tdate=train_tdate,
-                                     test_fdate=test_fdate, test_tdate=test_tdate,
-                                     output_dir=output_dir)
+                                    sample_size=sample_size,
+                                    output_size=output_size,
+                                    station_name=station_name,
+                                    target=target,
+                                    features=train_features,
+                                    train_fdate=train_fdate, train_tdate=train_tdate,
+                                    test_fdate=test_fdate, test_tdate=test_tdate,
+                                    output_dir=output_dir)
         elif target == 'PM25':
             hparams = Namespace(
-                seq_size=sample_size,
-                input_size=1,
                 hidCNN=16,
-                kernel_size=(5, len(train_features)),
+                filter_size=5,                
                 hidRNN=16,
-                output_size=output_size,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
                 batch_size=batch_size)
             model = BaseCNNGRUModel(hparams=hparams,
-                                     station_name=station_name,
-                                     target=target,
-                                     features=train_features,
-                                     train_fdate=train_fdate, train_tdate=train_tdate,
-                                     test_fdate=test_fdate, test_tdate=test_tdate,
-                                     output_dir=output_dir)
+                                    sample_size=sample_size,
+                                    output_size=output_size,
+                                    station_name=station_name,
+                                    target=target,
+                                    features=train_features,
+                                    train_fdate=train_fdate, train_tdate=train_tdate,
+                                    test_fdate=test_fdate, test_tdate=test_tdate,
+                                    output_dir=output_dir)
         # first, plot periodicity
         # second, univariate or multivariate
 
@@ -225,13 +221,10 @@ class BaseCNNGRUModel(LightningModule):
         # 2*padding[1] + 1 = kernel_size[1]
 
         self.hparams = kwargs.get('hparams', Namespace(
-            seq_size=72,
             hidCNN=4,
-            kernel_size=(5, 13),
-            hidRNN=16,
-            output_size=24,
+            filter_size=5,
+            hidden_size=16,
             learning_rate=1e-3,
-            sample_size=48,
             batch_size=32
         ))
 
@@ -262,6 +255,10 @@ class BaseCNNGRUModel(LightningModule):
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
+        self.sample_size = kwargs.get('sample_size', 48)
+        self.output_size = kwargs.get('output_size', 24)
+        self.kernel_shape = (self.hparams.filter_size, len(self.features))
+
         self.loss = nn.MSELoss(reduction='mean')
 
         self._train_set = None
@@ -275,17 +272,18 @@ class BaseCNNGRUModel(LightningModule):
         self.valid_logs = {}
 
         # padding_size is determined by kernel_size to keep same height and width between input and output
-        if self.hparams.kernel_size[0] % 2 == 0 or self.hparams.kernel_size[1] % 2 == 0:
-            raise ValueError("kernel_size should be odd number: ", self.hparams.kernel_size)
-        padding_size = (int((self.hparams.kernel_size[0] - 1)/2),
+        if self.hparams.filter_size % 2 == 0:
+            raise ValueError(
+                "filter_size should be odd number: ", self.filter_size)
+        padding_size = (int((self.hparams.filter_size - 1)/2),
             0)
         self.conv = nn.Conv2d(1, self.hparams.hidCNN,
-            self.hparams.kernel_size, padding=padding_size, padding_mode='replicate')
+            self.kernel_shape, padding=padding_size, padding_mode='replicate')
 
         self.encoder = EncoderRNN(
-            self.hparams.hidCNN, self.hparams.hidRNN)
+            self.hparams.hidCNN, self.hparams.hidden_size)
         self.decoder = DecoderRNN(
-            self.hparams.hidRNN, self.hparams.output_size)
+            self.hparams.hidden_size, self.output_size)
         assert self.encoder.hidden_size == self.decoder.hidden_size, \
             "Hidden dimensions of encoder and decoder must be equal!"
 
@@ -309,11 +307,11 @@ class BaseCNNGRUModel(LightningModule):
         # x  : [batch_size, sample_size, 1]
         # y0 : [batch_size, 1]
         # y  : [batch_size, output_size]
-        outputs = torch.zeros(batch_size, self.hparams.output_size).to(device)
+        outputs = torch.zeros(batch_size, self.output_size).to(device)
 
         # iterate sequence
         # x[ei] : single value of PM10 or PM25
-        for t in range(self.hparams.output_size + 1):
+        for t in range(self.output_size + 1):
             output, hidden = self.decoder(_input, hidden)
 
             if t > 0:
@@ -424,7 +422,7 @@ class BaseCNNGRUModel(LightningModule):
 
     def test_epoch_end(self, outputs):
         # column to indicate offset to key_date
-        cols = [str(t) for t in range(self.hparams.output_size)]
+        cols = [str(t) for t in range(self.output_size)]
 
         df_obs = pd.DataFrame(columns=cols)
         df_sim = pd.DataFrame(columns=cols)
@@ -447,13 +445,13 @@ class BaseCNNGRUModel(LightningModule):
         df_obs.to_csv(self.data_dir / "df_test_obs.csv")
         df_sim.to_csv(self.data_dir / "df_test_sim.csv")
 
-        plot_line(self.hparams, df_obs, df_sim, self.target,
+        plot_line(self.output_size, df_obs, df_sim, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
-        plot_scatter(self.hparams, df_obs, df_sim,
+        plot_scatter(self.output_size, df_obs, df_sim,
                      self.data_dir, self.png_dir, self.svg_dir)
-        plot_corr(self.hparams, df_obs, df_sim,
+        plot_corr(self.output_size, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
-        plot_rmse(self.hparams, df_obs, df_sim,
+        plot_rmse(self.output_size, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
         plot_logs(self.train_logs, self.valid_logs, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
@@ -500,8 +498,8 @@ class BaseCNNGRUModel(LightningModule):
             features=self.features,
             fdate=self.train_fdate,
             tdate=self.train_tdate,
-            sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size,
+            sample_size=self.sample_size,
+            output_size=self.output_size,
             train_valid_ratio=0.8)
 
         # save train/valid set
@@ -522,8 +520,8 @@ class BaseCNNGRUModel(LightningModule):
             features=self.features,
             fdate=self.test_fdate,
             tdate=self.test_tdate,
-            sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size)
+            sample_size=self.sample_size,
+            output_size=self.output_size)
         test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
 
         # assign to use in dataloaders
@@ -582,12 +580,12 @@ class BaseCNNGRUModel(LightningModule):
             torch.as_tensor(ys0), torch.as_tensor(ys), dates
 
 
-def plot_line(hparams, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
+def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         dates = df_obs.index + dt.timedelta(hours=t)
 
         png_dir_h = png_dir / str(t).zfill(2)
@@ -667,12 +665,12 @@ def plot_logs(train_logs, valid_logs, target,
         export_svgs(p, filename=str(svg_path))
 
 
-def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_scatter(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         png_dir_h = png_dir / str(t).zfill(2)
         svg_dir_h = svg_dir / str(t).zfill(2)
         Path.mkdir(png_dir_h, parents=True, exist_ok=True)
@@ -705,7 +703,7 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
         df_scatter.to_csv(csv_path)
 
 
-def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_corr(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
@@ -714,9 +712,9 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     svg_path = svg_dir / ("corr_time.svg")
     csv_path = data_dir / ("corr_time.csv")
 
-    times = list(range(hparams.output_size + 1))
+    times = list(range(output_size + 1))
     corrs = [1.0]
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 
@@ -739,7 +737,7 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     df_corrs.to_csv(csv_path)
 
 
-def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_rmse(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
@@ -748,9 +746,9 @@ def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     svg_path = svg_dir / ("rmse_time.svg")
     csv_path = data_dir / ("rmse_time.csv")
 
-    times = list(range(1, hparams.output_size + 1))
+    times = list(range(1, output_size + 1))
     rmses = []
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 
