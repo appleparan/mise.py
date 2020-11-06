@@ -147,7 +147,6 @@ def mw_df(df_org, target, output_size, fdate, tdate):
 
     df_obs = pd.DataFrame(data=values, index=dates, columns=cols)
     df_obs.index.name = 'date'
-    print(df_obs.head(5))
 
     return df_obs
 
@@ -171,14 +170,15 @@ def sim_arima(_df_train, _df_test, target, order, fdate, tdate, norm_maxlog, out
     values = np.zeros((len(dates), output_size), dtype=df_train[target].dtype)
     assert len(dates) == dates_hours - output_size + 1
 
+    # initial endog
+    index0 = df_test.index[0]
+    endog = list(df_train.loc[index0-sz*index0.freq:index0, target])
+
     for i, (index, row) in tqdm.tqdm(enumerate(df_test.iterrows()), total=len(dates)-1):
         if i > len(dates) - 1:
             break
 
-        detr_x = detrend(
-            df_train.loc[index-sz*df_train.index.freq:index, target], order=2)
-        endog = detr_x
-        model = arm.ARIMA(endog[-sz:], order)
+        model = arm.ARIMA(np.array(endog[-sz:]), order)
         model_fit = model.fit(disp = 0)
 
         out_raw, err_arr, conf_ints = model_fit.forecast(steps = output_size)
@@ -189,7 +189,6 @@ def sim_arima(_df_train, _df_test, target, order, fdate, tdate, norm_maxlog, out
         assert dates[i] == _date
         values[i, :] = value
 
-        # Rolling Forecast ARIMA Model
         endog.append(row[target])
 
     df_sim = pd.DataFrame(data=values, index=dates, columns=cols)
@@ -251,7 +250,9 @@ def plot_arima(df_sim, df_obs, target, order, data_dir, png_dir, svg_dir, _test_
 
     output_dir = dir_prefix
     # plot corr for all times
-    corr_fname = "corr_OU_" + target
+    corr_fname = "corr_ARIMA_(" + \
+            str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
+            str(target)
 
     plot_corr(times, corrs, data_dir, png_dir, svg_dir, corr_fname)
 
@@ -307,6 +308,9 @@ def plot_line(obs, sim, test_fdate, test_tdate, target, data_dir, png_dir, svg_d
 def plot_corr(times, corrs, data_dir, png_dir, svg_dir, output_name):
     png_path = png_dir / (output_name + ".png")
     svg_path = svg_dir / (output_name + ".svg")
+
+    df_corr = pd.DataFrame({'lags': times, 'corr': corrs})
+    df_corr.to_csv(data_dir / (output_name + ".csv"))
 
     p = figure(title="Correlation of OBS & Model")
     p.toolbar.logo = None
