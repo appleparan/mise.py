@@ -568,14 +568,14 @@ class MultivariateRNNDataset(BaseDataset):
         x_1d = self._ys.iloc[i:(i+self.sample_size)]
         # save initial input as target variable input at last step (single step)
         y0 = self._ys.iloc[i+self.sample_size-1]
-        y = self._ys.iloc[(i+self.sample_size)                          :(i+self.sample_size+self.output_size)]
+        y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
         return np.squeeze(x).to_numpy().astype('float32'), \
             np.squeeze(x_1d).to_numpy().astype('float32'), \
             y0.astype('float32'), \
             np.squeeze(y).astype('float32'), \
-            self._dates[(i+self.sample_size)                        :(i+self.sample_size+self.output_size)]
+            self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
@@ -1883,3 +1883,106 @@ class StandardScalerWrapper(StandardScaler):
             return self.scaler.inverse_transform(X)
         else:
             raise TypeError("Type should be Pandas DataFrame or Numpy Array")
+
+
+class MultivariateGeneralDataset(Dataset):
+    def __init__(self, df,
+                 sample_size, output_size,
+                 **kwargs):
+        super().__init__()
+        self.target = kwargs.get('target', 'PM10')
+        self.features = kwargs.get('features', ['PM10'])
+
+        # date when prediction starts, if I need to predict 2018/1/1 1:00 AM, I need more data with size 'sample_size'
+        self.fdate = kwargs.get('fdate', dt.datetime(
+            2009, 1, 1, 1).astimezone(SEOULTZ))
+        # date where prediction starts
+        self.tdate = kwargs.get('tdate', dt.datetime(
+            2017, 12, 31, 23).astimezone(SEOULTZ))
+
+        #self._df = df
+        self._df = df[self.fdate:self.tdate]
+
+        self._dates = self._df.index.to_pydatetime()
+        self._xs = self._df[self.features]
+        self._ys = self._df[[self.target]]
+        self._scaler = preprocessing.StandardScaler().fit(self._xs)
+
+        self.sample_size = sample_size
+        self.output_size = output_size
+
+        self._train_valid_ratio = kwargs.get('train_valid_ratio', 0.8)
+
+    def __getitem__(self, i: int):
+        """
+        get X, Y for given index `di`
+
+        Args:
+            di(datetime): datetime where output starts
+
+        Returns:
+            Tensor: transformed input (might be normalized)
+            Tensor: output without transform
+        """
+        x = self._xs.iloc[i:i+self.sample_size]
+        x_1d = self._ys.iloc[i:(i+self.sample_size)]
+        # save initial input as target variable input at last step (single step)
+        y0 = self._ys.iloc[i+self.sample_size-1]
+        y = self._ys.iloc[(i+self.sample_size)
+                           :(i+self.sample_size+self.output_size)]
+
+        # return X, Y, Y_dates
+        return np.squeeze(x).to_numpy().astype('float32'), \
+            np.squeeze(x_1d).to_numpy().astype('float32'), \
+            y0.astype('float32'), \
+            np.squeeze(y).astype('float32'), \
+            self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+
+    def __len__(self):
+        """
+        hours of train and test dates
+
+        __len__(df) == fdate - tdate - output_size - sample_size
+
+        Returns:
+            int: total hours
+        """
+
+        return self._ys.shape[0] - self.output_size - self.sample_size
+
+    def to_csv(self, fpath):
+        self._df.to_csv(fpath)
+
+        # getter only
+    @property
+    def xs(self):
+        return self._xs
+
+    # getter only
+    @property
+    def ys(self):
+        return self._ys
+
+    @property
+    def scaler(self):
+        return self._scaler
+
+    @scaler.setter
+    def scaler(self, scaler):
+        self._scaler = scaler.fit(self._xs)
+
+    @property
+    def df(self):
+        return self._df
+
+    @df.setter
+    def df(self, df):
+        self._df = df
+
+    @property
+    def train_valid_ratio(self):
+        return self._train_valid_ratio
+
+    @train_valid_ratio.setter
+    def train_valid_ratio(self, value):
+        self._train_valid_ratio = value

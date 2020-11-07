@@ -3,6 +3,7 @@ import argparse
 from stats.arima import stats_arima
 from stats.sarima import stats_sarima
 from stats.tbats import stats_tbats
+from stats.OU import stats_ou
 from stats.stl import stats_stl
 from stats.stl_acf import stats_stl_acf
 from stats.msea_acf import stats_msea_acf
@@ -11,16 +12,15 @@ from stats.preprocess import stats_preprocess
 #from ml.dnn import ml_dnn
 from ml.mlp_uni import ml_mlp_uni
 from ml.mlp_uni_ms import ml_mlp_uni_ms
-from ml.mlp_uni_ms2 import ml_mlp_uni_ms2
-from ml.mlp_uni_ar import ml_mlp_uni_ar
 from ml.rnn_uni_seq2seq import ml_rnn_uni_seq2seq
 from ml.rnn_uni_attn import ml_rnn_uni_attn
 
 from ml.mlp_mul import ml_mlp_mul
-from ml.mlp_mul_ms2 import ml_mlp_mul_ms2
+from ml.mlp_mul_ms import ml_mlp_mul_ms
 from ml.rnn_mul_cnngru import ml_rnn_mul_cnngru
 from ml.rnn_mul_lstnet_attn import ml_rnn_mul_lstnet_attn
 from ml.rnn_mul_tpa_attn import ml_rnn_mul_tpa_attn
+from ml.rnn_mul_tpa_attn_general import ml_rnn_mul_tpa_attn_general
 
 """
     plot(args)
