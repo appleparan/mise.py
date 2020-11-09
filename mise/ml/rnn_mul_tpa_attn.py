@@ -144,15 +144,18 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
         # run test set
         trainer.test()
 
+
 class EncoderRNN(nn.Module):
     """
     Encoder, but not same as Seq2Seq's
     Map data to hidden represeentation.
     """
+
     def __init__(self, input_size, hidden_size):
         super().__init__()
         self.hidden_size = hidden_size
-        self.gru = nn.GRU(input_size, hidden_size, batch_first=True)
+        self.embedding = nn.Linear(input_size, hidden_size)
+        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
 
     def forward(self, _input):
         """
@@ -170,11 +173,24 @@ class EncoderRNN(nn.Module):
         """
         # no embedding
         # _input: [batch_size, sample_size, input_size(=len(features))]
-        outputs, hidden = self.gru(_input)
+        batch_size = _input.size(0)
+        sample_size = _input.size(1)
+        feature_size = _input.size(2)
+
+        #outputs, hidden = self.gru(_input)
+        H = torch.zeros(batch_size, sample_size-1, self.hidden_size).to(device)
+        for t in range(sample_size - 1):
+            xconcat = self.embedding(_input[:, t, :])
+            _, h = self.gru(xconcat.unsqueeze(1))
+            H[:, t, :] = h.squeeze(0)
+
+        # apply gru last step
+        _, h_last = self.gru(self.embedding(_input[:, -1, :]).unsqueeze(1))
 
         # outputs: [sample_size, batch_size, num_directions*hidden_size]
         # hidden: [num_layers * num_direction, batch_size, hidden_size]
-        return outputs, hidden
+        return H, h_last
+
 
 class Attention(nn.Module):
     """ Attention Layer (Luong Attention)
@@ -227,23 +243,29 @@ class Attention(nn.Module):
 
         # query: (1, batch_size, num_filters)
         # attention_weights: (batch_size, attn_feature_size)
+        # attention weights to each row
         attention_weights = self.attn(query.squeeze(0))
 
         # a: (batch_size, num_filters, self.attn_feature_size)
         # H^c(values) * W * h_t(query)
         a = attention_weights.unsqueeze(2).repeat(1, 1, self.attn_feature_size)
-        # attention score (alpha)
+        # attention score (alpha) to each row
         # score: (batch_size, attn_feature_size)
+        # equation (11) -> (12) in TPA paper
+        # score should be scalar "to each row"
         score = torch.sigmoid(torch.sum(values * a, 1))
 
         # apply attention core to convonlution results
+        # equation (13) in TPA paper (v_t)
         # \sum{\alpha * H_c}
         # context: (batch_size, num_filters)
-        context = torch.sum(score.unsqueeze(1).repeat(1, num_filters, 1) * values, dim=2)
+        context = torch.sum(score.unsqueeze(1).repeat(
+            1, num_filters, 1) * values, dim=2)
 
         # context : [batch_size, num_filters]
         # attention_weights : [batch size, num_filters]
         return context, attention_weights
+
 
 class DecoderRNN(nn.Module):
     """
@@ -266,8 +288,9 @@ class DecoderRNN(nn.Module):
         self.attention = attention
 
         # no embedding -> GRU input size is 1
-        self.gru = nn.GRU(hidden_size + num_filters, hidden_size, batch_first=True)
-        self.out = nn.Linear(hidden_size + num_filters, output_size)
+        self.gru = nn.GRU(hidden_size + num_filters,
+                          hidden_size, batch_first=True)
+        self.out = nn.Linear(hidden_size + num_filters, hidden_size)
 
     def forward(self, hidden, encoder_outputs):
         """
@@ -275,7 +298,7 @@ class DecoderRNN(nn.Module):
             x: x is a decoder input for single step, so shape must be (batch_size, 1)
             hidden: previous hidden state of the decoder, and doesn't affect by batch_first
                 (num_layers * num_directions, batch, hidden_size)
-            encoder_outputs: outputs of encoder for context (batch_size, sample_size, num_directions*hidden_size)
+            encoder_outputs: outputs of encoder for context (batch_size, sample_size-1, num_directions*attn_hidden_size)
 
         Returns:
             prediction: output for this step and input for next step,
@@ -292,22 +315,21 @@ class DecoderRNN(nn.Module):
         # context is always composed of new hidden state and same encoder_outputs over sequences
         context, a = self.attention(hidden, encoder_outputs)
 
-        # apply rnn(GRU) to attention_vector
-        # GRU input must be [batch_size, seq_len, hidden_size], because batch_first=True
-        # seq_len for Decoder is just 1
+        # every output needs ATTENTION!, now I just use feedforward network to combine
         # attention_vector : (batch_size, hidden_size + num_filters)
         # attention_vector.unsqueeze(1) : [batch_size, 1, hidden_size + num_filters]
+        # equation (14) in TPA paper
         attention_vector = torch.cat((context, hidden.squeeze(0)), dim=1)
         # hidden : [num_layers * num_directions, batch_size, hidden_size]
-        #output, hidden = self.gru(attention_vector.unsqueeze(1), hidden)
 
-        # every output needs ATTENTION!, now I just use feedforward network to combine
+        # self.out has indepedent weights for W_h and W_v
+        # equation (15) in TPA
         # x: (batch_size, 1)
         # attention_vector: (batch_size, num_filters)
-        # prediction: (batch size, 1)
+        # prediction: (batch size, hidden-size)
         prediction = self.out(attention_vector)
 
-        # prediction: [batch size, 1]
+        # prediction: [batch size, hidden_size]
         # current hidden state is a input of next step's hidden state
         # hidden : [num_layers * num_directions, batch_size, hidden_size]
         return prediction, hidden
@@ -364,7 +386,7 @@ class BaseTPAAttnModel(LightningModule):
 
         self.sample_size = kwargs.get('sample_size', 48)
         self.output_size = kwargs.get('output_size', 24)
-        self.kernel_shape = (self.sample_size, self.hparams.filter_size)
+        self.kernel_shape = (self.sample_size-1, self.hparams.filter_size)
 
         self.loss = nn.MSELoss(reduction='mean')
 
@@ -393,6 +415,7 @@ class BaseTPAAttnModel(LightningModule):
             self.hparams.hidden_size, self.hparams.num_filters, self.hparams.filter_size)
         self.decoder = DecoderRNN(
             self.hparams.hidden_size, self.hparams.num_filters, self.output_size, self.attention)
+        self.output = nn.Linear(self.hparams.hidden_size, self.output_size)
 
     def forward(self, _x, y0, y):
         """
@@ -408,17 +431,17 @@ class BaseTPAAttnModel(LightningModule):
         # first, encode RNN hidden state
         encoder_outputs, encoder_hidden = self.encoder(_x)
 
-        # encoder_outputs : (batch_size, sample_size, feature_size)
-        # x_rnn : (batch_size, sample_size, feature_size)
+        # encoder_outputs : (batch_size, sample_size-1, feature_size)
+        # x_rnn : (batch_size, sample_size-1, feature_size)
         x_rnn = F.leaky_relu(encoder_outputs)
 
         # CNN needs shape as NxC_inxHxW
-        # H : sample_size
-        # W : feature_size
-        # x_rnn.unsqueeze(1): (batch_size, 1, sample_size, feature_size)
-        # self.conv(x_rnn.unsqueeze(1)): (batch_size, num_filters, 1, feature_size)
+        # H : hidden_size
+        # W : sample_size-1
+        # x_rnn.unsqueeze(1): (batch_size, 1, sample_size-1, hidden_size)
+        # self.conv(x_rnn.unsqueeze(1)): (batch_size, num_filters, 1, hidden_size)
         # x_cnn: (batch_size, num_filters, (hidden_size - kernel_size[0] + 1))
-        # x_cnn: (batch_size, num_filters, attn_feature_size)
+        # NCHW
         x_cnn = self.conv(x_rnn.unsqueeze(1)).squeeze(2)
 
         # set input of decoder as last hidden state of encoder
@@ -426,19 +449,11 @@ class BaseTPAAttnModel(LightningModule):
         # hidden: (1, batch_size, hidden_size)
         hidden = encoder_hidden
 
-        # placeholder for multi-horization
-        # x  : [batch_size, sample_size, 1]
-        # y0 : [batch_size, 1]
-        # y  : [batch_size, output_size]
-        #outputs = torch.zeros(batch_size, self.houtput_size).to(device)
+        # x_cnn: (batch_size, num_filters, attn_feature_size)
+        _outputs, _hidden = self.decoder(hidden, x_cnn)
 
-        outputs, hidden = self.decoder(hidden, x_cnn)
-        #for t in range(self.output_size):
-        #    # ATTENDS x_cnn
-        #    # input is a hidden state
-        #    output, hidden = self.decoder(hidden, x_cnn)
-#
-        #    outputs[:, t] = output.squeeze(1)
+        # equation (15) in TPA paper
+        outputs = self.output(_outputs)
 
         return outputs
 
