@@ -1892,6 +1892,7 @@ class MultivariateGeneralDataset(Dataset):
         super().__init__()
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', ['PM10'])
+        self.normalize = kwargs.get('normalize', False)
 
         # date when prediction starts, if I need to predict 2018/1/1 1:00 AM, I need more data with size 'sample_size'
         self.fdate = kwargs.get('fdate', dt.datetime(
@@ -1902,7 +1903,6 @@ class MultivariateGeneralDataset(Dataset):
 
         #self._df = df
         self._df = df[self.fdate:self.tdate]
-
         self._dates = self._df.index.to_pydatetime()
         self._xs = self._df[self.features]
         self._ys = self._df[[self.target]]
@@ -1932,7 +1932,12 @@ class MultivariateGeneralDataset(Dataset):
                            :(i+self.sample_size+self.output_size)]
 
         # return X, Y, Y_dates
-        return np.squeeze(x).to_numpy().astype('float32'), \
+        if self.normalize == True:
+            x_ = self._scaler.transform(x.to_numpy())
+        else:
+            x_ = x.to_numpy()
+
+        return np.squeeze(x_).astype('float32'), \
             np.squeeze(x_1d).to_numpy().astype('float32'), \
             y0.astype('float32'), \
             np.squeeze(y).astype('float32'), \
