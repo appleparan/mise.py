@@ -32,6 +32,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
+import optuna.visualization.matplotlib as optmpl
 
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
@@ -65,10 +66,11 @@ def ml_rnn_mul_tpa_attn_general():
     # Hyper parameter
     epoch_size = 500
     batch_size = 256
+    fast_dev_run = False
 
-    case_name = 'TPA_Solar'
+    #case_name = 'TPA_Solar'
     #case_name = 'TPA_Traffic'
-    #case_name = 'TPA_Electricity'
+    case_name = 'TPA_Electricity'
     #case_name = 'TPA_Exchange'
 
     if case_name == 'TPA_Solar':
@@ -226,13 +228,17 @@ def ml_rnn_mul_tpa_attn_general():
             verbose=True,
             mode='auto')
 
+        # The default logger in PyTorch Lightning writes to event files to be consumed by
+        # TensorBoard. We don't use any logger here as it requires us to implement several abstract
+        # methods. Instead we setup a simple callback, that saves metrics from each validation step.
+        metrics_callback = MetricsCallback()
+
         def objective(trial):
             # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
             # filenames match. Therefore, the filenames for each trial must be made unique.
             checkpoint_callback = pl.callbacks.ModelCheckpoint(
-                os.path.join(output_dir, "trial_{}".format(trial.number)), monitor="accuracy"
+                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="accuracy"
             )
-            tensorboard_callback = TensorBoardCallback("logs/", metric_name="accuracy")
 
             model = BaseTPAAttnModel(trial=trial,
                                 hparams=hparams,
@@ -247,13 +253,13 @@ def ml_rnn_mul_tpa_attn_general():
                                 output_dir=output_dir)
 
             # most basic trainer, uses good defaults
-            trainer = Trainer(gpus=1,
+            trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
                               min_epochs=1, max_epochs=epoch_size,
                               early_stop_callback=PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss"),
                               default_root_dir=output_dir,
-                              #fast_dev_run=True,
+                              fast_dev_run=fast_dev_run,
                               logger=model.logger,
                               row_log_interval=10,
                               checkpoint_callback=checkpoint_callback,
@@ -263,17 +269,31 @@ def ml_rnn_mul_tpa_attn_general():
             trainer.fit(model)
 
             return metrics_callback.metrics[-1]["val_loss"].item()
-        # The default logger in PyTorch Lightning writes to event files to be consumed by
-        # TensorBoard. We don't use any logger here as it requires us to implement several abstract
-        # methods. Instead we setup a simple callback, that saves metrics from each validation step.
-        metrics_callback = MetricsCallback()
 
         pruner = optuna.pruners.MedianPruner()
 
         study = optuna.create_study(direction="minimize", pruner=pruner)
         study.optimize(lambda trial: objective(
-            trial), n_trials=100, timeout=600)
+            trial), n_trials=25, timeout=600)
 
+        # plot optmization results
+        ax_edf = optmpl.plot_edf(study)
+        fig = ax_edf.get_figure()
+        fig.set_size_inches(12, 8)
+        fig.savefig(output_dir / "edf.png", format='png')
+        fig.savefig(output_dir / "edf.svg", format='svg')
+
+        ax_his = optmpl.plot_optimization_history(study)
+        fig = ax_his.get_figure()
+        fig.set_size_inches(12, 8)
+        fig.savefig(output_dir / "opt_history.png", format='png')
+        fig.savefig(output_dir / "opt_history.svg", format='svg')
+
+        ax_pcoord = optmpl.plot_parallel_coordinate(study)
+        fig = ax_pcoord.get_figure()
+        fig.set_size_inches(12, 8)
+        fig.savefig(output_dir / "parallel_coord.png", format='png')
+        fig.savefig(output_dir / "parallel_coord.svg", format='svg')
         trial = study.best_trial
 
         print("  Value: ", trial.value)
@@ -300,12 +320,12 @@ def ml_rnn_mul_tpa_attn_general():
                     output_dir=output_dir)
 
         # most basic trainer, uses good defaults
-        trainer = Trainer(gpus=1,
+        trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                           precision=32,
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          #fast_dev_run=True,
+                          fast_dev_run=fast_dev_run,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -555,7 +575,8 @@ class BaseTPAAttnModel(LightningModule):
         if self.trial:
             self.hparams.filter_size = self.trial.suggest_int(
                 "filter_size", 1, int(self.sample_size / 3), step=2)
-            self.hparams.hidden_size = self.trial.suggest_int("hidden_size", self.hparams.filter_size,
+            self.hparams.hidden_size = self.trial.suggest_int("hidden_size",
+                                                        self.hparams.filter_size,
                                                         128, log=True)
             self.hparams.num_filters = self.trial.suggest_int(
                 "num_filters", 1, 128, log=True)
@@ -801,6 +822,7 @@ class BaseTPAAttnModel(LightningModule):
         # create custom dataset
         train_valid_set = data.MultivariateGeneralDataset(
             self.df, self.sample_size, self.output_size,
+            normalize=True,
             features=self.features,
             target=self.target,
             fdate=self.train_fdate,

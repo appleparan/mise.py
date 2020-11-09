@@ -21,15 +21,22 @@ from torch.utils.data import random_split, DataLoader
 from torch.utils.data import RandomSampler, SequentialSampler, BatchSampler
 from torch.utils.tensorboard import SummaryWriter
 
+import pytorch_lightning as pl
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping
+from pytorch_lightning.callbacks import Callback, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+import optuna
+from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
+import optuna.visualization.matplotlib as optmpl
 
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
 from bokeh.io import export_png, export_svgs
+
+import matplotlib.pyplot as plt
 
 import data
 from constants import SEOUL_STATIONS, SEOULTZ
@@ -40,11 +47,23 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+
+class MetricsCallback(Callback):
+    """PyTorch Lightning metric callback."""
+
+    def __init__(self):
+        super().__init__()
+        self.metrics = []
+
+    def on_validation_end(self, trainer, pl_module):
+        self.metrics.append(trainer.callback_metrics)
+
 def ml_rnn_mul_tpa_attn(station_name="종로구"):
     print("Start Multivariate Temporal Pattern Attention(TPA) Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
     output_size = 24
+    fast_dev_run = False
 
     # Hyper parameter
     epoch_size = 500
@@ -76,6 +95,8 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
         output_dir = Path("/mnt/data/RNNTPAAttnMultivariate/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
+        model_dir = output_dir / "models"
+        Path.mkdir(model_dir, parents=True, exist_ok=True)
 
         if not Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
             # load imputed result
@@ -84,58 +105,115 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
                                str(SEOUL_STATIONS[station_name]) + '"')
             df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
 
-        if target == 'PM10':
-            hparams = Namespace(
-                num_filters=32,
-                hidden_size=16,
-                # kernel should be (sample_size, filter_size)
-                filter_size=3,
-                learning_rate=learning_rate,
-                batch_size=batch_size)
-            model = BaseTPAAttnModel(hparams=hparams,
-                                     sample_size=sample_size,
-                                     output_size=output_size,
-                                     station_name=station_name,
-                                     target=target,
-                                     features=train_features,
-                                     train_fdate=train_fdate, train_tdate=train_tdate,
-                                     test_fdate=test_fdate, test_tdate=test_tdate,
-                                     output_dir=output_dir)
-        elif target == 'PM25':
-            hparams = Namespace(
-                num_filters=32,
-                hidden_size=16,
-                # kernel should be (sample_size, filter_size)
-                filter_size=3,
-                learning_rate=learning_rate,
-                batch_size=batch_size)
-            model = BaseTPAAttnModel(hparams=hparams,
-                                     sample_size=sample_size,
-                                     output_size=output_size,
-                                     station_name=station_name,
-                                     target=target,
-                                     features=train_features,
-                                     train_fdate=train_fdate, train_tdate=train_tdate,
-                                     test_fdate=test_fdate, test_tdate=test_tdate,
-                                     output_dir=output_dir)
-        # first, plot periodicity
-        # second, univariate or multivariate
-
-        # early stopping
         early_stop_callback = EarlyStopping(
             monitor='val_loss',
             min_delta=0.001,
             patience=30,
             verbose=True,
-            mode='auto'
-        )
+            mode='auto')
+
+        hparams = Namespace(
+            num_filters=32,
+            hidden_size=16,
+            # kernel should be (sample_size, filter_size)
+            filter_size=3,
+            learning_rate=learning_rate,
+            batch_size=batch_size)
+
+        # The default logger in PyTorch Lightning writes to event files to be consumed by
+        # TensorBoard. We don't use any logger here as it requires us to implement several abstract
+        # methods. Instead we setup a simple callback, that saves metrics from each validation step.
+        metrics_callback = MetricsCallback()
+
+        def objective(trial):
+            # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
+            # filenames match. Therefore, the filenames for each trial must be made unique.
+            checkpoint_callback = pl.callbacks.ModelCheckpoint(
+                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="accuracy"
+            )
+
+            model = BaseTPAAttnModel(trial=trial,
+                                     hparams=hparams,
+                                     sample_size=sample_size,
+                                     output_size=output_size,
+                                     target=target,
+                                     features=train_features,
+                                     train_fdate=train_fdate, train_tdate=train_tdate,
+                                     test_fdate=test_fdate, test_tdate=test_tdate,
+                                     output_dir=output_dir)
+
+            # most basic trainer, uses good defaults
+            trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
+                              precision=32,
+                              min_epochs=1, max_epochs=epoch_size,
+                              early_stop_callback=PyTorchLightningPruningCallback(
+                                  trial, monitor="val_loss"),
+                              default_root_dir=output_dir,
+                              fast_dev_run=fast_dev_run,
+                              logger=model.logger,
+                              row_log_interval=10,
+                              checkpoint_callback=checkpoint_callback,
+                              callbacks=[metrics_callback, PyTorchLightningPruningCallback(
+                                  trial, monitor="val_loss")])
+            cur_trainer = trainer
+            trainer.fit(model)
+
+            return metrics_callback.metrics[-1]["val_loss"].item()
+
+        pruner = optuna.pruners.MedianPruner()
+
+        study = optuna.create_study(direction="minimize", pruner=pruner)
+        study.optimize(lambda trial: objective(
+            trial), n_trials=25, timeout=600)
+
+        # plot optmization results
+        ax_edf = optmpl.plot_edf(study)
+        fig = ax_edf.get_figure()
+        fig.set_size_inches(12, 8)
+        fig.savefig(output_dir / "edf.png", format='png')
+        fig.savefig(output_dir / "edf.svg", format='svg')
+
+        ax_his = optmpl.plot_optimization_history(study)
+        fig = ax_his.get_figure()
+        fig.set_size_inches(12, 8)
+        fig.savefig(output_dir / "opt_history.png", format='png')
+        fig.savefig(output_dir / "opt_history.svg", format='svg')
+
+        ax_pcoord = optmpl.plot_parallel_coordinate(study)
+        fig = ax_pcoord.get_figure()
+        fig.set_size_inches(12, 8)
+        fig.savefig(output_dir / "parallel_coord.png", format='png')
+        fig.savefig(output_dir / "parallel_coord.svg", format='svg')
+
+        trial = study.best_trial
+
+        print("  Value: ", trial.value)
+
+        print("  Params: ")
+        for key, value in trial.params.items():
+            print("    {}: {}".format(key, value))
+
+        # set hparams with optmized value
+        hparams.num_filters = trial.params['num_filters']
+        hparams.hidden_size = trial.params['hidden_size']
+        hparams.filter_size = trial.params['filter_size']
+
+        model = BaseTPAAttnModel(hparams=hparams,
+                                 sample_size=sample_size,
+                                 output_size=output_size,
+                                 target=target,
+                                 features=train_features,
+                                 train_fdate=train_fdate, train_tdate=train_tdate,
+                                 test_fdate=test_fdate, test_tdate=test_tdate,
+                                 output_dir=output_dir)
+
         # most basic trainer, uses good defaults
-        trainer = Trainer(gpus=1,
+        trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                           precision=32,
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          #fast_dev_run=True,
+                          fast_dev_run=fast_dev_run,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -384,8 +462,18 @@ class BaseTPAAttnModel(LightningModule):
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
+        self.trial = kwargs.get('trial', None)
         self.sample_size = kwargs.get('sample_size', 48)
         self.output_size = kwargs.get('output_size', 24)
+
+        if self.trial:
+            self.hparams.filter_size = self.trial.suggest_int(
+                "filter_size", 1, int(self.sample_size / 3), step=2)
+            self.hparams.hidden_size = self.trial.suggest_int("hidden_size",
+                                                              self.hparams.filter_size,
+                                                              128, log=True)
+            self.hparams.num_filters = self.trial.suggest_int(
+                "num_filters", 1, 128, log=True)
         self.kernel_shape = (self.sample_size-1, self.hparams.filter_size)
 
         self.loss = nn.MSELoss(reduction='mean')
