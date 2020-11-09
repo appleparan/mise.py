@@ -221,64 +221,6 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
         # run test set
         trainer.test()
 
-        if target == 'PM10':
-            hparams = Namespace(
-                hidCNN=16,
-                filter_size=5,
-                hidden_size=16,
-                learning_rate=learning_rate,
-                batch_size=batch_size)
-            model = BaseLSTNetModel(hparams=hparams,
-                                    sample_size=sample_size,
-                                    output_size=output_size,
-                                    station_name=station_name,
-                                    target=target,
-                                    features=train_features,
-                                    train_fdate=train_fdate, train_tdate=train_tdate,
-                                    test_fdate=test_fdate, test_tdate=test_tdate,
-                                    output_dir=output_dir)
-        elif target == 'PM25':
-            hparams = Namespace(
-                hidCNN=16,
-                filter_size=5,
-                hidden_size=16,
-                learning_rate=learning_rate,
-                batch_size=batch_size)
-            model = BaseLSTNetModel(hparams=hparams,
-                                    sample_size=sample_size,
-                                    output_size=output_size,
-                                    station_name=station_name,
-                                    target=target,
-                                    features=train_features,
-                                    train_fdate=train_fdate, train_tdate=train_tdate,
-                                    test_fdate=test_fdate, test_tdate=test_tdate,
-                                    output_dir=output_dir)
-        # first, plot periodicity
-        # second, univariate or multivariate
-
-        # early stopping
-        early_stop_callback = EarlyStopping(
-            monitor='val_loss',
-            min_delta=0.001,
-            patience=30,
-            #verbose=True,
-            mode='auto'
-        )
-        # most basic trainer, uses good defaults
-        trainer = Trainer(gpus=1,
-                          precision=32,
-                          min_epochs=1, max_epochs=epoch_size,
-                          early_stop_callback=early_stop_callback,
-                          default_root_dir=output_dir,
-                          fast_dev_run=True,
-                          logger=model.logger,
-                          row_log_interval=10)
-
-        trainer.fit(model)
-
-        # run test set
-        trainer.test()
-
 
 class EncoderRNN(nn.Module):
     """
