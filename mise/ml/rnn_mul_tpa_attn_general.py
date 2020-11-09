@@ -23,11 +23,15 @@ from torch.utils.data import random_split, DataLoader
 from torch.utils.data import RandomSampler, SequentialSampler, BatchSampler
 from torch.utils.tensorboard import SummaryWriter
 
+import pytorch_lightning as pl
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping
+from pytorch_lightning.callbacks import Callback, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+import optuna
+from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
 
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
@@ -41,6 +45,16 @@ HOURLY_DATA_PATH = "/input/python/input_seoul_imputed_hourly_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+
+class MetricsCallback(Callback):
+    """PyTorch Lightning metric callback."""
+
+    def __init__(self):
+        super().__init__()
+        self.metrics = []
+
+    def on_validation_end(self, trainer, pl_module):
+        self.metrics.append(trainer.callback_metrics)
 
 def ml_rnn_mul_tpa_attn_general():
     print("Start Multivariate Temporal Pattern Attention(TPA) Model")
@@ -63,7 +77,7 @@ def ml_rnn_mul_tpa_attn_general():
         test_fdate = dt.datetime(2006, 10, 1, 0, 0)
         test_tdate = dt.datetime(2006, 12, 31, 23, 50)
         freq = '10min'
-        
+
         # Reference : https://github.com/laiguokun/multivariate-time-series-data
         data_path = '/input/general/solar/solar_AL.txt'
         df = pd.read_csv(data_path, header=None)
@@ -197,33 +211,94 @@ def ml_rnn_mul_tpa_attn_general():
     assert test_fdate > train_tdate
 
     for target in targets:
-        print("Training " + target + "...")
+        print("Training " + target + " of " + case_name + "case...")
 
         output_dir = Path("/mnt/data/" + case_name + "/" +
                           target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
+        model_dir = output_dir / "models"
+        Path.mkdir(model_dir, parents=True, exist_ok=True)
 
-        model = BaseTPAAttnModel(hparams=hparams,
-                                 sample_size=sample_size,
-                                 output_size=output_size,
-                                 df=df,
-                                 case_name=case_name,
-                                 target=target,
-                                 features=features,
-                                 train_fdate=train_fdate, train_tdate=train_tdate,
-                                 test_fdate=test_fdate, test_tdate=test_tdate,
-                                 output_dir=output_dir)
-        # first, plot periodicity
-        # second, univariate or multivariate
-
-        # early stopping
         early_stop_callback = EarlyStopping(
             monitor='val_loss',
             min_delta=0.001,
             patience=30,
             verbose=True,
-            mode='auto'
-        )
+            mode='auto')
+
+        def objective(trial):
+            # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
+            # filenames match. Therefore, the filenames for each trial must be made unique.
+            checkpoint_callback = pl.callbacks.ModelCheckpoint(
+                os.path.join(output_dir, "trial_{}".format(trial.number)), monitor="accuracy"
+            )
+            tensorboard_callback = TensorBoardCallback("logs/", metric_name="accuracy")
+
+            model = BaseTPAAttnModel(trial=trial,
+                                hparams=hparams,
+                                sample_size=sample_size,
+                                output_size=output_size,
+                                df=df,
+                                case_name=case_name,
+                                target=target,
+                                features=features,
+                                train_fdate=train_fdate, train_tdate=train_tdate,
+                                test_fdate=test_fdate, test_tdate=test_tdate,
+                                output_dir=output_dir)
+
+            # most basic trainer, uses good defaults
+            trainer = Trainer(gpus=1,
+                              precision=32,
+                              min_epochs=1, max_epochs=epoch_size,
+                              early_stop_callback=PyTorchLightningPruningCallback(
+                                  trial, monitor="val_loss"),
+                              default_root_dir=output_dir,
+                              #fast_dev_run=True,
+                              logger=model.logger,
+                              row_log_interval=10,
+                              checkpoint_callback=checkpoint_callback,
+                              callbacks=[metrics_callback, PyTorchLightningPruningCallback(
+                                trial, monitor="val_loss")])
+            cur_trainer = trainer
+            trainer.fit(model)
+
+            return metrics_callback.metrics[-1]["val_loss"].item()
+        # The default logger in PyTorch Lightning writes to event files to be consumed by
+        # TensorBoard. We don't use any logger here as it requires us to implement several abstract
+        # methods. Instead we setup a simple callback, that saves metrics from each validation step.
+        metrics_callback = MetricsCallback()
+
+        pruner = optuna.pruners.MedianPruner()
+
+        study = optuna.create_study(direction="minimize", pruner=pruner)
+        study.optimize(lambda trial: objective(
+            trial), n_trials=100, timeout=600)
+
+        trial = study.best_trial
+
+        print("  Value: ", trial.value)
+
+        print("  Params: ")
+        for key, value in trial.params.items():
+            print("    {}: {}".format(key, value))
+
+        # set hparams with optmized value
+        hparams.num_filters = trial.params['num_filters']
+        hparams.hidden_size = trial.params['hidden_size']
+        hparams.filter_size = trial.params['filter_size']
+
+        # back to normal training with optimized value
+        model = BaseTPAAttnModel(hparams=hparams,
+                    sample_size=sample_size,
+                    output_size=output_size,
+                    df=df,
+                    case_name=case_name,
+                    target=target,
+                    features=features,
+                    train_fdate=train_fdate, train_tdate=train_tdate,
+                    test_fdate=test_fdate, test_tdate=test_tdate,
+                    output_dir=output_dir)
+
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1,
                           precision=32,
@@ -236,7 +311,6 @@ def ml_rnn_mul_tpa_attn_general():
 
         trainer.fit(model)
 
-        # run test set
         trainer.test()
 
 class EncoderRNN(nn.Module):
@@ -309,6 +383,7 @@ class Attention(nn.Module):
         # attn_feature_size for attention layer, because there is no padding
         self.attn_feature_size = hidden_size - filter_size + 1
         # must be positive
+
         assert self.attn_feature_size > 0
 
         self.attn = nn.Linear(hidden_size, num_filters)
@@ -427,7 +502,7 @@ class BaseTPAAttnModel(LightningModule):
     """
     Temporal Pattern Attention model
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__()
         # h_out = (h_in + 2 * padding[0] - dilation[0]*(kernel_size[0] - 1) - 1) / stride[0] + 1
         # to make h_out == h_in, dilation[0] == 1, stride[0] == 1,
@@ -473,8 +548,17 @@ class BaseTPAAttnModel(LightningModule):
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
+        self.trial = kwargs.get('trial', None)
         self.sample_size = kwargs.get('sample_size', 48)
         self.output_size = kwargs.get('output_size', 24)
+
+        if self.trial:
+            self.hparams.filter_size = self.trial.suggest_int(
+                "filter_size", 1, int(self.sample_size / 3), step=2)
+            self.hparams.hidden_size = self.trial.suggest_int("hidden_size", self.hparams.filter_size,
+                                                        128, log=True)
+            self.hparams.num_filters = self.trial.suggest_int(
+                "num_filters", 1, 128, log=True)
         self.kernel_shape = (self.sample_size-1, self.hparams.filter_size)
 
         self.loss = nn.MSELoss(reduction='mean')
@@ -737,6 +821,7 @@ class BaseTPAAttnModel(LightningModule):
 
         test_set = data.MultivariateGeneralDataset(
             self.df, self.sample_size, self.output_size,
+            normalize=True,
             features=self.features,
             target=self.target,
             fdate=self.test_fdate,
@@ -936,7 +1021,7 @@ def plot_corr(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
-        print(output_size, np.corrcoef(obs, sim)[0, 1])
+
         corrs.append(np.corrcoef(obs, sim)[0, 1])
 
     p = figure(title="Correlation of OBS & Model")
