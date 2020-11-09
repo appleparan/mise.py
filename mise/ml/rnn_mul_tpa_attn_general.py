@@ -57,6 +57,7 @@ class MetricsCallback(Callback):
     def on_validation_end(self, trainer, pl_module):
         self.metrics.append(trainer.callback_metrics)
 
+
 def ml_rnn_mul_tpa_attn_general():
     print("Start Multivariate Temporal Pattern Attention(TPA) Model")
     targets=['1']
@@ -66,7 +67,9 @@ def ml_rnn_mul_tpa_attn_general():
     # Hyper parameter
     epoch_size = 500
     batch_size = 256
+    # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
+    n_trials = 25
 
     #case_name = 'TPA_Solar'
     #case_name = 'TPA_Traffic'
@@ -274,7 +277,7 @@ def ml_rnn_mul_tpa_attn_general():
 
         study = optuna.create_study(direction="minimize", pruner=pruner)
         study.optimize(lambda trial: objective(
-            trial), n_trials=25, timeout=600)
+            trial), n_trials=n_trials, timeout=600)
 
         # plot optmization results
         ax_edf = optmpl.plot_edf(study)

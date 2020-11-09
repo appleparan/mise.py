@@ -63,7 +63,9 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
     targets = ["PM10", "PM25"]
     sample_size = 48
     output_size = 24
+    # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
+    n_trials = 25
 
     # Hyper parameter
     epoch_size = 500
@@ -164,7 +166,7 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
 
         study = optuna.create_study(direction="minimize", pruner=pruner)
         study.optimize(lambda trial: objective(
-            trial), n_trials=25, timeout=600)
+            trial), n_trials=n_trials, timeout=600)
 
         # plot optmization results
         ax_edf = optmpl.plot_edf(study)
@@ -416,7 +418,7 @@ class BaseTPAAttnModel(LightningModule):
     """
     Temporal Pattern Attention model
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__()
         # h_out = (h_in + 2 * padding[0] - dilation[0]*(kernel_size[0] - 1) - 1) / stride[0] + 1
         # to make h_out == h_in, dilation[0] == 1, stride[0] == 1,
