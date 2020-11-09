@@ -46,7 +46,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def ml_mlp_mul_ms(station_name="종로구"):
     print("Start Multivariate MLP Mean Seasonality Decomposition Model")
     targets = ["PM10", "PM25"]
-    sample_size = 72
+    sample_size = 48
     output_size = 24
 
     # Hyper parameter
@@ -89,14 +89,14 @@ def ml_mlp_mul_ms(station_name="종로구"):
         if target == 'PM10':
             unit_size = 32
             hparams = Namespace(
-                input_size=sample_size * len(train_features),
                 layer1_size=32,
                 layer2_size=32,
-                output_size=output_size,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
                 batch_size=batch_size)
             model = BaseMLPModel(hparams=hparams,
+                                 input_size=sample_size * len(train_features),
+                                 sample_size=sample_size,
+                                 output_size=output_size,
                                  station_name=station_name,
                                  target=target,
                                  features=train_features,
@@ -106,14 +106,14 @@ def ml_mlp_mul_ms(station_name="종로구"):
         elif target == 'PM25':
             unit_size = 16
             hparams = Namespace(
-                input_size=sample_size * len(train_features),
                 layer1_size=16,
                 layer2_size=16,
-                output_size=output_size,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
                 batch_size=batch_size)
             model = BaseMLPModel(hparams=hparams,
+                                 input_size=sample_size * len(train_features),
+                                 sample_size=sample_size,
+                                 output_size=output_size,
                                  station_name=station_name,
                                  target=target,
                                  features=train_features,
@@ -151,14 +151,10 @@ class BaseMLPModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get('hparams', Namespace(
-            input_size=48,
             layer1_size=32,
             layer2_size=32,
-            output_size=24,
             learning_rate=1e-3,
-            sample_size=48,
-            batch_size=32
-        ))
+            batch_size=32))
 
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
@@ -190,11 +186,15 @@ class BaseMLPModel(LightningModule):
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
-        self.fc1 = nn.Linear(self.hparams.input_size, self.hparams.layer1_size)
+        self.sample_size = kwargs.get('sample_size', 48)
+        self.output_size = kwargs.get('output_size', 24)
+        self.input_size = kwargs.get('input_size', self.sample_size * len(self.features))
+
+        self.fc1 = nn.Linear(self.input_size, self.hparams.layer1_size)
         self.fc2 = nn.Linear(self.hparams.layer1_size,
                              self.hparams.layer2_size)
         self.fc3 = nn.Linear(self.hparams.layer2_size,
-                             self.hparams.output_size)
+                             self.output_size)
         self.loss = nn.MSELoss(reduction='mean')
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
@@ -205,7 +205,7 @@ class BaseMLPModel(LightningModule):
 
     def forward(self, x):
         # vectorize
-        x = x.view(-1, self.hparams.input_size).to(device)
+        x = x.view(-1, self.input_size).to(device)
         x = F.leaky_relu(self.fc1(x))
         x = F.leaky_relu(self.fc2(x))
         x = self.fc3(x)
@@ -319,7 +319,7 @@ class BaseMLPModel(LightningModule):
 
     def test_epoch_end(self, outputs):
         # column to indicate offset to key_date
-        cols = [str(t) for t in range(self.hparams.output_size)]
+        cols = [str(t) for t in range(self.output_size)]
 
         df_obs = pd.DataFrame(columns=cols)
         df_sim = pd.DataFrame(columns=cols)
@@ -342,13 +342,13 @@ class BaseMLPModel(LightningModule):
         df_obs.to_csv(self.data_dir / "df_test_obs.csv")
         df_sim.to_csv(self.data_dir / "df_test_sim.csv")
 
-        plot_line(self.hparams, df_obs, df_sim, self.target,
+        plot_line(self.output_size, df_obs, df_sim, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
-        plot_scatter(self.hparams, df_obs, df_sim,
+        plot_scatter(self.output_size, df_obs, df_sim,
                      self.data_dir, self.png_dir, self.svg_dir)
-        plot_corr(self.hparams, df_obs, df_sim,
+        plot_corr(self.output_size, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
-        plot_rmse(self.hparams, df_obs, df_sim,
+        plot_rmse(self.output_size, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
         plot_logs(self.train_logs, self.valid_logs, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
@@ -405,8 +405,8 @@ class BaseMLPModel(LightningModule):
             features=self.features,
             fdate=self.train_fdate,
             tdate=self.train_tdate,
-            sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size,
+            sample_size=self.sample_size,
+            output_size=self.output_size,
             train_valid_ratio=0.8)
 
         # first mkdir of seasonality
@@ -419,7 +419,7 @@ class BaseMLPModel(LightningModule):
             self.data_dir / "seasonality", self.png_dir / "seasonality", self.svg_dir / "seasonality")
 
         # create test_set after computing seasonality of train/valid set
-        test_set = data.MultivariateMeanSeasonalityDataset2(
+        test_set = data.MultivariateMeanSeasonalityDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
@@ -428,8 +428,8 @@ class BaseMLPModel(LightningModule):
             features_2=self.features_aerosols,
             fdate=self.test_fdate,
             tdate=self.test_tdate,
-            sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size,
+            sample_size=self.sample_size,
+            output_size=self.output_size,
             scaler_X=train_valid_set.scaler_X,
             scaler_Y=train_valid_set.scaler_Y)
 
@@ -500,12 +500,12 @@ class BaseMLPModel(LightningModule):
             dates
 
 
-def plot_line(hparams, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
+def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         dates = df_obs.index + dt.timedelta(hours=t)
 
         png_dir_h = png_dir / str(t).zfill(2)
@@ -585,12 +585,12 @@ def plot_logs(train_logs, valid_logs, target,
         export_svgs(p, filename=str(svg_path))
 
 
-def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_scatter(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         png_dir_h = png_dir / str(t).zfill(2)
         svg_dir_h = svg_dir / str(t).zfill(2)
         Path.mkdir(png_dir_h, parents=True, exist_ok=True)
@@ -623,7 +623,7 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
         df_scatter.to_csv(csv_path)
 
 
-def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_corr(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
@@ -632,9 +632,9 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     svg_path = svg_dir / ("corr_time.svg")
     csv_path = data_dir / ("corr_time.csv")
 
-    times = list(range(hparams.output_size + 1))
+    times = list(range(output_size + 1))
     corrs = [1.0]
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 
@@ -657,7 +657,7 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     df_corrs.to_csv(csv_path)
 
 
-def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_rmse(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
@@ -666,9 +666,9 @@ def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     svg_path = svg_dir / ("rmse_time.svg")
     csv_path = data_dir / ("rmse_time.csv")
 
-    times = list(range(1, hparams.output_size + 1))
+    times = list(range(1, output_size + 1))
     rmses = []
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 
@@ -687,6 +687,7 @@ def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     df_rmses = pd.DataFrame({'time': times, 'rmse': rmses})
     df_rmses.set_index('time', inplace=True)
     df_rmses.to_csv(csv_path)
+
 
 def swish(_input, beta=1.0):
     """

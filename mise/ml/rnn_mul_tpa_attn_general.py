@@ -63,7 +63,8 @@ def ml_rnn_mul_tpa_attn_general():
         test_fdate = dt.datetime(2006, 10, 1, 0, 0)
         test_tdate = dt.datetime(2006, 12, 31, 23, 50)
         freq = '10min'
-
+        
+        # Reference : https://github.com/laiguokun/multivariate-time-series-data
         data_path = '/input/general/solar/solar_AL.txt'
         df = pd.read_csv(data_path, header=None)
         _cols = list(df.columns)
@@ -95,6 +96,7 @@ def ml_rnn_mul_tpa_attn_general():
         test_tdate = dt.datetime(2016, 12, 31, 23)
         freq = '1H'
 
+        # Reference : https://github.com/laiguokun/multivariate-time-series-data
         data_path = '/input/general/traffic/traffic.txt'
         df = pd.read_csv(data_path, header=None)
         _cols = list(df.columns)
@@ -128,6 +130,7 @@ def ml_rnn_mul_tpa_attn_general():
         test_tdate = dt.datetime(2014, 12, 31, 23)
         freq = '1H'
 
+        # Reference : https://github.com/laiguokun/multivariate-time-series-data
         data_path = '/input/general/electricity/electricity.txt'
         df = pd.read_csv(data_path, header=None)
         _cols = list(df.columns)
@@ -161,8 +164,7 @@ def ml_rnn_mul_tpa_attn_general():
         test_tdate = dt.datetime(2017, 12, 31)
         freq = 'D'
 
-        # reference : dataset
-        # https://www.kaggle.com/thebasss/currency-exchange-rates
+        # Reference : https://www.kaggle.com/thebasss/currency-exchange-rates
         data_path = '/input/general/exchange_rate/exchange_rate.csv'
         df = pd.read_csv(data_path, index_col=[0],
             parse_dates=[0])

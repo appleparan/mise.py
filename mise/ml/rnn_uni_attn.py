@@ -87,38 +87,34 @@ def ml_rnn_uni_attn(station_name="종로구"):
 
         if target == 'PM10':
             hparams = Namespace(
-                seq_size=sample_size,
-                input_size=1,
-                hidden_size_enc=32,
-                hidden_size_dec=32,
-                output_size=output_size,
+                hidden_size=32,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
                 batch_size=batch_size)
             model = BaseAttentionModel(hparams=hparams,
-                                     station_name=station_name,
-                                     target=target,
-                                     features=["PM10"],
-                                     train_fdate=train_fdate, train_tdate=train_tdate,
-                                     test_fdate=test_fdate, test_tdate=test_tdate,
-                                     output_dir=output_dir)
+                                       input_size=1,
+                                       sample_size=sample_size,
+                                       output_size=output_size,
+                                       station_name=station_name,
+                                       target=target,
+                                       features=["PM10"],
+                                       train_fdate=train_fdate, train_tdate=train_tdate,
+                                       test_fdate=test_fdate, test_tdate=test_tdate,
+                                       output_dir=output_dir)
         elif target == 'PM25':
             hparams = Namespace(
-                seq_size=sample_size,
-                input_size=1,
-                hidden_size_enc=32,
-                hidden_size_dec=32,
-                output_size=output_size,
+                hidden_size=32,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
                 batch_size=batch_size)
             model = BaseAttentionModel(hparams=hparams,
-                                     station_name=station_name,
-                                     target=target,
-                                     features=["PM25"],
-                                     train_fdate=train_fdate, train_tdate=train_tdate,
-                                     test_fdate=test_fdate, test_tdate=test_tdate,
-                                     output_dir=output_dir)
+                                       input_size=1,
+                                       sample_size=sample_size,
+                                       output_size=output_size,
+                                       station_name=station_name,
+                                       target=target,
+                                       features=["PM25"],
+                                       train_fdate=train_fdate, train_tdate=train_tdate,
+                                       test_fdate=test_fdate, test_tdate=test_tdate,
+                                       output_dir=output_dir)
         # first, plot periodicity
         # second, univariate or multivariate
 
@@ -201,29 +197,29 @@ class Attention(nn.Module):
 
 
     Args:
-        hidden_size_enc
-        hidden_size_dec
+        hidden_size
+        hidden_size
 
     Reference:
         * https://github.com/bentrevett/pytorch-seq2seq
     """
-    def __init__(self, hidden_size_enc, hidden_size_dec):
+    def __init__(self, hidden_size):
         super().__init__()
         # input: previous hidden state of decoder +
         #   hidden state of encoder
         # output: attention vector; length of source sentence
-        self.attn = nn.Linear(hidden_size_enc +
-                              hidden_size_dec, hidden_size_dec)
-        self.v = nn.Linear(hidden_size_dec, 1, bias=False)
+        self.attn = nn.Linear(hidden_size +
+                              hidden_size, hidden_size)
+        self.v = nn.Linear(hidden_size, 1, bias=False)
 
     def forward(self, hidden, encoder_outputs):
         """
         Args:
-            hidden: previous hidden state of the decoder [batch_size, hidden_size_dec]
+            hidden: previous hidden state of the decoder [batch_size, hidden_size]
             encoder_outputs: outputs of encoder  [batch_size, sample_size, num_directions*hidden_size]
         """
         # hidden: [num_layers * num_direction, batch_size, hidden_size]
-        # encoder_outputs = [batch_size, sample_size, num_directions*hidden_size_enc]
+        # encoder_outputs = [batch_size, sample_size, num_directions*hidden_size]
         # encoder_outputs: tensor containing the output features h_t from the 'last layer' of the GRU
         batch_size = encoder_outputs.shape[0]
         sample_size = encoder_outputs.shape[1]
@@ -233,15 +229,15 @@ class Attention(nn.Module):
         # ignore num_layers and num_direction (already 1)
         hidden = hidden.squeeze(0)
 
-        # hidden = [batch size, sample_size, hidden_size_dec]
+        # hidden = [batch size, sample_size, hidden_size]
         hidden = hidden.unsqueeze(1).repeat(1, sample_size, 1)
 
-        # encoder_outputs = [batch size, sample_size, num_directions*hidden_size_enc]
-        # energy: [batch size, sample_size, hidden_size_dec]
+        # encoder_outputs = [batch size, sample_size, num_directions*hidden_size]
+        # energy: [batch size, sample_size, hidden_size]
         energy = torch.tanh(
             self.attn(torch.cat((hidden, encoder_outputs), dim=2)))
 
-        # energy = [batch size, sample_size, hidden_size_dec]
+        # energy = [batch size, sample_size, hidden_size]
         attention = self.v(energy).squeeze(2)
 
         # attention = [batch size, sample_size]
@@ -253,25 +249,22 @@ class DecoderRNN(nn.Module):
         Reference: https://github.com/bentrevett/pytorch-seq2seq
     """
 
-    def __init__(self, output_size, hidden_size_enc, hidden_size_dec, attention):
+    def __init__(self, output_size, hidden_size, attention):
         super().__init__()
-        self.hidden_size_enc = hidden_size_enc
-        self.hidden_size_dec = hidden_size_dec
-        # decoder's initial hidden state is encoder's last hidden state
-        assert hidden_size_enc == hidden_size_dec
+        self.hidden_size = hidden_size
         self.output_size = output_size
         self.attention = attention
 
         # no embedding -> GRU input size is 1
-        self.gru = nn.GRU(hidden_size_enc + 1, hidden_size_dec)
-        self.out = nn.Linear(hidden_size_enc + 1 + hidden_size_dec, 1)
+        self.gru = nn.GRU(hidden_size + 1, hidden_size)
+        self.out = nn.Linear(hidden_size + 1 + hidden_size, 1)
 
     def forward(self, _input, hidden, encoder_outputs):
         """
         Args:
             _input: [L, N, H_in] : (seq_len, batch_size, hidden_size)
-            hidden: previous hidden state of the decoder [batch_size, hidden_size_dec]
-            encoder_outputs: outputs of encoder  [batch_size, sample_size, num_directions*hidden_size_enc]
+            hidden: previous hidden state of the decoder [batch_size, hidden_size]
+            encoder_outputs: outputs of encoder  [batch_size, sample_size, num_directions*hidden_size]
 
         https://github.com/bentrevett/pytorch-seq2seq
         Decoder : hidden state + context vector as input
@@ -281,7 +274,7 @@ class DecoderRNN(nn.Module):
         # we just truncated to output_size
 
         # no embeding
-        # [batch_size, hidden_size_enc] -> [1, batch_size, hidden_size_enc]
+        # [batch_size, hidden_size] -> [1, batch_size, hidden_size]
         _input = _input.unsqueeze(0)
 
         # [batch size, sample_size]
@@ -290,28 +283,28 @@ class DecoderRNN(nn.Module):
         # [batch size, 1, sample_size]
         a = a.unsqueeze(1)
 
-        # encoder_outputs: [batch size, sample_size, hidden_size_enc]
+        # encoder_outputs: [batch size, sample_size, hidden_size]
         #encoder_outputs = encoder_outputs.permute(1, 0, 2)
 
         # batch matrix multiplication for score function
         # a = [batch size, 1, sample_size]
-        # encoder_outputs = [batch size, sample_size, hidden_size_enc]
-        # matrix multiplication -> 1xsample_size * sample_sizexhidden_size_enc
-        # weighted: [batch_size, 1, hidden_size_enc]
+        # encoder_outputs = [batch size, sample_size, hidden_size]
+        # matrix multiplication -> 1xsample_size * sample_sizexhidden_size
+        # weighted: [batch_size, 1, hidden_size]
         weighted = torch.bmm(a, encoder_outputs)
 
-        # weighted: [1, batch size, hidden_size_enc]
+        # weighted: [1, batch size, hidden_size]
         weighted = weighted.permute(1, 0, 2)
 
-        # _input: [1, batch_size, hidden_size_enc]
-        # weighted: [1, batch size, hidden_size_enc]
-        # rnn_input: [1, batch_size, hidden_size_enc + hidden_size_dec]
+        # _input: [1, batch_size, hidden_size]
+        # weighted: [1, batch size, hidden_size]
+        # rnn_input: [1, batch_size, hidden_size + hidden_size]
         rnn_input = torch.cat((_input, weighted), dim = 2)
 
         # do rnn with hidden state (initial hidden state = hidden state from encoder)
-        # rnn_input: [1, batch_size, hidden_size_enc + hidden_size_dec]
-        # output: [1, batch_size, hidden_size_dec]
-        # hidden: [1, batch_size, hidden_size_dec]
+        # rnn_input: [1, batch_size, hidden_size + hidden_size]
+        # output: [1, batch_size, hidden_size]
+        # hidden: [1, batch_size, hidden_size]
         output, hidden = self.gru(rnn_input, hidden)
 
         assert (output == hidden).all()
@@ -327,14 +320,9 @@ class DecoderRNN(nn.Module):
 class BaseAttentionModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
-        self.hparams = kwargs.get('hparams', Namespace(
-            seq_size=48,
-            input_size=1,
-            hidden_size_enc=16,
-            hidden_size_dec=32,
-            output_size=24,
+        self.hparams = kwargs.get('hparams', Namespace(            
+            hidden_size=16,            
             learning_rate=1e-3,
-            sample_size=48,
             batch_size=32
         ))
 
@@ -377,12 +365,17 @@ class BaseAttentionModel(LightningModule):
         self.train_logs = {}
         self.valid_logs = {}
 
+        self.sample_size = kwargs.get('sample_size', 48)
+        self.output_size = kwargs.get('output_size', 24)
+        self.input_size = kwargs.get(
+            'input_size', self.sample_size)
+
         self.encoder = EncoderRNN(
-            self.hparams.input_size, self.hparams.hidden_size_enc)
+            self.input_size, self.hparams.hidden_size)
         self.attention = Attention(
-            self.hparams.hidden_size_enc, self.hparams.hidden_size_dec)
+            self.hparams.hidden_size)
         self.decoder = DecoderRNN(
-            self.hparams.output_size, self.hparams.hidden_size_enc, self.hparams.hidden_size_dec, self.attention)
+            self.output_size, self.hparams.hidden_size, self.attention)
 
     def forward(self, x, y0, y):
         # x  : [batch_size, sample_size]
@@ -393,7 +386,7 @@ class BaseAttentionModel(LightningModule):
         batch_size = x.shape[0]
         _x = x.unsqueeze(2)
         # last hidden state of the encoder is the context
-        # hidden : [num_layers * num_direction, batch_size, hidden_size_enc]
+        # hidden : [num_layers * num_direction, batch_size, hidden_size]
         encoder_outputs, hidden = self.encoder(_x)
 
         # first input to the decoder is the first output of y
@@ -402,11 +395,11 @@ class BaseAttentionModel(LightningModule):
         # x  : [batch_size, sample_size, 1]
         # y0 : [batch_size, 1]
         # y  : [batch_size, output_size]
-        outputs = torch.zeros(batch_size, self.hparams.output_size).to(device)
+        outputs = torch.zeros(batch_size, self.output_size).to(device)
 
         # iterate sequence
         # x[ei] : single value of PM10 or PM25
-        for t in range(self.hparams.output_size + 1):
+        for t in range(self.output_size + 1):
             output, hidden = self.decoder(_input, hidden, encoder_outputs)
 
             if t > 0:
@@ -517,7 +510,7 @@ class BaseAttentionModel(LightningModule):
 
     def test_epoch_end(self, outputs):
         # column to indicate offset to key_date
-        cols = [str(t) for t in range(self.hparams.output_size)]
+        cols = [str(t) for t in range(self.output_size)]
 
         df_obs = pd.DataFrame(columns=cols)
         df_sim = pd.DataFrame(columns=cols)
@@ -540,13 +533,13 @@ class BaseAttentionModel(LightningModule):
         df_obs.to_csv(self.data_dir / "df_test_obs.csv")
         df_sim.to_csv(self.data_dir / "df_test_sim.csv")
 
-        plot_line(self.hparams, df_obs, df_sim, self.target,
+        plot_line(self.output_size, df_obs, df_sim, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
-        plot_scatter(self.hparams, df_obs, df_sim,
+        plot_scatter(self.output_size, df_obs, df_sim,
                      self.data_dir, self.png_dir, self.svg_dir)
-        plot_corr(self.hparams, df_obs, df_sim,
+        plot_corr(self.output_size, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
-        plot_rmse(self.hparams, df_obs, df_sim,
+        plot_rmse(self.output_size, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
         plot_logs(self.train_logs, self.valid_logs, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
@@ -593,8 +586,8 @@ class BaseAttentionModel(LightningModule):
             features=self.features,
             fdate=self.train_fdate,
             tdate=self.train_tdate,
-            sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size,
+            sample_size=self.sample_size,
+            output_size=self.output_size,
             train_valid_ratio=0.8)
         test_set = data.UnivariateRNNDataset(
             station_name=self.station_name,
@@ -603,8 +596,8 @@ class BaseAttentionModel(LightningModule):
             features=self.features,
             fdate=self.test_fdate,
             tdate=self.test_tdate,
-            sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size)
+            sample_size=self.sample_size,
+            output_size=self.output_size)
 
         # save train/valid set
         train_valid_set.to_csv(
@@ -671,12 +664,12 @@ class BaseAttentionModel(LightningModule):
         return torch.as_tensor(xs), torch.as_tensor(ys0), torch.as_tensor(ys), dates
 
 
-def plot_line(hparams, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
+def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         dates = df_obs.index + dt.timedelta(hours=t)
 
         png_dir_h = png_dir / str(t).zfill(2)
@@ -756,12 +749,12 @@ def plot_logs(train_logs, valid_logs, target,
         export_svgs(p, filename=str(svg_path))
 
 
-def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_scatter(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         png_dir_h = png_dir / str(t).zfill(2)
         svg_dir_h = svg_dir / str(t).zfill(2)
         Path.mkdir(png_dir_h, parents=True, exist_ok=True)
@@ -794,7 +787,7 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
         df_scatter.to_csv(csv_path)
 
 
-def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_corr(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
@@ -803,9 +796,9 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     svg_path = svg_dir / ("corr_time.svg")
     csv_path = data_dir / ("corr_time.csv")
 
-    times = list(range(hparams.output_size + 1))
+    times = list(range(output_size + 1))
     corrs = [1.0]
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 
@@ -828,7 +821,7 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     df_corrs.to_csv(csv_path)
 
 
-def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_rmse(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
@@ -837,9 +830,9 @@ def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     svg_path = svg_dir / ("rmse_time.svg")
     csv_path = data_dir / ("rmse_time.csv")
 
-    times = list(range(1, hparams.output_size + 1))
+    times = list(range(1, output_size + 1))
     rmses = []
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 

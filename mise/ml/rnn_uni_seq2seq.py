@@ -86,36 +86,34 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
 
         if target == 'PM10':
             hparams = Namespace(
-                seq_size=sample_size,
-                input_size=1,
                 hidden_size=16,
-                output_size=output_size,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
                 batch_size=batch_size)
             model = BaseSeq2SeqModel(hparams=hparams,
-                                 station_name=station_name,
-                                 target=target,
-                                 features=["PM10"],
-                                 train_fdate=train_fdate, train_tdate=train_tdate,
-                                 test_fdate=test_fdate, test_tdate=test_tdate,
-                                 output_dir=output_dir)
+                                     input_size=1,
+                                     sample_size=sample_size,
+                                     output_size=output_size,
+                                     station_name=station_name,
+                                     target=target,
+                                     features=["PM10"],
+                                     train_fdate=train_fdate, train_tdate=train_tdate,
+                                     test_fdate=test_fdate, test_tdate=test_tdate,
+                                     output_dir=output_dir)
         elif target == 'PM25':
             hparams = Namespace(
-                seq_size=sample_size,
-                input_size=1,
                 hidden_size=16,
-                output_size=output_size,
                 learning_rate=learning_rate,
-                sample_size=sample_size,
                 batch_size=batch_size)
             model = BaseSeq2SeqModel(hparams=hparams,
-                                 station_name=station_name,
-                                 target=target,
-                                 features=["PM25"],
-                                 train_fdate=train_fdate, train_tdate=train_tdate,
-                                 test_fdate=test_fdate, test_tdate=test_tdate,
-                                 output_dir=output_dir)
+                                     input_size=1,
+                                     sample_size=sample_size,
+                                     output_size=output_size,
+                                     station_name=station_name,
+                                     target=target,
+                                     features=["PM25"],
+                                     train_fdate=train_fdate, train_tdate=train_tdate,
+                                     test_fdate=test_fdate, test_tdate=test_tdate,
+                                     output_dir=output_dir)
         # first, plot periodicity
         # second, univariate or multivariate
 
@@ -133,7 +131,7 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          #fast_dev_run=True,
+                          fast_dev_run=True,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -207,12 +205,8 @@ class BaseSeq2SeqModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get('hparams', Namespace(
-            seq_size=48,
-            input_size=1,
             hidden_size=16,
-            output_size=24,
             learning_rate=1e-3,
-            sample_size=48,
             batch_size=32
         ))
 
@@ -255,10 +249,15 @@ class BaseSeq2SeqModel(LightningModule):
         self.train_logs = {}
         self.valid_logs = {}
 
+        self.sample_size = kwargs.get('sample_size', 48)
+        self.output_size = kwargs.get('output_size', 24)
+        self.input_size = kwargs.get(
+            'input_size', self.sample_size)
+
         self.encoder = EncoderRNN(
-            self.hparams.input_size, self.hparams.hidden_size)
+            self.input_size, self.hparams.hidden_size)
         self.decoder = DecoderRNN(
-            self.hparams.hidden_size, self.hparams.output_size)
+            self.hparams.hidden_size, self.output_size)
         assert self.encoder.hidden_size == self.decoder.hidden_size, \
             "Hidden dimensions of encoder and decoder must be equal!"
 
@@ -281,11 +280,11 @@ class BaseSeq2SeqModel(LightningModule):
         # y0 : [batch_size, 1]
         # y  : [batch_size, output_size]
 
-        outputs = torch.zeros(batch_size, self.hparams.output_size).to(device)
+        outputs = torch.zeros(batch_size, self.output_size).to(device)
 
         # iterate sequence
         # x[ei] : single value of PM10 or PM25
-        for t in range(self.hparams.output_size + 1):
+        for t in range(self.output_size + 1):
             output, hidden = self.decoder(_input, hidden)
 
             if t > 0:
@@ -396,7 +395,7 @@ class BaseSeq2SeqModel(LightningModule):
 
     def test_epoch_end(self, outputs):
         # column to indicate offset to key_date
-        cols = [str(t) for t in range(self.hparams.output_size)]
+        cols = [str(t) for t in range(self.output_size)]
 
         df_obs = pd.DataFrame(columns=cols)
         df_sim = pd.DataFrame(columns=cols)
@@ -419,13 +418,13 @@ class BaseSeq2SeqModel(LightningModule):
         df_obs.to_csv(self.data_dir / "df_test_obs.csv")
         df_sim.to_csv(self.data_dir / "df_test_sim.csv")
 
-        plot_line(self.hparams, df_obs, df_sim, self.target,
+        plot_line(self.output_size, df_obs, df_sim, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
-        plot_scatter(self.hparams, df_obs, df_sim,
+        plot_scatter(self.output_size, df_obs, df_sim,
                      self.data_dir, self.png_dir, self.svg_dir)
-        plot_corr(self.hparams, df_obs, df_sim,
+        plot_corr(self.output_size, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
-        plot_rmse(self.hparams, df_obs, df_sim,
+        plot_rmse(self.output_size, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
         plot_logs(self.train_logs, self.valid_logs, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
@@ -472,8 +471,8 @@ class BaseSeq2SeqModel(LightningModule):
             features=self.features,
             fdate=self.train_fdate,
             tdate=self.train_tdate,
-            sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size,
+            sample_size=self.sample_size,
+            output_size=self.output_size,
             train_valid_ratio=0.8)
         test_set = data.UnivariateRNNDataset(
             station_name=self.station_name,
@@ -482,8 +481,8 @@ class BaseSeq2SeqModel(LightningModule):
             features=self.features,
             fdate=self.test_fdate,
             tdate=self.test_tdate,
-            sample_size=self.hparams.sample_size,
-            output_size=self.hparams.output_size)
+            sample_size=self.sample_size,
+            output_size=self.output_size)
 
         # save train/valid set
         train_valid_set.to_csv(
@@ -550,12 +549,12 @@ class BaseSeq2SeqModel(LightningModule):
         return torch.as_tensor(xs), torch.as_tensor(ys0), torch.as_tensor(ys), dates
 
 
-def plot_line(hparams, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
+def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         dates = df_obs.index + dt.timedelta(hours=t)
 
         png_dir_h = png_dir / str(t).zfill(2)
@@ -635,12 +634,12 @@ def plot_logs(train_logs, valid_logs, target,
         export_svgs(p, filename=str(svg_path))
 
 
-def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_scatter(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         png_dir_h = png_dir / str(t).zfill(2)
         svg_dir_h = svg_dir / str(t).zfill(2)
         Path.mkdir(png_dir_h, parents=True, exist_ok=True)
@@ -673,7 +672,7 @@ def plot_scatter(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
         df_scatter.to_csv(csv_path)
 
 
-def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_corr(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
@@ -682,9 +681,9 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     svg_path = svg_dir / ("corr_time.svg")
     csv_path = data_dir / ("corr_time.csv")
 
-    times = list(range(hparams.output_size + 1))
+    times = list(range(output_size + 1))
     corrs = [1.0]
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 
@@ -707,7 +706,7 @@ def plot_corr(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     df_corrs.to_csv(csv_path)
 
 
-def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_rmse(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
@@ -716,9 +715,9 @@ def plot_rmse(hparams, df_obs, df_sim, data_dir, png_dir, svg_dir):
     svg_path = svg_dir / ("rmse_time.svg")
     csv_path = data_dir / ("rmse_time.csv")
 
-    times = list(range(1, hparams.output_size + 1))
+    times = list(range(1, output_size + 1))
     rmses = []
-    for t in range(hparams.output_size):
+    for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 
