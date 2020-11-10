@@ -306,6 +306,12 @@ def ml_rnn_mul_tpa_attn_general():
             for key, value in trial.params.items():
                 print("    {}: {}".format(key, value))
 
+            dict_hparams = vars(hparams)
+            dict_hparams["sample_size"] = sample_size
+            dict_hparams["output_size"] = output_size
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
+
             # set hparams with optmized value
             hparams.num_filters = trial.params['num_filters']
             hparams.hidden_size = trial.params['hidden_size']

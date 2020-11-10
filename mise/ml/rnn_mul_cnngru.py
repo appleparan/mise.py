@@ -194,6 +194,12 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
             for key, value in trial.params.items():
                 print("    {}: {}".format(key, value))
 
+            dict_hparams = vars(hparams)
+            dict_hparams["sample_size"] = sample_size
+            dict_hparams["output_size"] = output_size
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
+
             # set hparams with optmized value
             hparams.hidCNN = trial.params['hidCNN']
             hparams.filter_size = trial.params['filter_size']
