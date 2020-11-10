@@ -128,7 +128,7 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
             # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
             # filenames match. Therefore, the filenames for each trial must be made unique.
             checkpoint_callback = pl.callbacks.ModelCheckpoint(
-                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="accuracy"
+                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss"
             )
 
             model = BaseCNNGRUModel(trial=trial,
