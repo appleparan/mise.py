@@ -202,10 +202,9 @@ def ml_rnn_mul_tpa_attn_general():
         learning_rate = 3e-3
 
         hparams = Namespace(
+            filter_size=3,
             num_filters=32,
             hidden_size=12,
-            # should be (smaple_size, filter_size)
-            filter_size=3,
             learning_rate=learning_rate,
             batch_size=batch_size)
     else:
@@ -258,7 +257,7 @@ def ml_rnn_mul_tpa_attn_general():
             # most basic trainer, uses good defaults
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
-                              min_epochs=1, max_epochs=50,
+                              min_epochs=1, max_epochs=75,
                               early_stop_callback=PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss"),
                               default_root_dir=output_dir,
@@ -293,7 +292,8 @@ def ml_rnn_mul_tpa_attn_general():
             fig.savefig(output_dir / "opt_history.png", format='png')
             fig.savefig(output_dir / "opt_history.svg", format='svg')
 
-            ax_pcoord = optmpl.plot_parallel_coordinate(study)
+            ax_pcoord = optmpl.plot_parallel_coordinate(
+                study, params=["filter_size", "num_filters", "hidden_size"])
             fig = ax_pcoord.get_figure()
             fig.set_size_inches(12, 8)
             fig.savefig(output_dir / "parallel_coord.png", format='png')

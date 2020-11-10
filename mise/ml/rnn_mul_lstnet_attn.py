@@ -114,8 +114,8 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             mode='auto')
 
         hparams = Namespace(
+            filter_size=3,
             hidCNN=16,
-            filter_size=5,
             hidden_size=16,
             learning_rate=learning_rate,
             batch_size=batch_size)
@@ -144,7 +144,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             # most basic trainer, uses good defaults
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
-                              min_epochs=1, max_epochs=100,
+                              min_epochs=1, max_epochs=75,
                               early_stop_callback=PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss"),
                               default_root_dir=output_dir,
@@ -178,7 +178,8 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             fig.savefig(output_dir / "opt_history.png", format='png')
             fig.savefig(output_dir / "opt_history.svg", format='svg')
 
-            ax_pcoord = optmpl.plot_parallel_coordinate(study)
+            ax_pcoord = optmpl.plot_parallel_coordinate(
+                study, params=["hidCNN", "filter_size", "hidden_size"])
             fig = ax_pcoord.get_figure()
             fig.set_size_inches(12, 8)
             fig.savefig(output_dir / "parallel_coord.png", format='png')
