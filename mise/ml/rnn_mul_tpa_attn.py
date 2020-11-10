@@ -470,9 +470,9 @@ class BaseTPAAttnModel(LightningModule):
 
         if self.trial:
             self.hparams.filter_size = self.trial.suggest_int(
-                "filter_size", 1, int(self.sample_size / 3), step=2)
+                "filter_size", 1, 7, step=2)
             self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", self.hparams.filter_size, 256, log=True)
+                "hidden_size", 8, 256, log=True)
             self.hparams.num_filters = self.trial.suggest_int(
                 "num_filters", 8, 256, log=True)
         self.kernel_shape = (self.sample_size-1, self.hparams.filter_size)

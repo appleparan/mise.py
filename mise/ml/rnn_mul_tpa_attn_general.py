@@ -216,7 +216,7 @@ def ml_rnn_mul_tpa_attn_general():
     assert test_fdate > train_tdate
 
     for target in targets:
-        print("Training " + target + " of " + case_name + "case...")
+        print("Training " + target + " of " + case_name + " case...")
 
         output_dir = Path("/mnt/data/" + case_name + "/" +
                           target + "/")
@@ -258,7 +258,7 @@ def ml_rnn_mul_tpa_attn_general():
             # most basic trainer, uses good defaults
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
-                              min_epochs=1, max_epochs=100,
+                              min_epochs=1, max_epochs=50,
                               early_stop_callback=PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss"),
                               default_root_dir=output_dir,
@@ -578,9 +578,9 @@ class BaseTPAAttnModel(LightningModule):
 
         if self.trial:
             self.hparams.filter_size = self.trial.suggest_int(
-                "filter_size", 1, int(self.sample_size / 3), step=2)
+                "filter_size", 1, 7, step=2)
             self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", self.hparams.filter_size, 256, log=True)
+                "hidden_size", 8, 256, log=True)
             self.hparams.num_filters = self.trial.suggest_int(
                 "num_filters", 8, 256, log=True)
         self.kernel_shape = (self.sample_size-1, self.hparams.filter_size)

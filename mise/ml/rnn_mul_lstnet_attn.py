@@ -455,7 +455,7 @@ class BaseLSTNetModel(LightningModule):
 
         if self.trial:
             self.hparams.filter_size = self.trial.suggest_int(
-                "filter_size", 1, int(self.sample_size / 3), step=2)
+                "filter_size", 1, 7, step=2)
             self.hparams.hidden_size = self.trial.suggest_int(
                 "hidden_size", 8, 256, log=True)
             self.hparams.hidCNN = self.trial.suggest_int(
