@@ -158,44 +158,44 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             trainer.fit(model)
 
             return metrics_callback.metrics[-1]["val_loss"].item()
+        if n_trials > 1:
+            pruner = optuna.pruners.MedianPruner()
 
-        pruner = optuna.pruners.MedianPruner()
+            study = optuna.create_study(direction="minimize", pruner=pruner)
+            study.optimize(lambda trial: objective(
+                trial), n_trials=n_trials, timeout=600)
 
-        study = optuna.create_study(direction="minimize", pruner=pruner)
-        study.optimize(lambda trial: objective(
-            trial), n_trials=n_trials, timeout=600)
+            # plot optmization results
+            ax_edf = optmpl.plot_edf(study)
+            fig = ax_edf.get_figure()
+            fig.set_size_inches(12, 8)
+            fig.savefig(output_dir / "edf.png", format='png')
+            fig.savefig(output_dir / "edf.svg", format='svg')
 
-        # plot optmization results
-        ax_edf = optmpl.plot_edf(study)
-        fig = ax_edf.get_figure()
-        fig.set_size_inches(12, 8)
-        fig.savefig(output_dir / "edf.png", format='png')
-        fig.savefig(output_dir / "edf.svg", format='svg')
+            ax_his = optmpl.plot_optimization_history(study)
+            fig = ax_his.get_figure()
+            fig.set_size_inches(12, 8)
+            fig.savefig(output_dir / "opt_history.png", format='png')
+            fig.savefig(output_dir / "opt_history.svg", format='svg')
 
-        ax_his = optmpl.plot_optimization_history(study)
-        fig = ax_his.get_figure()
-        fig.set_size_inches(12, 8)
-        fig.savefig(output_dir / "opt_history.png", format='png')
-        fig.savefig(output_dir / "opt_history.svg", format='svg')
+            ax_pcoord = optmpl.plot_parallel_coordinate(study)
+            fig = ax_pcoord.get_figure()
+            fig.set_size_inches(12, 8)
+            fig.savefig(output_dir / "parallel_coord.png", format='png')
+            fig.savefig(output_dir / "parallel_coord.svg", format='svg')
 
-        ax_pcoord = optmpl.plot_parallel_coordinate(study)
-        fig = ax_pcoord.get_figure()
-        fig.set_size_inches(12, 8)
-        fig.savefig(output_dir / "parallel_coord.png", format='png')
-        fig.savefig(output_dir / "parallel_coord.svg", format='svg')
+            trial = study.best_trial
 
-        trial = study.best_trial
+            print("  Value: ", trial.value)
 
-        print("  Value: ", trial.value)
+            print("  Params: ")
+            for key, value in trial.params.items():
+                print("    {}: {}".format(key, value))
 
-        print("  Params: ")
-        for key, value in trial.params.items():
-            print("    {}: {}".format(key, value))
-
-        # set hparams with optmized value
-        hparams.hidCNN = trial.params['hidCNN']
-        hparams.hidden_size = trial.params['hidden_size']
-        hparams.filter_size = trial.params['filter_size']
+            # set hparams with optmized value
+            hparams.hidCNN = trial.params['hidCNN']
+            hparams.hidden_size = trial.params['hidden_size']
+            hparams.filter_size = trial.params['filter_size']
 
         model = BaseLSTNetModel(hparams=hparams,
                                 sample_size=sample_size,
@@ -456,10 +456,10 @@ class BaseLSTNetModel(LightningModule):
         if self.trial:
             self.hparams.filter_size = self.trial.suggest_int(
                 "filter_size", 1, int(self.sample_size / 3), step=2)
-            self.hparams.hidden_size = self.trial.suggest_int("hidden_size",
-                                                              1, 128, log=True)
+            self.hparams.hidden_size = self.trial.suggest_int(
+                "hidden_size", 8, 256, log=True)
             self.hparams.hidCNN = self.trial.suggest_int(
-                "hidCNN", 1, 128, log=True)
+                "hidCNN", 8, 256, log=True)
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 
         self.loss = nn.MSELoss(reduction='mean')
