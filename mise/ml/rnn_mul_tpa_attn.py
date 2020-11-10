@@ -479,9 +479,9 @@ class BaseTPAAttnModel(LightningModule):
             self.hparams.filter_size = self.trial.suggest_int(
                 "filter_size", 1, 7, step=2)
             self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 8, 256, log=True)
+                "hidden_size", 8, 256)
             self.hparams.num_filters = self.trial.suggest_int(
-                "num_filters", 8, 256, log=True)
+                "num_filters", 8, 256)
         self.kernel_shape = (self.sample_size-1, self.hparams.filter_size)
 
         self.loss = nn.MSELoss(reduction='mean')

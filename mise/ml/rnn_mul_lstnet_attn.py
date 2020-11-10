@@ -158,6 +158,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             trainer.fit(model)
 
             return metrics_callback.metrics[-1]["val_loss"].item()
+
         if n_trials > 1:
             pruner = optuna.pruners.MedianPruner()
 
@@ -464,9 +465,9 @@ class BaseLSTNetModel(LightningModule):
             self.hparams.filter_size = self.trial.suggest_int(
                 "filter_size", 1, 7, step=2)
             self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 8, 256, log=True)
+                "hidden_size", 8, 256)
             self.hparams.hidCNN = self.trial.suggest_int(
-                "hidCNN", 8, 256, log=True)
+                "hidCNN", 8, 256)
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 
         self.loss = nn.MSELoss(reduction='mean')
