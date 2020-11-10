@@ -21,11 +21,16 @@ from torch.utils.data import random_split, DataLoader
 from torch.utils.data import RandomSampler, SequentialSampler, BatchSampler
 from torch.utils.tensorboard import SummaryWriter
 
+import pytorch_lightning as pl
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping
+from pytorch_lightning.callbacks import Callback, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+import optuna
+from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
+import optuna.visualization.matplotlib as optmpl
 
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
@@ -40,11 +45,25 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+
+class MetricsCallback(Callback):
+    """PyTorch Lightning metric callback."""
+
+    def __init__(self):
+        super().__init__()
+        self.metrics = []
+
+    def on_validation_end(self, trainer, pl_module):
+        self.metrics.append(trainer.callback_metrics)
+
 def ml_rnn_mul_cnngru(station_name="종로구"):
     print("Start Multivariate CNN-GRU Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
     output_size = 24
+    # If you want to debug, fast_dev_run = True and n_trials should be small number
+    fast_dev_run = False
+    n_trials = 25
 
     # Hyper parameter
     epoch_size = 500
@@ -76,6 +95,8 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
         output_dir = Path("/mnt/data/RNNCNNGRUMultivariate/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
+        model_dir = output_dir / "models"
+        Path.mkdir(model_dir, parents=True, exist_ok=True)
 
         if not Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
             # load imputed result
@@ -84,56 +105,117 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
                                str(SEOUL_STATIONS[station_name]) + '"')
             df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
 
-        if target == 'PM10':
-            hparams = Namespace(
-                hidCNN=16,
-                filter_size=5,
-                hidRNN=16,
-                learning_rate=learning_rate,
-                batch_size=batch_size)
-            model = BaseCNNGRUModel(hparams=hparams,
-                                    sample_size=sample_size,
-                                    output_size=output_size,
-                                    station_name=station_name,
-                                    target=target,
-                                    features=train_features,
-                                    train_fdate=train_fdate, train_tdate=train_tdate,
-                                    test_fdate=test_fdate, test_tdate=test_tdate,
-                                    output_dir=output_dir)
-        elif target == 'PM25':
-            hparams = Namespace(
-                hidCNN=16,
-                filter_size=5,                
-                hidRNN=16,
-                learning_rate=learning_rate,
-                batch_size=batch_size)
-            model = BaseCNNGRUModel(hparams=hparams,
-                                    sample_size=sample_size,
-                                    output_size=output_size,
-                                    station_name=station_name,
-                                    target=target,
-                                    features=train_features,
-                                    train_fdate=train_fdate, train_tdate=train_tdate,
-                                    test_fdate=test_fdate, test_tdate=test_tdate,
-                                    output_dir=output_dir)
-        # first, plot periodicity
-        # second, univariate or multivariate
-
-        # early stopping
         early_stop_callback = EarlyStopping(
             monitor='val_loss',
             min_delta=0.001,
             patience=30,
             verbose=True,
-            mode='auto'
-        )
+            mode='auto')
+
+        hparams = Namespace(
+            hidCNN=32,
+            hidden_size=16,
+            # kernel should be (sample_size, filter_size)
+            filter_size=3,
+            learning_rate=learning_rate,
+            batch_size=batch_size)
+
+        # The default logger in PyTorch Lightning writes to event files to be consumed by
+        # TensorBoard. We don't use any logger here as it requires us to implement several abstract
+        # methods. Instead we setup a simple callback, that saves metrics from each validation step.
+        metrics_callback = MetricsCallback()
+
+        def objective(trial):
+            # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
+            # filenames match. Therefore, the filenames for each trial must be made unique.
+            checkpoint_callback = pl.callbacks.ModelCheckpoint(
+                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="accuracy"
+            )
+
+            model = BaseCNNGRUModel(trial=trial,
+                                     hparams=hparams,
+                                     sample_size=sample_size,
+                                     output_size=output_size,
+                                     target=target,
+                                     features=train_features,
+                                     train_fdate=train_fdate, train_tdate=train_tdate,
+                                     test_fdate=test_fdate, test_tdate=test_tdate,
+                                     output_dir=output_dir)
+
+            # most basic trainer, uses good defaults
+            trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
+                              precision=32,
+                              min_epochs=1, max_epochs=100,
+                              early_stop_callback=PyTorchLightningPruningCallback(
+                                  trial, monitor="val_loss"),
+                              default_root_dir=output_dir,
+                              fast_dev_run=fast_dev_run,
+                              logger=model.logger,
+                              row_log_interval=10,
+                              checkpoint_callback=checkpoint_callback,
+                              callbacks=[metrics_callback, PyTorchLightningPruningCallback(
+                                  trial, monitor="val_loss")])
+            cur_trainer = trainer
+            trainer.fit(model)
+
+            return metrics_callback.metrics[-1]["val_loss"].item()
+
+        if n_trials > 1:
+            pruner = optuna.pruners.MedianPruner()
+
+            study = optuna.create_study(direction="minimize", pruner=pruner)
+            study.optimize(lambda trial: objective(
+                trial), n_trials=n_trials, timeout=600)
+
+            # plot optmization results
+            ax_edf = optmpl.plot_edf(study)
+            fig = ax_edf.get_figure()
+            fig.set_size_inches(12, 8)
+            fig.savefig(output_dir / "edf.png", format='png')
+            fig.savefig(output_dir / "edf.svg", format='svg')
+
+            ax_his = optmpl.plot_optimization_history(study)
+            fig = ax_his.get_figure()
+            fig.set_size_inches(12, 8)
+            fig.savefig(output_dir / "opt_history.png", format='png')
+            fig.savefig(output_dir / "opt_history.svg", format='svg')
+
+            ax_pcoord = optmpl.plot_parallel_coordinate(study)
+            fig = ax_pcoord.get_figure()
+            fig.set_size_inches(12, 8)
+            fig.savefig(output_dir / "parallel_coord.png", format='png')
+            fig.savefig(output_dir / "parallel_coord.svg", format='svg')
+
+            trial = study.best_trial
+
+            print("  Value: ", trial.value)
+
+            print("  Params: ")
+            for key, value in trial.params.items():
+                print("    {}: {}".format(key, value))
+
+            # set hparams with optmized value
+            hparams.hidCNN = trial.params['hidCNN']
+            hparams.filter_size = trial.params['filter_size']
+            hparams.hidden_size = trial.params['hidden_size']
+
+        model = BaseCNNGRUModel(hparams=hparams,
+                                sample_size=sample_size,
+                                output_size=output_size,
+                                station_name=station_name,
+                                target=target,
+                                features=train_features,
+                                train_fdate=train_fdate, train_tdate=train_tdate,
+                                test_fdate=test_fdate, test_tdate=test_tdate,
+                                output_dir=output_dir)
+
         # most basic trainer, uses good defaults
-        trainer = Trainer(gpus=1,
+        trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                           precision=32,
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          #fast_dev_run=True,
+                          fast_dev_run=fast_dev_run,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -147,14 +229,15 @@ class EncoderRNN(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super().__init__()
+        self.input_size = input_size
         self.hidden_size = hidden_size
-        self.gru = nn.GRU(input_size, hidden_size)
+        self.gru = nn.GRU(input_size, hidden_size, batch_first=True)
 
     def forward(self, _input):
         # no embedding
-        # _input: [batch_size, input_size, sample_size]
-        # _input.permute(1, 0, 2):  [batch_size, sample_size, input_size]
-        outputs, hidden = self.gru(_input.permute(2, 0, 1))
+        # _input: (batch_size, input_size, sample_size)
+        # _input.permute(0, 2, 1): (batch_size, sample_size, input_size)
+        outputs, hidden = self.gru(_input.permute(0, 2, 1))
 
         # outputs: [sample_size, batch_size, num_directions*hidden_size]
         # hidden: [num_layers * num_direction, batch_size, hidden_size]
@@ -171,14 +254,14 @@ class DecoderRNN(nn.Module):
         self.output_size = output_size
 
         # no embedding -> GRU input size is 1
-        self.gru = nn.GRU(1, hidden_size)
+        self.gru = nn.GRU(1, hidden_size, batch_first=True)
         self.out = nn.Linear(hidden_size, 1)
 
     def forward(self, _input, hidden):
         """
-            _input: [L, N, H_in] : (seq_len, batch_size, hidden_size)
+            _input: [L, N, H_in] : (batch_size, seq_len, hidden_size)
             hidden: [num_layers * num_direction, batch_size, hidden_size]
-            output : (seq_len, batch, num_directions * hidden_size)
+            output : (batch_size, seq_len, num_directions * hidden_size)
         https://github.com/bentrevett/pytorch-seq2seq/blob/master/2%20-%20Learning%20Phrase%20Representations%20using%20RNN%20Encoder-Decoder%20for%20Statistical%20Machine%20Translation.ipynb
         Decoder : hidden state + context vector as input
         """
@@ -186,14 +269,10 @@ class DecoderRNN(nn.Module):
         # so actual output size is output_size + 1,
         # we just truncated to output_size
 
-        # no embeding
-        # [batch_size, 1] -> [1, batch_size, 1]
-        _input = _input.unsqueeze(0)
-
         # do rnn with hidden state (initial hidden state = hidden state from encoder)
         output, hidden = self.gru(_input, hidden)
 
-        # output = [n layers * n directions, batch size, hid dim * n directions]
+        # output = [batch size, n layers * n directions, hid dim * n directions]
         # hidden = [n layers * n directions, batch size, hidden_size]
         # decoders's seq_len is 1
         # so output and hidden must be same
@@ -255,8 +334,19 @@ class BaseCNNGRUModel(LightningModule):
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
+        self.trial = kwargs.get('trial', None)
         self.sample_size = kwargs.get('sample_size', 48)
         self.output_size = kwargs.get('output_size', 24)
+        self.kernel_shape = (self.hparams.filter_size, len(self.features))
+
+        if self.trial:
+            self.hparams.filter_size = self.trial.suggest_int(
+                "filter_size", 1, int(self.sample_size / 3), step=2)
+            self.hparams.hidCNN = self.trial.suggest_int(
+                "hidCNN", 8, 256, log=True)
+            self.hparams.hidden_size = self.trial.suggest_int(
+                "hidden_size", 8, 256, log=True)
+
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 
         self.loss = nn.MSELoss(reduction='mean')
@@ -302,7 +392,7 @@ class BaseCNNGRUModel(LightningModule):
         _, hidden = self.encoder(np.squeeze(x_cnn))
 
         # first input to the decoder is the first output of y
-        _input = y0
+        _input = y0.unsqueeze(1)
 
         # x  : [batch_size, sample_size, 1]
         # y0 : [batch_size, 1]
@@ -316,7 +406,7 @@ class BaseCNNGRUModel(LightningModule):
 
             if t > 0:
                 # skip initial result
-                outputs[:, t - 1] = output[:, 0]
+                outputs[:, t - 1] = output.squeeze()
 
             _input = output
 
