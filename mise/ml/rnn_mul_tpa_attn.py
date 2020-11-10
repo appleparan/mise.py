@@ -146,7 +146,7 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
             # most basic trainer, uses good defaults
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
-                              min_epochs=1, max_epochs=75,
+                              min_epochs=1, max_epochs=10,
                               early_stop_callback=PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss"),
                               default_root_dir=output_dir,
@@ -156,7 +156,7 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
                               checkpoint_callback=checkpoint_callback,
                               callbacks=[metrics_callback, PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss")])
-            cur_trainer = trainer
+
             trainer.fit(model)
 
             return metrics_callback.metrics[-1]["val_loss"].item()
@@ -166,7 +166,7 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
 
             study = optuna.create_study(direction="minimize", pruner=pruner)
             study.optimize(lambda trial: objective(
-                trial), n_trials=n_trials, timeout=600)
+                trial), n_trials=n_trials, timeout=1800)
 
             # plot optmization results
             ax_edf = optmpl.plot_edf(study)
