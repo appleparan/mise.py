@@ -64,7 +64,7 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 25
+    n_trials = 100
 
     # Hyper parameter
     epoch_size = 500
@@ -105,6 +105,7 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
             df_h = _df_h.query('stationCode == "' +
                                str(SEOUL_STATIONS[station_name]) + '"')
             df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
+
         early_stop_callback = EarlyStopping(
             monitor='val_loss',
             min_delta=0.001,
@@ -143,7 +144,7 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
             # most basic trainer, uses good defaults
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
-                              min_epochs=1, max_epochs=10,
+                              min_epochs=1, max_epochs=15,
                               early_stop_callback=PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss"),
                               default_root_dir=output_dir,
@@ -165,6 +166,20 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
             study.optimize(lambda trial: objective(
                 trial), n_trials=n_trials, timeout=1800)
 
+            trial = study.best_trial
+
+            print("  Value: ", trial.value)
+
+            print("  Params: ")
+            for key, value in trial.params.items():
+                print("    {}: {}".format(key, value))
+
+            dict_hparams = copy.copy(vars(hparams))
+            dict_hparams["sample_size"] = sample_size
+            dict_hparams["output_size"] = output_size
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
+
             # plot optmization results
             ax_edf = optmpl.plot_edf(study)
             fig = ax_edf.get_figure()
@@ -184,20 +199,6 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
             fig.set_size_inches(12, 8)
             fig.savefig(output_dir / "parallel_coord.png", format='png')
             fig.savefig(output_dir / "parallel_coord.svg", format='svg')
-
-            trial = study.best_trial
-
-            print("  Value: ", trial.value)
-
-            print("  Params: ")
-            for key, value in trial.params.items():
-                print("    {}: {}".format(key, value))
-
-            dict_hparams = vars(hparams)
-            dict_hparams["sample_size"] = sample_size
-            dict_hparams["output_size"] = output_size
-            with open(output_dir / 'hparams.json', 'w') as f:
-                print(dict_hparams, file=f)
 
             # set hparams with optmized value
             hparams.hidden_size = trial.params['hidden_size']
