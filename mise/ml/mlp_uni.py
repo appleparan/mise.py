@@ -63,7 +63,7 @@ def ml_mlp_uni(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 25
+    n_trials = 100
 
     # Hyper parameter
     epoch_size = 500
@@ -73,7 +73,6 @@ def ml_mlp_uni(station_name="종로구"):
     train_fdate = dt.datetime(2012, 1, 1, 0).astimezone(SEOULTZ)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
-    #test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
 
     # check date range assumption
@@ -112,7 +111,6 @@ def ml_mlp_uni(station_name="종로구"):
 
         hparams = Namespace(
             num_layers=1,
-            layer0_size=32,
             learning_rate=learning_rate,
             batch_size=batch_size)
         # The default logger in PyTorch Lightning writes to event files to be consumed by
@@ -128,7 +126,8 @@ def ml_mlp_uni(station_name="종로구"):
             )
 
             hparams = Namespace(
-                num_layers=1,
+                num_layers=2,
+                layer0_size=16,
                 learning_rate=learning_rate,
                 batch_size=batch_size)
 
@@ -214,7 +213,6 @@ def ml_mlp_uni(station_name="종로구"):
             for l in range(hparams.num_layers - 1):
                 layer_name = "layer" + str(l) + "_size"
                 dict_hparams[layer_name] = trial.params[layer_name]
-            print(hparams)
 
         model = BaseMLPModel(hparams=hparams,
                              input_size=sample_size,
@@ -245,12 +243,13 @@ def ml_mlp_uni(station_name="종로구"):
 class BaseMLPModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
+        # outside LightiningModule, it was argparse.Namespace
+        # in LightiningModule, pytorch_lightning.utilities.parsing.AttributeDict
+        # this means vars(self.hparams) returns empty dict
         self.hparams = kwargs.get('hparams', Namespace(
-                layer1_size=32,
-                layer2_size=32,
+                num_layers=1,
                 learning_rate=1e-3,
-                batch_size=32
-                ))
+                batch_size=32))
 
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
@@ -287,15 +286,13 @@ class BaseMLPModel(LightningModule):
 
         # select layer sizes
         self.layer_sizes = [self.input_size, self.output_size]
-        print(self.layer_sizes)
-        dict_hparams = vars(self.hparams)
         if self.trial:
             # if trial, there is no element of layer name such as "layer0_size"
-            self.hparams.num_layers = self.trial.suggest_int("num_layers", 1, 8)
+            self.hparams.num_layers = self.trial.suggest_int("num_layers", 2, 8)
             for l in range(self.hparams.num_layers - 1):
                 layer_szname = "layer" + str(l) + "_size"
                 layer_size = self.trial.suggest_int(layer_szname, 8, 256)
-                dict_hparams[layer_szname] = layer_size
+                self.hparams.update({layer_szname:  layer_size})
                 self.layer_sizes.insert(len(self.layer_sizes)-1, layer_size)
         else:
             # if normal training,
@@ -303,10 +300,9 @@ class BaseMLPModel(LightningModule):
             for l in range(self.hparams.num_layers - 1):
                 layer_szname = "layer" + str(l) + "_size"
                 self.layer_sizes.insert(len(self.layer_sizes) - 1,
-                                     dict_hparams[layer_szname])
+                                     self.hparams[layer_szname])
 
         assert len(self.layer_sizes) == self.hparams.num_layers + 1
-        print(self.layer_sizes)
         # construct Layers from dynamic size
         # if n_layers == 1 -> (in, out)
         # if n_layers > 1 -> (in, tmp0), (tmp0, tmp2), ..., (tmpN, out)

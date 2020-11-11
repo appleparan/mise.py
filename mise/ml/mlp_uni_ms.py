@@ -20,11 +20,16 @@ from torch.utils.data import random_split, DataLoader
 from torch.utils.data import RandomSampler, SequentialSampler, BatchSampler
 from torch.utils.tensorboard import SummaryWriter
 
+import pytorch_lightning as pl
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping
+from pytorch_lightning.callbacks import Callback, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+import optuna
+from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
+import optuna.visualization.matplotlib as optmpl
 
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
@@ -44,11 +49,25 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
+class MetricsCallback(Callback):
+    """PyTorch Lightning metric callback."""
+
+    def __init__(self):
+        super().__init__()
+        self.metrics = []
+
+    def on_validation_end(self, trainer, pl_module):
+        self.metrics.append(trainer.callback_metrics)
+
+
 def ml_mlp_uni_ms(station_name="종로구"):
     print("Start Multivariate MLP Mean Seasonality Decomposition Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
     output_size = 24
+    # If you want to debug, fast_dev_run = True and n_trials should be small number
+    fast_dev_run = False
+    n_trials = 100
 
     # Hyper parameter
     epoch_size = 500
@@ -79,6 +98,8 @@ def ml_mlp_uni_ms(station_name="종로구"):
         output_dir = Path("/mnt/data/MLPMSUnivariate/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
+        model_dir = output_dir / "models"
+        Path.mkdir(model_dir, parents=True, exist_ok=True)
 
         if not Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
             # load imputed result
@@ -87,58 +108,137 @@ def ml_mlp_uni_ms(station_name="종로구"):
                                str(SEOUL_STATIONS[station_name]) + '"')
             df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
 
-        if target == 'PM10':
-            unit_size = 32
-            hparams = Namespace(
-                layer1_size=32,
-                layer2_size=32,
-                learning_rate=learning_rate,
-                batch_size=batch_size)
-            model = BaseMLPModel(hparams=hparams,
-                                 input_size=sample_size,
-                                 sample_size=sample_size,
-                                 output_size=output_size,
-                                 station_name=station_name,
-                                 target=target,
-                                 features=["PM10"],
-                                 train_fdate=train_fdate, train_tdate=train_tdate,
-                                 test_fdate=test_fdate, test_tdate=test_tdate,
-                                 output_dir=output_dir)
-        elif target == 'PM25':
-            unit_size = 16
-            hparams = Namespace(
-                layer1_size=16,
-                layer2_size=16,
-                learning_rate=learning_rate,
-                batch_size=batch_size)
-            model = BaseMLPModel(hparams=hparams,
-                                 input_size=sample_size,
-                                 sample_size=sample_size,
-                                 output_size=output_size,
-                                 station_name=station_name,
-                                 target=target,
-                                 features=["PM25"],
-                                 train_fdate=train_fdate, train_tdate=train_tdate,
-                                 test_fdate=test_fdate, test_tdate=test_tdate,
-                                 output_dir=output_dir)
-        # first, plot periodicity
-        # second, univariate or multivariate
-
-        # early stopping
         early_stop_callback = EarlyStopping(
             monitor='val_loss',
             min_delta=0.001,
             patience=30,
             verbose=True,
-            mode='auto'
-        )
+            mode='auto')
+
+        hparams = Namespace(
+            num_layers=1,
+            learning_rate=learning_rate,
+            batch_size=batch_size)
+        # The default logger in PyTorch Lightning writes to event files to be consumed by
+        # TensorBoard. We don't use any logger here as it requires us to implement several abstract
+        # methods. Instead we setup a simple callback, that saves metrics from each validation step.
+        metrics_callback = MetricsCallback()
+
+        def objective(trial):
+            # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
+            # filenames match. Therefore, the filenames for each trial must be made unique.
+            checkpoint_callback = pl.callbacks.ModelCheckpoint(
+                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss"
+            )
+
+            hparams = Namespace(
+                num_layers=2,
+                layer0_size=16,
+                learning_rate=learning_rate,
+                batch_size=batch_size)
+
+            model = BaseMLPModel(trial=trial,
+                                 hparams=hparams,
+                                 input_size=sample_size,
+                                 sample_size=sample_size,
+                                 output_size=output_size,
+                                 station_name=station_name,
+                                 target=target,
+                                 features=[target],
+                                 train_fdate=train_fdate, train_tdate=train_tdate,
+                                 test_fdate=test_fdate, test_tdate=test_tdate,
+                                 output_dir=output_dir)
+
+            # most basic trainer, uses good defaults
+            trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
+                              precision=32,
+                              min_epochs=1, max_epochs=15,
+                              early_stop_callback=PyTorchLightningPruningCallback(
+                                  trial, monitor="val_loss"),
+                              default_root_dir=output_dir,
+                              fast_dev_run=fast_dev_run,
+                              logger=model.logger,
+                              row_log_interval=10,
+                              checkpoint_callback=checkpoint_callback,
+                              callbacks=[metrics_callback, PyTorchLightningPruningCallback(
+                                  trial, monitor="val_loss")])
+
+            trainer.fit(model)
+
+            return metrics_callback.metrics[-1]["val_loss"].item()
+
+        if n_trials > 1:
+            pruner = optuna.pruners.MedianPruner()
+
+            study = optuna.create_study(direction="minimize", pruner=pruner)
+            study.optimize(lambda trial: objective(
+                trial), n_trials=n_trials, timeout=1800)
+
+            trial = study.best_trial
+
+            print("  Value: ", trial.value)
+
+            print("  Params: ")
+            for key, value in trial.params.items():
+                print("    {}: {}".format(key, value))
+
+            dict_hparams = copy.copy(vars(hparams))
+            dict_hparams["sample_size"] = sample_size
+            dict_hparams["output_size"] = output_size
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
+
+            # plot optmization results
+            ax_edf = optmpl.plot_edf(study)
+            fig = ax_edf.get_figure()
+            fig.set_size_inches(12, 8)
+            fig.savefig(output_dir / "edf.png", format='png')
+            fig.savefig(output_dir / "edf.svg", format='svg')
+
+            ax_his = optmpl.plot_optimization_history(study)
+            fig = ax_his.get_figure()
+            fig.set_size_inches(12, 8)
+            fig.savefig(output_dir / "opt_history.png", format='png')
+            fig.savefig(output_dir / "opt_history.svg", format='svg')
+
+            ax_pcoord = optmpl.plot_parallel_coordinate(
+                study, params=['num_layers'])
+            fig = ax_pcoord.get_figure()
+            fig.set_size_inches(12, 8)
+            fig.savefig(output_dir / "parallel_coord.png", format='png')
+            fig.savefig(output_dir / "parallel_coord.svg", format='svg')
+
+            dict_hparams = vars(hparams)
+            dict_hparams["sample_size"] = sample_size
+            dict_hparams["output_size"] = output_size
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
+
+            # set hparams with optmized value
+            dict_hparams = vars(hparams)
+            hparams.num_layers = trial.params['num_layers']
+            for l in range(hparams.num_layers - 1):
+                layer_name = "layer" + str(l) + "_size"
+                dict_hparams[layer_name] = trial.params[layer_name]
+
+        model = BaseMLPModel(hparams=hparams,
+                             input_size=sample_size,
+                             sample_size=sample_size,
+                             output_size=output_size,
+                             station_name=station_name,
+                             target=target,
+                             features=[target],
+                             train_fdate=train_fdate, train_tdate=train_tdate,
+                             test_fdate=test_fdate, test_tdate=test_tdate,
+                             output_dir=output_dir)
+
         # most basic trainer, uses good defaults
-        trainer = Trainer(gpus=1,
+        trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                           precision=32,
                           min_epochs=1, max_epochs=epoch_size,
                           early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
-                          #fast_dev_run=True,
+                          fast_dev_run=fast_dev_run,
                           logger=model.logger,
                           row_log_interval=10)
 
@@ -152,11 +252,9 @@ class BaseMLPModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get('hparams', Namespace(
-            layer1_size=32,
-            layer2_size=32,
+            num_layers=1,
             learning_rate=1e-3,
-            batch_size=32
-        ))
+            batch_size=32))
 
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
@@ -185,16 +283,41 @@ class BaseMLPModel(LightningModule):
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
+        self.trial = kwargs.get('trial', None)
         self.sample_size = kwargs.get('sample_size', 48)
         self.output_size = kwargs.get('output_size', 24)
         self.input_size = kwargs.get(
             'input_size', self.sample_size)
 
-        self.fc1 = nn.Linear(self.input_size, self.hparams.layer1_size)
-        self.fc2 = nn.Linear(self.hparams.layer1_size,
-                             self.hparams.layer2_size)
-        self.fc3 = nn.Linear(self.hparams.layer2_size,
-                             self.output_size)
+        # select layer sizes
+        self.layer_sizes = [self.input_size, self.output_size]
+        if self.trial:
+            # if trial, there is no element of layer name such as "layer0_size"
+            self.hparams.num_layers = self.trial.suggest_int(
+                "num_layers", 2, 8)
+            for l in range(self.hparams.num_layers - 1):
+                layer_szname = "layer" + str(l) + "_size"
+                layer_size = self.trial.suggest_int(layer_szname, 8, 256)
+                self.hparams.update({layer_szname:  layer_size})
+                self.layer_sizes.insert(len(self.layer_sizes)-1, layer_size)
+        else:
+            # if normal training,
+            # there must be a element named with layer number such as "layer0_size"
+            for l in range(self.hparams.num_layers - 1):
+                layer_szname = "layer" + str(l) + "_size"
+                self.layer_sizes.insert(len(self.layer_sizes) - 1,
+                                        self.hparams[layer_szname])
+
+        assert len(self.layer_sizes) == self.hparams.num_layers + 1
+        # construct Layers from dynamic size
+        # if n_layers == 1 -> (in, out)
+        # if n_layers > 1 -> (in, tmp0), (tmp0, tmp2), ..., (tmpN, out)
+        # layer size are pair from slef.layer_sizes
+        self.linears = nn.ModuleList()
+        for i in range(self.hparams.num_layers):
+            self.linears.append(
+                nn.Linear(self.layer_sizes[i], self.layer_sizes[i + 1]))
+
         self.loss = nn.MSELoss(reduction='mean')
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
@@ -206,9 +329,13 @@ class BaseMLPModel(LightningModule):
     def forward(self, x):
         # vectorize
         x = x.view(-1, self.input_size).to(device)
-        x = F.leaky_relu(self.fc1(x))
-        x = F.leaky_relu(self.fc2(x))
-        x = self.fc3(x)
+
+        for (i, layer) in enumerate(self.linears):
+            if i != len(self.linears):
+                x = F.leaky_relu(layer(x))
+            else:
+                x = layer(x)
+
         return x
 
     def configure_optimizers(self):
