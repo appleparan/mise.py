@@ -41,7 +41,7 @@ def parse_wkey(idx):
 def parse_hkey(idx):
     return str(idx.hour).zfill(2)
 
-def periodic_mean(df, target, period, smoothing=False):
+def periodic_mean(df, target, period, smoothing=False, smoothingFrac=0.05, smoothingCol='y'):
     """compute periodic mean and residuals, annual and weekly means are daily average, hourly means are hourly raw data
 
     Args:
@@ -104,11 +104,11 @@ def periodic_mean(df, target, period, smoothing=False):
     res = df[target] - df[target].to_frame().apply(get_sea, axis=1)
 
     # smoothing applies only to annual seasaonlity
-    if period == 'y' and smoothing:
+    if period == smoothingCol and smoothing:
         sea_values = sea.loc[:, 'sea'].to_numpy()
         sea_smoothed = lowess(
             sea_values, range(len(sea_values)),
-            return_sorted=False, frac=0.05)
+            return_sorted=False, frac=smoothingFrac)
         dict_sea = dict(zip(sea.index, sea_smoothed))
         # redefine get function due to closure
         def get_sea(key): return dict_sea[dt2key(key.name)]
