@@ -399,7 +399,7 @@ class DecoderRNN(nn.Module):
 
         # prediction: [batch size, 1]
         prediction = self.out(
-            torch.cat((output.squeeze(0), weighted.squeeze(0), _input.squeeze(0)), dim=1))
+            torch.cat((torch.sigmoid(output.squeeze(0)), weighted.squeeze(0), _input.squeeze(0)), dim=1))
 
         # current hidden state is a input of next hidden state
         return prediction, hidden

@@ -284,7 +284,7 @@ class DecoderRNN(nn.Module):
         # so output and hidden must be same
         #assert output.size() == hidden.size()
 
-        prediction = self.out(output.squeeze(0))
+        prediction = self.out(torch.sigmoid(output.squeeze(0)))
         #prediction = [batch size, 1]
 
         # current hidden state is a input of next hidden state
