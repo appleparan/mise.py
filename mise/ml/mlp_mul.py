@@ -62,8 +62,8 @@ def ml_mlp_mul(station_name="종로구"):
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
-    fast_dev_run = True
-    n_trials = 3
+    fast_dev_run = False
+    n_trials = 100
 
     # Hyper parameter
     epoch_size = 500
@@ -179,8 +179,6 @@ def ml_mlp_mul(station_name="종로구"):
             dict_hparams = copy.copy(vars(hparams))
             dict_hparams["sample_size"] = sample_size
             dict_hparams["output_size"] = output_size
-            with open(output_dir / 'hparams.json', 'w') as f:
-                print(dict_hparams, file=f)
 
             # plot optmization results
             ax_edf = optmpl.plot_edf(study)
@@ -195,25 +193,28 @@ def ml_mlp_mul(station_name="종로구"):
             fig.savefig(output_dir / "opt_history.png", format='png')
             fig.savefig(output_dir / "opt_history.svg", format='svg')
 
-            ax_pcoord = optmpl.plot_parallel_coordinate(
-                study, params=['num_layers'])
-            fig = ax_pcoord.get_figure()
-            fig.set_size_inches(12, 8)
-            fig.savefig(output_dir / "parallel_coord.png", format='png')
-            fig.savefig(output_dir / "parallel_coord.svg", format='svg')
+            try:
+                ax_pcoord = optmpl.plot_parallel_coordinate(
+                    study, params=['num_layers'])
+                fig = ax_pcoord.get_figure()
+                fig.set_size_inches(12, 8)
+                fig.savefig(output_dir / "parallel_coord.png", format='png')
+                fig.savefig(output_dir / "parallel_coord.svg", format='svg')
+            except ZeroDivisionError:
+                pass
 
             dict_hparams = vars(hparams)
             dict_hparams["sample_size"] = sample_size
             dict_hparams["output_size"] = output_size
-            with open(output_dir / 'hparams.json', 'w') as f:
-                print(dict_hparams, file=f)
 
             # set hparams with optmized value
-            dict_hparams = vars(hparams)
             hparams.num_layers = trial.params['num_layers']
             for l in range(hparams.num_layers - 1):
                 layer_name = "layer" + str(l) + "_size"
                 dict_hparams[layer_name] = trial.params[layer_name]
+
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
 
         model = BaseMLPModel(hparams=hparams,
                              input_size=sample_size * len(train_features),
@@ -312,7 +313,7 @@ class BaseMLPModel(LightningModule):
         for i in range(self.hparams.num_layers):
             self.linears.append(
                 nn.Linear(self.layer_sizes[i], self.layer_sizes[i + 1]))
-
+        print(self.linears)
         self.loss = nn.MSELoss(reduction='mean')
 
         self._train_set = None
