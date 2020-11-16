@@ -146,7 +146,7 @@ def ml_mlp_mul(station_name="종로구"):
             # most basic trainer, uses good defaults
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
-                              min_epochs=1, max_epochs=15,
+                              min_epochs=1, max_epochs=30,
                               early_stop_callback=PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss"),
                               default_root_dir=output_dir,
