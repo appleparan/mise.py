@@ -71,9 +71,9 @@ def ml_rnn_mul_tpa_attn_general():
     fast_dev_run = False
     n_trials = 100
 
-    #case_name = 'TPA_Solar'
+    case_name = 'TPA_Solar'
     #case_name = 'TPA_Traffic'
-    case_name = 'TPA_Electricity'
+    #case_name = 'TPA_Electricity'
     #case_name = 'TPA_Exchange'
 
     if case_name == 'TPA_Solar':
@@ -922,7 +922,8 @@ def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
     for t in range(output_size):
-        dates = df_obs.index + dt.timedelta(hours=t)
+        #dates = df_obs.index + dt.timedelta(hours=t)
+        dates = df_obs.index[t:]
 
         png_dir_h = png_dir / str(t).zfill(2)
         svg_dir_h = svg_dir / str(t).zfill(2)
@@ -931,8 +932,8 @@ def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
         png_path = png_dir_h / ("line_" + str(t).zfill(2) + "h.png")
         svg_path = svg_dir_h / ("line_" + str(t).zfill(2) + "h.svg")
 
-        obs = df_obs[str(t)].to_numpy()
-        sim = df_sim[str(t)].to_numpy()
+        obs = df_obs[str(t)].to_numpy()[t:]
+        sim = df_sim[str(t)].to_numpy()[t:]
 
         p = figure(title="OBS & Model")
         p.toolbar.logo = None
@@ -1115,4 +1116,4 @@ def swish(_input, beta=1.0):
     Returns:
         output: Activated tensor
     """
-    return _input * beta * nn.Sigmoid(_input)
+    return _input * beta * torch.sigmoid(_input)
