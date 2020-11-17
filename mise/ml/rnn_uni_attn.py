@@ -144,7 +144,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
             # most basic trainer, uses good defaults
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
-                              min_epochs=1, max_epochs=15,
+                              min_epochs=1, max_epochs=20,
                               early_stop_callback=PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss"),
                               default_root_dir=output_dir,
@@ -398,8 +398,8 @@ class DecoderRNN(nn.Module):
         assert (output == hidden).all()
 
         # prediction: [batch size, 1]
-        prediction = self.out(
-            torch.cat((torch.sigmoid(output.squeeze(0)), weighted.squeeze(0), _input.squeeze(0)), dim=1))
+        cat_vec = torch.cat((output.squeeze(0), weighted.squeeze(0), _input.squeeze(0)), dim=1)
+        prediction = self.out(swish(cat_vec))
 
         # current hidden state is a input of next hidden state
         return prediction, hidden
@@ -956,4 +956,4 @@ def swish(_input, beta=1.0):
     Returns:
         output: Activated tensor
     """
-    return _input * beta * nn.Sigmoid(_input)
+    return _input * beta * torch.sigmoid(_input)
