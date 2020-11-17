@@ -790,4 +790,4 @@ def swish(_input, beta=1.0):
     Returns:
         output: Activated tensor
     """
-    return _input * beta * nn.Sigmoid(_input)
+    return _input * beta * torch.sigmoid(_input)

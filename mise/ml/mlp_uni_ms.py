@@ -182,12 +182,6 @@ def ml_mlp_uni_ms(station_name="종로구"):
             for key, value in trial.params.items():
                 print("    {}: {}".format(key, value))
 
-            dict_hparams = copy.copy(vars(hparams))
-            dict_hparams["sample_size"] = sample_size
-            dict_hparams["output_size"] = output_size
-            with open(output_dir / 'hparams.json', 'w') as f:
-                print(dict_hparams, file=f)
-
             # plot optmization results
             ax_edf = optmpl.plot_edf(study)
             fig = ax_edf.get_figure()
@@ -201,25 +195,28 @@ def ml_mlp_uni_ms(station_name="종로구"):
             fig.savefig(output_dir / "opt_history.png", format='png')
             fig.savefig(output_dir / "opt_history.svg", format='svg')
 
-            ax_pcoord = optmpl.plot_parallel_coordinate(
-                study, params=['num_layers'])
-            fig = ax_pcoord.get_figure()
-            fig.set_size_inches(12, 8)
-            fig.savefig(output_dir / "parallel_coord.png", format='png')
-            fig.savefig(output_dir / "parallel_coord.svg", format='svg')
+            try:
+                ax_pcoord = optmpl.plot_parallel_coordinate(
+                    study, params=['num_layers'])
+                fig = ax_pcoord.get_figure()
+                fig.set_size_inches(12, 8)
+                fig.savefig(output_dir / "parallel_coord.png", format='png')
+                fig.savefig(output_dir / "parallel_coord.svg", format='svg')
+            except ZeroDivisionError:
+                pass
 
             dict_hparams = vars(hparams)
             dict_hparams["sample_size"] = sample_size
             dict_hparams["output_size"] = output_size
-            with open(output_dir / 'hparams.json', 'w') as f:
-                print(dict_hparams, file=f)
 
             # set hparams with optmized value
-            dict_hparams = vars(hparams)
             hparams.num_layers = trial.params['num_layers']
             for l in range(hparams.num_layers - 1):
                 layer_name = "layer" + str(l) + "_size"
                 dict_hparams[layer_name] = trial.params[layer_name]
+
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
 
         model = BaseMLPModel(hparams=hparams,
                              input_size=sample_size,
@@ -823,4 +820,4 @@ def swish(_input, beta=1.0):
     Returns:
         output: Activated tensor
     """
-    return _input * beta * nn.Sigmoid(_input)
+    return _input * beta * torch.sigmoid(_input)
