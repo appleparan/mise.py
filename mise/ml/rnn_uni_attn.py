@@ -398,8 +398,17 @@ class DecoderRNN(nn.Module):
         assert (output == hidden).all()
 
         # prediction: [batch size, 1]
+        # swish
+        #cat_vec = torch.cat((output.squeeze(0), weighted.squeeze(0), _input.squeeze(0)), dim=1)
+        #prediction = self.out(swish(cat_vec))
+
+        # sigmoid
+        # cat_vec = torch.cat((output.squeeze(0), weighted.squeeze(0), _input.squeeze(0)), dim=1)
+        # prediction = self.out(torch.sigmoid(cat_vec))
+
+        # no activation
         cat_vec = torch.cat((output.squeeze(0), weighted.squeeze(0), _input.squeeze(0)), dim=1)
-        prediction = self.out(swish(cat_vec))
+        prediction = self.out(cat_vec)
 
         # current hidden state is a input of next hidden state
         return prediction, hidden
