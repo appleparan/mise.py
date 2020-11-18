@@ -1107,10 +1107,10 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         df_year_acf.set_index('lags', inplace=True)
         df_year_acf.to_csv(csv_path)
 
-        png_path = png_dir / ("acf_annual_seasonalityy_" +
+        png_path = png_dir / ("acf_annual_seasonality_" +
                                fdate.strftime("%Y%m%d") + "_" +
                                tdate.strftime("%Y%m%d") + ".png")
-        svg_path = svg_dir / ("acf_annual_seasonalityy_" +
+        svg_path = svg_dir / ("acf_annual_seasonality_" +
                                fdate.strftime("%Y%m%d") + "_" +
                                tdate.strftime("%Y%m%d") + ".svg")
         p1 = figure(title="Autocorrelation of Annual Residual")
@@ -1660,6 +1660,60 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
             if c1 - a < a and a < c2 - a:
                 return i
 
+    def plot_raw_acf(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
+                        nlags=15):
+
+        #yr = [df.loc[y, target] -
+        #      self.sea_annual[target][self.ydt2key(y)] for y in year_range]
+        ys = df[(df.index >= fdate) & (df.index <= tdate)][target].to_numpy()
+        # 95% confidance intervals
+        ys_acf, confint, qstat, pvalues = sm.tsa.acf(
+            ys, qstat=True, alpha=0.05, nlags=nlags)
+
+        intscale = sum(ys_acf[0:self.confint_idx(ys_acf, confint)])
+        print("Raw Conf Int  : ", self.confint_idx(ys_acf, confint))
+        print("Raw Int Scale : ", intscale)
+        print("Raw qstat : ", qstat)
+        print("Raw pvalues : ", pvalues)
+
+        csv_path = data_dir / ("acf_raw_" +
+                               fdate.strftime("%Y%m%d") + "_" +
+                               tdate.strftime("%Y%m%d") + ".csv")
+        df_year_acf = pd.DataFrame.from_dict(
+            {'lags': [i for i in range(len(ys_acf))], 'yr_acf': ys_acf})
+        df_year_acf.set_index('lags', inplace=True)
+        df_year_acf.to_csv(csv_path)
+
+        png_path = png_dir / ("acf_raw_" +
+                              fdate.strftime("%Y%m%d%H") + "_" +
+                              tdate.strftime("%Y%m%d%H") + ".png")
+        svg_path = svg_dir / ("acf_raw_" +
+                              fdate.strftime("%Y%m%d%H") + "_" +
+                              tdate.strftime("%Y%m%d%H") + ".svg")
+        p1 = figure(title="Autocorrelation of " + target)
+        p1.toolbar.logo = None
+        p1.toolbar_location = None
+        p1.xaxis.axis_label = "lags"
+        p1.yaxis.bounds = (min(0, min(ys_acf)), 1.1)
+        p1.line([i*24 for i in range(len(ys_acf))], ys_acf,
+                line_color="lightcoral", line_width=2)
+        export_png(p1, filename=png_path)
+        p1.output_backend = "svg"
+        export_svgs(p1, filename=str(svg_path))
+
+        ## residual autocorrelation by plot_acf
+        png_path = png_dir / ("acf(tpl)_raw_" +
+                              fdate.strftime("%Y%m%d%H") + "_" +
+                              tdate.strftime("%Y%m%d%H") + ".png")
+        svg_path = svg_dir / ("acf(tpl)_raw_" +
+                              fdate.strftime("%Y%m%d%H") + "_" +
+                              tdate.strftime("%Y%m%d%H") + ".svg")
+        fig = tpl.plot_acf(ys, lags=nlags)
+        fig.savefig(png_path)
+        fig.savefig(svg_path)
+
+        return self.confint_idx(ys_acf, confint), intscale
+
     def plot_annual(self, df, target, data_dir, png_dir, svg_dir,
                     target_year=2016, smoothing=True):
         # annual (pick 1 year)
@@ -1807,10 +1861,10 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
         df_year_acf.set_index('lags', inplace=True)
         df_year_acf.to_csv(csv_path)
 
-        png_path = png_dir / ("acf_annual_seasonalityy_" +
+        png_path = png_dir / ("acf_annual_seasonality_" +
                               fdate.strftime("%Y%m%d") + "_" +
                               tdate.strftime("%Y%m%d") + ".png")
-        svg_path = svg_dir / ("acf_annual_seasonalityy_" +
+        svg_path = svg_dir / ("acf_annual_seasonality_" +
                               fdate.strftime("%Y%m%d") + "_" +
                               tdate.strftime("%Y%m%d") + ".svg")
         p1 = figure(title="Autocorrelation of Annual Residual")
@@ -1992,6 +2046,10 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
         df_resid_hourly.rename(columns={'resid': target}, inplace=True)
 
         dict_corr_dist = {}
+
+        r_confint, r_intscale = self.plot_raw_acf(df, target, df.index[0], df.index[-1],
+                                                  data_dir, png_dir, svg_dir, nlags=nlags*24)
+
         self.plot_annual(df_resid_annual, target, data_dir, png_dir, svg_dir,
                          target_year=2016, smoothing=self.smoothing)
         a_confint, a_intscale = self.plot_annual_acf(df_resid_annual, target, df.index[0], df.index[-1],
@@ -2006,6 +2064,9 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
                                                      nlags=nlags*24)
 
         dict_corr_dist = {
+            "raw": {
+                "confint": r_confint,
+                "intscale": r_intscale},
             "annual": {
                 "confint": a_confint,
                 "intscale": a_intscale},
@@ -2016,7 +2077,6 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
 
         with open(data_dir / 'intscale.json', 'w') as f:
             print(dict_corr_dist, file=f)
-
 
 class SeasonalityDecompositor_HA(TransformerMixin, BaseEstimator):
     """Decompose Seasonality
@@ -2499,10 +2559,10 @@ class SeasonalityDecompositor_HA(TransformerMixin, BaseEstimator):
         df_year_acf.set_index('lags', inplace=True)
         df_year_acf.to_csv(csv_path)
 
-        png_path = png_dir / ("acf_annual_seasonalityy_" +
+        png_path = png_dir / ("acf_annual_seasonality_" +
                               fdate.strftime("%Y%m%d") + "_" +
                               tdate.strftime("%Y%m%d") + ".png")
-        svg_path = svg_dir / ("acf_annual_seasonalityy_" +
+        svg_path = svg_dir / ("acf_annual_seasonality_" +
                               fdate.strftime("%Y%m%d") + "_" +
                               tdate.strftime("%Y%m%d") + ".svg")
         p1 = figure(title="Autocorrelation of Annual Residual")
@@ -2967,10 +3027,10 @@ class SeasonalityDecompositor_A(TransformerMixin, BaseEstimator):
         df_year_acf.set_index('lags', inplace=True)
         df_year_acf.to_csv(csv_path)
 
-        png_path = png_dir / ("acf_annual_seasonalityy_" +
+        png_path = png_dir / ("acf_annual_seasonality_" +
                                fdate.strftime("%Y%m%d%H") + "_" +
                                tdate.strftime("%Y%m%d%H") + ".png")
-        svg_path = svg_dir / ("acf_annual_seasonalityy_" +
+        svg_path = svg_dir / ("acf_annual_seasonality_" +
                                fdate.strftime("%Y%m%d%H") + "_" +
                                tdate.strftime("%Y%m%d%H") + ".svg")
         p1 = figure(title="Autocorrelation of Annual Residual")
