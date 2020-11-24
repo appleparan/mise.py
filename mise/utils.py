@@ -71,7 +71,10 @@ def periodic_mean(df, target, period, smoothing=False, smoothingFrac=0.05, smoot
     """
     # define function to convert datetime to key
     if period == 'y':
-        # %m%d%H
+        # %m%d
+        # SettingWithCopyWarning:
+        # A value is trying to be set on a copy of a slice from a DataFrame.
+        # why?
         df.loc[:, 'key'] = df.index.map(parse_ykey)
         def dt2key(d): return str(d.astimezone(SEOULTZ).month).zfill(
             2) + str(d.day).zfill(2)
@@ -92,7 +95,7 @@ def periodic_mean(df, target, period, smoothing=False, smoothingFrac=0.05, smoot
     # function periodic_mean is always executed in train/valid set (fit method)
     # if test set, dict_sea was given and will not execute this function
     # test set will use mean of train/valid set which is fed on __init__
-    grp_sea = df.groupby(by='key').mean()[target]
+    grp_sea = df.groupby(by='key').mean().loc[:, target]
     dict_sea = grp_sea.to_dict()
 
     def get_sea(key):
@@ -101,10 +104,10 @@ def periodic_mean(df, target, period, smoothing=False, smoothingFrac=0.05, smoot
     # convert dictionary to DataFrame
     sea = pd.DataFrame.from_dict(dict_sea, orient='index', columns=['sea'])
     # axis=1 in apply menas apply function `get_sea` to columns
-    res = df[target] - df[target].to_frame().apply(get_sea, axis=1)
+    res = df.loc[:, target] - df.loc[:, target].to_frame().apply(get_sea, axis=1)
 
     # smoothing applies only to annual seasaonlity
-    if period == smoothingCol and smoothing:
+    if smoothing and period == smoothingCol:
         sea_values = sea.loc[:, 'sea'].to_numpy()
         sea_smoothed = lowess(
             sea_values, range(len(sea_values)),
