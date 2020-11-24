@@ -784,6 +784,42 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         self.sea_weekly = sea_weekly
         self.sea_hourly = sea_hourly
 
+    def build_seasonality(self, xs: pd.DataFrame, period: str):
+        """
+        Build seasonality with given DataFrame's DatetimeIndex
+        Similar job as `inverse_transform`,
+        but instead of sum, just return seasonality
+        """
+        def _build_seasonality(_xs):
+            # to subscript seasonality, get name (feature)
+            name = _xs.name
+
+            # method for row
+            def _get_seasonality(idx: pd.DatetimeIndex):
+                """Method for rowwise operation
+                """
+                if period == 'y':
+                    return self.sea_annual[name][utils.parse_ykey(idx)]
+                elif period == 'w':
+                    return self.sea_weekly[name][utils.parse_wkey(idx)]
+                elif period == 'h':
+                    return self.sea_hourly[name][utils.parse_hkey(idx)]
+                else:
+                    raise Exception("Invalid period ('y', 'w', 'h'): ", period)
+
+            # index to sum of seasonality
+            sea = _xs.index.map(_get_seasonality)
+            _xs_df = _xs.to_frame()
+            _xs_df['seas'] = sea
+
+            return sea
+
+        #= Y.apply(get_seasonality, axis=1)
+        seas = xs.apply(_build_seasonality, 0)
+
+        #raw = Y.apply(add_seasonality, 0)
+        return seas
+
     def compute_seasonality(self, X, return_resid=False):
         """Decompose seasonality single column of DataFrame
         """
@@ -2233,6 +2269,40 @@ class SeasonalityDecompositor_HA(TransformerMixin, BaseEstimator):
         self.sea_hourly = sea_hourly
         self.sea_annual = sea_annual
 
+    def build_seasonality(self, xs: pd.DataFrame, period: str):
+        """
+        Build seasonality with given DataFrame's DatetimeIndex
+        Similar job as `inverse_transform`,
+        but instead of sum, just return seasonality
+        """
+        def _build_seasonality(_xs):
+            # to subscript seasonality, get name (feature)
+            name = _xs.name
+
+            # method for row
+            def _get_seasonality(idx: pd.DatetimeIndex):
+                """Method for rowwise operation
+                """
+                if period == 'y':
+                    return self.sea_annual[name][utils.parse_ykey(idx)]
+                elif period == 'h':
+                    return self.sea_hourly[name][utils.parse_hkey(idx)]
+                else:
+                    raise Exception("Invalid period ('y', 'h'): ", period)
+
+            # index to sum of seasonality
+            sea = _xs.index.map(_get_seasonality)
+            _xs_df = _xs.to_frame()
+            _xs_df['seas'] = sea
+
+            return sea
+
+        #= Y.apply(get_seasonality, axis=1)
+        seas = xs.apply(_build_seasonality, 0)
+
+        #raw = Y.apply(add_seasonality, 0)
+        return seas
+
     def compute_seasonality(self, X, return_resid=False):
         """Decompose seasonality single column of DataFrame
         """
@@ -2821,6 +2891,38 @@ class SeasonalityDecompositor_A(TransformerMixin, BaseEstimator):
     def set_sesaonality(self, sea_annual):
         self.sea_annual = sea_annual
 
+    def build_seasonality(self, xs: pd.DataFrame, period: str):
+        """
+        Build seasonality with given DataFrame's DatetimeIndex
+        Similar job as `inverse_transform`,
+        but instead of sum, just return seasonality
+        """
+        def _build_seasonality(_xs):
+            # to subscript seasonality, get name (feature)
+            name = _xs.name
+
+            # method for row
+            def _get_seasonality(idx: pd.DatetimeIndex):
+                """Method for rowwise operation
+                """
+                if period == 'y':
+                    return self.sea_annual[name][utils.parse_ykey(idx)]
+                else:
+                    raise Exception("Invalid period ('y'): ", period)
+
+            # index to sum of seasonality
+            sea = _xs.index.map(_get_seasonality)
+            _xs_df = _xs.to_frame()
+            _xs_df['seas'] = sea
+
+            return sea
+
+        #= Y.apply(get_seasonality, axis=1)
+        seas = xs.apply(_build_seasonality, 0)
+
+        #raw = Y.apply(add_seasonality, 0)
+        return seas
+
     def compute_seasonality(self, X, return_resid=False):
         """Decompose seasonality single column of DataFrame
         """
@@ -3285,6 +3387,38 @@ class SeasonalityDecompositor_H(TransformerMixin, BaseEstimator):
 
     def set_sesaonality(self, sea_hourly):
         self.sea_hourly = sea_hourly
+
+    def build_seasonality(self, xs: pd.DataFrame, period: str):
+        """
+        Build seasonality with given DataFrame's DatetimeIndex
+        Similar job as `inverse_transform`,
+        but instead of sum, just return seasonality
+        """
+        def _build_seasonality(_xs):
+            # to subscript seasonality, get name (feature)
+            name = _xs.name
+
+            # method for row
+            def _get_seasonality(idx: pd.DatetimeIndex):
+                """Method for rowwise operation
+                """
+                if period == 'h':
+                    return self.sea_hourly[name][utils.parse_hkey(idx)]
+                else:
+                    raise Exception("Invalid period ('h'): ", period)
+
+            # index to sum of seasonality
+            sea = _xs.index.map(_get_seasonality)
+            _xs_df = _xs.to_frame()
+            _xs_df['seas'] = sea
+
+            return sea
+
+        #= Y.apply(get_seasonality, axis=1)
+        seas = xs.apply(_build_seasonality, 0)
+
+        #raw = Y.apply(add_seasonality, 0)
+        return seas
 
     def compute_seasonality(self, X, return_resid=False):
         """Decompose seasonality single column of DataFrame
