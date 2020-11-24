@@ -238,21 +238,12 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
         # mix ColumnTransformer & Pipeline
         # https://scikit-learn.org/stable/auto_examples/compose/plot_column_transformer_mixed_types.html
 
-        # pipeline for regression data
-        #numeric_pipeline_X = make_pipeline(
-        #    SeasonalityDecompositor_AWH(smoothing=True),
-        #    StandardScalerWrapper(scaler=StandardScaler()))
-
-        #numeric_pipeline_Y = make_pipeline(
-        #    SeasonalityDecompositor_AWH(smoothing=True),
-        #    StandardScalerWrapper(scaler=StandardScaler()))
-
         numeric_pipeline_X = Pipeline(
-            [('seasonalitydecompositor', SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
+            [('seasonalitydecompositor', SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
              ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         numeric_pipeline_Y = Pipeline(
-            [('seasonalitydecompositor', SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
+            [('seasonalitydecompositor', SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
              ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         # Univariate -> only tself.
@@ -284,16 +275,10 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
                            :(i+self.sample_size+self.output_size), :]
 
         # To embed dates, x and y is DataFrame
-
-        #if self._is_fit == True:
-        return np.squeeze(x.to_numpy()).astype('float32'), \
-            np.squeeze(y.to_numpy()).astype('float32'), \
+        return np.squeeze(self._scaler.transform(x)).astype('float32'), \
+            np.squeeze(self._scaler.transform(y)).astype('float32'), \
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
             y.index.to_numpy()
-        #else:
-        #    return np.squeeze(self._scaler.transform(x)).astype('float32'), \
-        #        np.squeeze(self._scaler.transform(y)).astype('float32'), \
-        #        np.squeeze(y).astype('float32'), \
         #        self._dates[(i+self.sample_size)
         #                    :(i+self.sample_size+self.output_size)]
 
@@ -331,7 +316,7 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
             dates(tuple): batched ndarray, the shape of each element is (output_size,)
 
         Return
-            Yhats(tuple): batched DataFrames, the shape of each element is (output_size,)
+            Yhats(tuple): batched ndarray, the shape of each element is (output_size,)
         """
         # temporary DataFrame to pass dates
         dfs = list(map(lambda b: pd.DataFrame(data=b[0], index=b[1], columns=[self.target]),
@@ -340,11 +325,13 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
         # execute pipeline's inverse transform
         _inv_transYs = tuple(map(lambda b: np.squeeze(self._scaler_Y.inverse_transform(b)), dfs))
 
-        # just alter data by transformed data
+        # numpy.ndarray
+        return _inv_transYs
+        # DataFrame: just alter data by transformed data
         #return tuple(map(lambda b: pd.DataFrame(data=b[0],
         #                    index=b[1],
         #                    columns=[self.target]), zip(_inv_transYs, dates)))
-        return _inv_transYs
+        #return _inv_transYs
 
     def plot_seasonality(self, data_dir, png_dir, svg_dir):
         p = self._scaler_X.named_transformers_['num']
@@ -467,17 +454,6 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
                 SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
              ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
-        #numeric_pipeline_X_1 = make_pipeline(
-        #    StandardScalerWrapper(scaler=StandardScaler()))
-
-        #numeric_pipeline_X_2 = make_pipeline(
-        #    SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.1),
-        #    StandardScalerWrapper(scaler=StandardScaler()))
-
-        #numeric_pipeline_Y = make_pipeline(
-        #    SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.1),
-        #    StandardScalerWrapper(scaler=StandardScaler()))
-
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
         preprocessor_X = ColumnTransformer(
@@ -508,8 +484,8 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         y_raw = self._ys_raw.iloc[(i+self.sample_size)
                            :(i+self.sample_size+self.output_size), :]
 
-        return np.squeeze(x.to_numpy()).astype('float32'), \
-            np.squeeze(y.to_numpy()).astype('float32'), \
+        return np.squeeze(self._scaler_X.transform(x)).astype('float32'), \
+            np.squeeze(self._scaler_Y.transform(y)).astype('float32'), \
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
             y.index.to_numpy()
 
@@ -537,7 +513,7 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
             dates(tuple): batched ndarray, the shape of each element is (output_size,)
 
         Return
-            Yhats(tuple): batched DataFrames, the shape of each element is (output_size,)
+            Yhats(tuple): batched ndarray, the shape of each element is (output_size,)
         """
         # temporary DataFrame to pass dates
         dfs = list(map(lambda b: pd.DataFrame(data=b[0], index=b[1], columns=[self.target]),
@@ -548,11 +524,13 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         # inverse_transform : (ndarray) -> StandardScaler -> (ndarray) -> (DataFrame) -> SeasonaltyDecompositor -> (ndarray)
         _inv_transYs = tuple(map(lambda b: np.squeeze(self._scaler_Y.inverse_transform(b)), dfs))
 
+        # numpy.ndarray
+        return _inv_transYs
+        # DataFrame: just alter data by transformed data
         #return tuple(map(lambda b: pd.DataFrame(data=b[0],
         #                    index=b[1],
         #                    columns=[self.target]), zip(_inv_transYs, dates)))
-        # inverse_transform to Y always, so doesn't need dates (already have)
-        return _inv_transYs
+        #return _inv_transYs
 
     def plot_seasonality(self, data_dir, png_dir, svg_dir):
         p = self._scaler_X.named_transformers_['num_2']
@@ -602,9 +580,24 @@ class MultivariateRNNDataset(BaseDataset):
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
 
-class MultivariateRNNSeasonalityDataset2(BaseDataset):
+class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # 1-step transformer
+        # 1. StandardScalerWrapper
+        self.features = kwargs.get('features',
+                        ["temp", "u", "v", "pres", "humid", "prep", "snow",
+                        "SO2", "CO", "O3", "NO2", "PM10", "PM25"])
+        self.features_1 = kwargs.get('features_1',
+                                   ["temp", "u", "v", "pres", "humid", "prep", "snow"])
+        # 2-step transformer
+        # 1. SeasonalityDecompositor
+        # 2. StandardScalerWrapper
+        self.features_2 = kwargs.get('features_2',
+                                   ["SO2", "CO", "O3", "NO2", "PM10", "PM25"])
+        self.features_sea_embed = kwargs.get('features_sea_embed',
+                                        ["PM10", "PM25"])
+
         self._df_raw = self._df.copy()
         # 2D, in Univariate -> (row x 1)
         self._xs = self._df[self.features]
@@ -621,19 +614,25 @@ class MultivariateRNNSeasonalityDataset2(BaseDataset):
         # https://scikit-learn.org/stable/auto_examples/compose/plot_column_transformer_mixed_types.html
 
         # pipeline for regression data
-        numeric_pipeline_X = make_pipeline(
-            SeasonalityDecompositor_AWH(smoothing=True),
-            StandardScalerWrapper(scaler=StandardScaler()))
+        numeric_pipeline_X_1 = Pipeline(
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
-        numeric_pipeline_Y = make_pipeline(
-            SeasonalityDecompositor_AWH(smoothing=True),
-            StandardScalerWrapper(scaler=StandardScaler()))
+        numeric_pipeline_X_2 = Pipeline(
+            [('seasonalitydecompositor',
+                SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
+             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+
+        numeric_pipeline_Y = Pipeline(
+            [('seasonalitydecompositor',
+                SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
+             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
         preprocessor_X = ColumnTransformer(
             transformers=[
-                ('num', numeric_pipeline_X, self.features)])
+                ('num_2', numeric_pipeline_X_2, self.features_2),
+                ('num_1', numeric_pipeline_X_1, self.features_1)])
 
         preprocessor_Y = numeric_pipeline_Y
 
@@ -653,15 +652,26 @@ class MultivariateRNNSeasonalityDataset2(BaseDataset):
             Tensor: output without transform
         """
         x = self._xs.iloc[i:i+self.sample_size, :]
-        y = self._ys.iloc[(i+self.sample_size)                          :(i+self.sample_size+self.output_size), :]
-        y_raw = self._ys_raw.iloc[(i+self.sample_size)                                  :(i+self.sample_size+self.output_size), :]
+        x_embed = self._ys.iloc[i:(i+self.sample_size)]
+        # save initial input as target variable input at last step (single step)
+        y0 = self._ys.iloc[i+self.sample_size-1]
+        y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+        y_raw = self._ys_raw.iloc[(i+self.sample_size)
+                                 :(i+self.sample_size+self.output_size), :]
+
+        sea_annual, sea_hourly = self.build_seasonality(x)
+
+        # flatten and concatenate -> make two 2D array to one 1D array
+        x_embed = np.concatenate([sea_annual.to_numpy().astype('float32').flatten(),
+                                  sea_hourly.to_numpy().astype('float32').flatten()])
 
         # To embed dates, x and y is DataFrame
-
-        return x.to_numpy().astype('float32'), \
-            np.squeeze(y.to_numpy()).astype('float32'), \
+        return np.squeeze(self._scaler_X.transform(x)).astype('float32'), \
+            x_embed, \
+            y0.astype('float32'), \
+            np.squeeze(self._scaler_Y.transform(y)).astype('float32'), \
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
-            y.index.to_numpy()
+            self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
     def preprocess(self, data_dir, png_dir, svg_dir):
         """Compute seasonality and transform by seasonality
@@ -674,20 +684,10 @@ class MultivariateRNNSeasonalityDataset2(BaseDataset):
         self.plot_seasonality(data_dir, png_dir, svg_dir)
 
         # fit and transform data by transformer
-        self._xs = self.transform_df(self._xs)
-        self._ys = self.transform_df(self._ys)
-
-    def transform_df(self, A: pd.DataFrame):
-        """transform accepts DataFrame, but output is always ndarray
-        so keep DataFrame structure
-        """
-        # execute ColumnTransformer's transform
-        _transA = self._scaler_X.transform(A)
-
-        # just alter data by transformed data
-        return pd.DataFrame(data=_transA,
-                            index=A.index,
-                            columns=A.columns)
+        self._xs = pd.DataFrame(data=self.scaler_X.transform(self._xs),
+            index=self._xs.index, columns=self._xs.columns)
+        self._ys = pd.DataFrame(data=self.scaler_Y.transform(self._ys),
+            index=self._ys.index, columns=self._ys.columns)
 
     def inverse_transform(self, Ys: tuple, dates: tuple):
         """transform accepts DataFrame, but output is always ndarray
@@ -713,8 +713,20 @@ class MultivariateRNNSeasonalityDataset2(BaseDataset):
 
         return _inv_transYs
 
+    def build_seasonality(self, X: pd.DataFrame):
+        """
+            build seasonalities by given DataFrame's DateTimeIndex
+        """
+
+        # test
+        p = self._scaler_X.named_transformers_['num_2']
+        sea_annual = p['seasonalitydecompositor'].build_seasonality(X[self.features_sea_embed], 'y')
+        sea_hourly = p['seasonalitydecompositor'].build_seasonality(X[self.features_sea_embed], 'h')
+
+        return sea_annual, sea_hourly
+
     def plot_seasonality(self, data_dir, png_dir, svg_dir):
-        p = self._scaler_X.named_transformers_['num']
+        p = self._scaler_X.named_transformers_['num_2']
         p['seasonalitydecompositor'].plot(self._xs, self.target,
                                           self.fdate, self.tdate, data_dir, png_dir, svg_dir)
 
@@ -964,6 +976,60 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         for i, (a, [c1, c2]) in enumerate(zip(acf, confint)):
             if c1 - a < a and a < c2 - a:
                 return i
+
+    def plot_raw_acf(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
+                        nlags=15):
+
+        #yr = [df.loc[y, target] -
+        #      self.sea_annual[target][self.ydt2key(y)] for y in year_range]
+        ys = df[(df.index >= fdate) & (df.index <= tdate)][target].to_numpy()
+        # 95% confidance intervals
+        ys_acf, confint, qstat, pvalues = sm.tsa.acf(
+            ys, qstat=True, alpha=0.05, nlags=nlags)
+
+        intscale = sum(ys_acf[0:self.confint_idx(ys_acf, confint)])
+        print("Raw Conf Int  : ", self.confint_idx(ys_acf, confint))
+        print("Raw Int Scale : ", intscale)
+        #print("Raw qstat : ", qstat)
+        #print("Raw pvalues : ", pvalues)
+
+        csv_path = data_dir / ("acf_raw_" +
+                               fdate.strftime("%Y%m%d") + "_" +
+                               tdate.strftime("%Y%m%d") + ".csv")
+        df_year_acf = pd.DataFrame.from_dict(
+            {'lags': [i for i in range(len(ys_acf))], 'yr_acf': ys_acf})
+        df_year_acf.set_index('lags', inplace=True)
+        df_year_acf.to_csv(csv_path)
+
+        png_path = png_dir / ("acf_raw_" +
+                              fdate.strftime("%Y%m%d%H") + "_" +
+                              tdate.strftime("%Y%m%d%H") + ".png")
+        svg_path = svg_dir / ("acf_raw_" +
+                              fdate.strftime("%Y%m%d%H") + "_" +
+                              tdate.strftime("%Y%m%d%H") + ".svg")
+        p1 = figure(title="Autocorrelation of " + target)
+        p1.toolbar.logo = None
+        p1.toolbar_location = None
+        p1.xaxis.axis_label = "lags"
+        p1.yaxis.bounds = (min(0, min(ys_acf)), 1.1)
+        p1.line([i*24 for i in range(len(ys_acf))], ys_acf,
+                line_color="lightcoral", line_width=2)
+        export_png(p1, filename=png_path)
+        p1.output_backend = "svg"
+        export_svgs(p1, filename=str(svg_path))
+
+        ## residual autocorrelation by plot_acf
+        png_path = png_dir / ("acf(tpl)_raw_" +
+                              fdate.strftime("%Y%m%d%H") + "_" +
+                              tdate.strftime("%Y%m%d%H") + ".png")
+        svg_path = svg_dir / ("acf(tpl)_raw_" +
+                              fdate.strftime("%Y%m%d%H") + "_" +
+                              tdate.strftime("%Y%m%d%H") + ".svg")
+        fig = tpl.plot_acf(ys, lags=nlags)
+        fig.savefig(png_path)
+        fig.savefig(svg_path)
+
+        return self.confint_idx(ys_acf, confint), intscale
 
     def plot_annual(self, df, target, data_dir, png_dir, svg_dir,
         target_year=2016, smoothing=True):
@@ -1399,19 +1465,27 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
 
         dict_corr_dist = {}
 
-        self.plot_annual(df_resid_annual, target, data_dir, png_dir, svg_dir,
+        r_confint, r_intscale = self.plot_raw_acf(df, target, df.index[0], df.index[-1],
+                                                  data_dir, png_dir, svg_dir, nlags=nlags*24)
+
+        # raw seasonality plot needs to re-compute, so pass original df
+        self.plot_annual(df, target, data_dir, png_dir, svg_dir,
             target_year=2016, smoothing=self.smoothing)
         a_confint, a_intscale = self.plot_annual_acf(df_resid_annual, target, df.index[0], df.index[-1],
             data_dir, png_dir, svg_dir,
             nlags=nlags, smoothing=self.smoothing)
 
-        self.plot_weekly(df_resid_weekly, target, data_dir, png_dir, svg_dir,
+        # df in weekly and hourly seasonality plot is a just dummy variable
+        # to make consistent with other plot methods
+        self.plot_weekly(df_resid_annual, target, data_dir, png_dir, svg_dir,
             target_year=target_year, target_week=target_week)
         w_confint, w_intscale = self.plot_weekly_acf(df_resid_weekly, target, df.index[0], df.index[-1],
             data_dir, png_dir, svg_dir,
             target_year=target_year, target_week=target_week, nlags=nlags)
 
-        self.plot_hourly(df_resid_hourly, target, data_dir, png_dir, svg_dir,
+        # df in weekly and hourly seasonality plot is a just dummy variable
+        # to make consistent with other plot methods
+        self.plot_hourly(df_resid_weekly_pop, target, data_dir, png_dir, svg_dir,
             target_year=target_year, target_month=target_month, target_day=target_day)
         h_confint, h_intscale = self.plot_hourly_acf(df_resid_hourly, target, df.index[0], df.index[-1],
                             data_dir, png_dir, svg_dir,
@@ -1475,6 +1549,40 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
     def set_sesaonality(self, sea_annual, sea_hourly):
         self.sea_annual = sea_annual
         self.sea_hourly = sea_hourly
+
+    def build_seasonality(self, xs: pd.DataFrame, period: str):
+        """
+        Build seasonality with given DataFrame's DatetimeIndex
+        Similar job as `inverse_transform`,
+        but instead of sum, just return seasonality
+        """
+        def _build_seasonality(_xs):
+            # to subscript seasonality, get name (feature)
+            name = _xs.name
+
+            # method for row
+            def _get_seasonality(idx: pd.DatetimeIndex):
+                """Method for rowwise operation
+                """
+                if period == 'y':
+                    return self.sea_annual[name][utils.parse_ykey(idx)]
+                elif period == 'h':
+                    return self.sea_hourly[name][utils.parse_hkey(idx)]
+                else:
+                    raise Exception("Invalid period ('y', 'h'): ", period)
+
+            # index to sum of seasonality
+            sea = _xs.index.map(_get_seasonality)
+            _xs_df = _xs.to_frame()
+            _xs_df['seas'] = sea
+
+            return sea
+
+        #= Y.apply(get_seasonality, axis=1)
+        seas = xs.apply(_build_seasonality, 0)
+
+        #raw = Y.apply(add_seasonality, 0)
+        return seas
 
     def compute_seasonality(self, X, return_resid=False):
         """Decompose seasonality single column of DataFrame
@@ -1673,8 +1781,8 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
         intscale = sum(ys_acf[0:self.confint_idx(ys_acf, confint)])
         print("Raw Conf Int  : ", self.confint_idx(ys_acf, confint))
         print("Raw Int Scale : ", intscale)
-        print("Raw qstat : ", qstat)
-        print("Raw pvalues : ", pvalues)
+        #print("Raw qstat : ", qstat)
+        #print("Raw pvalues : ", pvalues)
 
         csv_path = data_dir / ("acf_raw_" +
                                fdate.strftime("%Y%m%d") + "_" +
@@ -1695,7 +1803,7 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
         p1.toolbar_location = None
         p1.xaxis.axis_label = "lags"
         p1.yaxis.bounds = (min(0, min(ys_acf)), 1.1)
-        p1.line([i*24 for i in range(len(ys_acf))], ys_acf,
+        p1.line([i for i in range(len(ys_acf))], ys_acf,
                 line_color="lightcoral", line_width=2)
         export_png(p1, filename=png_path)
         p1.output_backend = "svg"
@@ -1725,9 +1833,11 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
 
         # if not smoothing, just use predecomposed seasonality
         ys = [self.sea_annual[target][self.ydt2key(y)] for y in year_range]
+
         if smoothing:
             _sea_annual_nonsmooth, _, _ = \
                 utils.periodic_mean(df, target, 'y', smoothing=False)
+
             # if smoothing, predecomposed seasonality is already smoothed, so redecompose
             ys_vanilla = [
                 _sea_annual_nonsmooth[self.ydt2key(y)] for y in year_range]
@@ -1992,6 +2102,7 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
              nlags=15, smoothing=True):
         """
         Plot seasonality itself and autocorrelation of residuals
+        Plot should not affected by other transformers, so recompute every seasonality when needed
 
         Args:
             df (DataFrame):
@@ -2050,13 +2161,16 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
         r_confint, r_intscale = self.plot_raw_acf(df, target, df.index[0], df.index[-1],
                                                   data_dir, png_dir, svg_dir, nlags=nlags*24)
 
-        self.plot_annual(df_resid_annual, target, data_dir, png_dir, svg_dir,
+        # raw seasonality plot needs to re-compute, so pass original df
+        self.plot_annual(df, target, data_dir, png_dir, svg_dir,
                          target_year=2016, smoothing=self.smoothing)
         a_confint, a_intscale = self.plot_annual_acf(df_resid_annual, target, df.index[0], df.index[-1],
                                                      data_dir, png_dir, svg_dir,
                                                      nlags=nlags, smoothing=self.smoothing)
 
-        self.plot_hourly(df_resid_hourly, target, data_dir, png_dir, svg_dir,
+        # df in weekly and hourly seasonality plot is a just dummy variable
+        # to make consistent with other plot methods
+        self.plot_hourly(df_resid_annual_pop, target, data_dir, png_dir, svg_dir,
                          target_year=target_year, target_month=target_month, target_day=target_day)
         h_confint, h_intscale = self.plot_hourly_acf(df_resid_hourly, target, df.index[0], df.index[-1],
                                                      data_dir, png_dir, svg_dir,

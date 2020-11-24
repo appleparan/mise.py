@@ -94,7 +94,7 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/RNNTPAAttnMultivariate/" +
+        output_dir = Path("/mnt/data/RNNTPAMultivariate/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
@@ -458,7 +458,7 @@ class BaseTPAAttnModel(LightningModule):
             2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
-            'output_dir', Path('/mnt/data/RNNTPAAttnMultivariate/'))
+            'output_dir', Path('/mnt/data/RNNTPAMultivariate/'))
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.png_dir = kwargs.get(

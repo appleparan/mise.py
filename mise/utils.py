@@ -74,7 +74,7 @@ def periodic_mean(df, target, period, smoothing=False, smoothingFrac=0.05, smoot
         # %m%d
         # SettingWithCopyWarning:
         # A value is trying to be set on a copy of a slice from a DataFrame.
-        # why?
+        # from pandas 1.1.4 but no issue, why?
         df.loc[:, 'key'] = df.index.map(parse_ykey)
         def dt2key(d): return str(d.astimezone(SEOULTZ).month).zfill(
             2) + str(d.day).zfill(2)

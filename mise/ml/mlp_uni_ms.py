@@ -61,13 +61,15 @@ class MetricsCallback(Callback):
 
 
 def ml_mlp_uni_ms(station_name="종로구"):
-    print("Start Multivariate MLP Mean Seasonality Decomposition Model")
+    print("Start Univariate MLP Mean Seasonality Decomposition Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 100
+    #fast_dev_run = True
+    #n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -419,7 +421,7 @@ class BaseMLPModel(LightningModule):
 
         _loss = self.loss(y, y_hat)
 
-        # transformed y might be smoothed
+        # transformed y would be smoothed, so inverse_transform can't recover raw value
         _y = y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         _y_hat = y_hat.detach().cpu().clone().numpy()
