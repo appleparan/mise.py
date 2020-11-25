@@ -382,8 +382,8 @@ class BaseMLPModel(LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y, y_raw, dates = batch
         y_hat = self(x)
+        _loss = self.loss(y_hat, y)
 
-        _loss = self.loss(y, y_hat)
         _y = y.detach().cpu().clone().numpy()
         _y_hat = y_hat.detach().cpu().clone().numpy()
         _mae = mean_absolute_error(_y, _y_hat)
@@ -416,25 +416,25 @@ class BaseMLPModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, y, _y_raw,  dates = batch
+        x, y, _y_raw, dates = batch
         y_hat = self(x)
 
         _loss = self.loss(y, y_hat)
 
         # transformed y would be smoothed, so inverse_transform can't recover raw value
         _y = y.detach().cpu().clone().numpy()
-        y_raw = _y_raw.detach().cpu().clone().numpy()
         _y_hat = y_hat.detach().cpu().clone().numpy()
-        y_hat_ = np.array(self.test_dataset.inverse_transform(_y_hat, dates))
+        y_raw = _y_raw.detach().cpu().clone().numpy()
+        y_hat_inv = np.array(self.test_dataset.inverse_transform(_y_hat, dates))
 
-        _mae = mean_absolute_error(y_raw, y_hat_)
-        _mse = mean_squared_error(y_raw, y_hat_)
-        _r2 = r2_score(y_raw, y_hat_)
+        _mae = mean_absolute_error(y_raw, y_hat_inv)
+        _mse = mean_squared_error(y_raw, y_hat_inv)
+        _r2 = r2_score(y_raw, y_hat_inv)
 
         return {
             'loss': _loss,
             'obs': y_raw,
-            'sim': y_hat_,
+            'sim': y_hat_inv,
             'dates': dates,
             'metric': {
                 'MSE': _mse,

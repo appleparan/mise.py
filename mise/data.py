@@ -821,7 +821,13 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         return seas
 
     def compute_seasonality(self, X, return_resid=False):
-        """Decompose seasonality single column of DataFrame
+        """Decompose seasonality of single column of DataFrame
+
+        There are two method to compute hourly residuals from daily another residuals
+        1. Subtract First (Wrong)
+           * Residual population makes hourly seasonality flat, which is wrong
+        2. Seasonality population first (Right)
+           * Hourly seasonality comptued correctly
         """
         # for key, convert series to dataframe
         X_h = X.copy().to_frame()
@@ -844,46 +850,67 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         # dictionary for key (w: 0~6) to value (daily average)
         # Weekly seasonality computes seasonality from annual residaul
         sea_weekly, df_sea_weekly, resid_weekly = utils.periodic_mean(
-            resid_annual, 'resid', 'w')
+            resid_annual.copy(), 'resid', 'w')
 
-        # 3. Daily Seasonality (hh: 00 ~ 23)
+        # 3. Hourly Seasonality (hh: 00 ~ 23)
         # join seasonality to original X_h DataFrame
-        # populate residuals from daily averaged data to hourly data
+        # populate seasonality from daily averaged data to hourly data
 
-        # residuals are daily index, so populate to hourly
+        ## method to generate key column from index
+        def key_md(idx): return ''.join((str(idx.month).zfill(2),
+                                         str(idx.day).zfill(2)))
+        def key_w(idx): return str(idx.dayofweek)
+        def key_h(idx): return str(idx.hour).zfill(2)
 
-        # 3.1. Add hourly keys to hourly DataFrame
+        ## Add column from index for key
+        df_sea_weekly['key_w'] = df_sea_weekly.index
+        df_sea_annual['key_md'] = df_sea_annual.index
 
-        ## Populate daily averaged to hourly data
-        ## 1. resid_weekly has residuals by daily data
-        ## 2. I want populate resid_weekly to hourly data which means residuals are copied to 2r hours
-        ## 3. That means key should be YYYYMMDD
-        def key_ymd(idx): return ''.join((str(idx.year).zfill(4),
-                                          str(idx.month).zfill(2),
-                                          str(idx.day).zfill(2)))
+        X_h['key_md'] = X_h.index.map(key_md)
+        X_h['key_w'] = X_h.index.map(key_w)
+        X_h['key_h'] = X_h.index.map(key_h)
 
-        resid_weekly['key_ymd'] = resid_weekly.index.map(key_ymd)
-        # Add column for key
-        X_h['key_ymd'] = X_h.index.map(key_ymd)
-        # there shouldn't be 'resid' column in X_h -> no suffix for 'resid'
+        ## compute hourly populated seasonality from daily residuals
+        X_h_spop = df_sea_annual.merge(X_h, how='left',
+                                         on='key_md', left_index=True, validate="1:m").dropna()
+        X_h_spop = X_h_spop.rename(columns={'sea': 'sea_annual'})
+        X_h_spop = df_sea_weekly.merge(X_h_spop, how='left',
+                                         on='key_w', left_index=True, validate="1:m").dropna()
+        X_h_spop = X_h_spop.rename(columns={'sea': 'sea_weekly'})
 
-        X_h_res_pop = resid_weekly.merge(X_h, how='left',
-                                         on='key_ymd', left_index=True, validate="1:m").dropna()
+        ## new hourly residual column from daily residuals
+        X_h_spop['resid_d'] = X_h_spop['raw'] - X_h_spop['sea_annual'] - X_h_spop['sea_weekly']
 
-        # 3.2. check no missing values
-        if len(X_h_res_pop.index) != len(X_h.index):
+        ## Check no missing values
+        if len(X_h_spop.index) != len(X_h.index):
             raise Exception(
                 "Merge Error: something missing when populate daily averaged DataFrame")
 
-        # 3.3 Compute seasonality
+        ## Compute hourly seasonality
         sea_hourly, df_sea_hourly, resid_hourly = utils.periodic_mean(
-            X_h_res_pop, 'resid', 'h')
+            X_h_spop.copy(), 'resid_d', 'h')
 
-        # 3.4 drop key columns
-        X_h.drop('key_ymd', axis='columns')
+        ## Add column from index for key
+        df_sea_hourly['key_h'] = df_sea_hourly.index
+
+        ## merge hourly seasonality to orignal hourly DataFram
+        X_h_hourly = df_sea_hourly.merge(X_h, how='left',
+                                         on='key_h', left_index=True, validate="1:m").dropna()
+        X_h_hourly = X_h_hourly.rename(columns={'sea': 'sea_hourly'})
+        ## Subtract annual and weekly seasonality
+        X_h_spop['sea_hourly']= X_h_hourly['sea_hourly']
+        X_h_spop['resid'] = X_h_spop['resid_d'] - X_h_hourly['sea_hourly']
+        ## Sort by DateTimeIndex
+        X_h_spop = X_h_spop.sort_index()
+
+        # 3.2 drop key columns and intermediate residual column
+        X_h_spop.drop('resid_d', axis='columns')
+        X_h_spop.drop('key_md', axis='columns')
+        X_h_spop.drop('key_w', axis='columns')
+        X_h_spop.drop('key_h', axis='columns')
 
         if return_resid == True:
-            return resid_annual, resid_weekly, X_h_res_pop, resid_hourly
+            return resid_annual, resid_weekly, X_h_spop, resid_hourly
 
         return sea_annual, sea_weekly, sea_hourly
 
@@ -1262,8 +1289,8 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
                                dt1.strftime("%Y%m%d") + "_" +
                                dt2.strftime("%Y%m%d") + ".csv")
         df_week = pd.DataFrame.from_dict(
-            {'date': week_range, 'ws': ws})
-        df_week.set_index('date', inplace=True)
+            {'day': week_range, 'ws': ws})
+        df_week.set_index('day', inplace=True)
         df_week.to_csv(csv_path)
 
         png_path = png_dir / ("weekly_seasonality_" +
@@ -1276,7 +1303,7 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         p2 = figure(title="Weekly Seasonality")
         p2.toolbar.logo = None
         p2.toolbar_location = None
-        p2.xaxis.axis_label = "dates"
+        p2.xaxis.axis_label = "day"
         p2.xaxis.formatter = DatetimeTickFormatter(
             days="%a")
         p2.line(week_range_plt, ws, line_color="dodgerblue", line_width=2)
@@ -1364,8 +1391,8 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".csv")
         df_hour = pd.DataFrame.from_dict(
-            {'date': hour_range, 'hs': hs})
-        df_hour.set_index('date', inplace=True)
+            {'hour': hour_range, 'hs': hs})
+        df_hour.set_index('hour', inplace=True)
         df_hour.to_csv(csv_path)
 
         png_path = png_dir / ("hourly_seasonality_" +
@@ -1378,7 +1405,7 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         p3 = figure(title="Hourly Seasonality")
         p3.toolbar.logo = None
         p3.toolbar_location = None
-        p3.xaxis.axis_label = "dates"
+        p3.xaxis.axis_label = "hour"
         p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
         p3.line(hour_range_plt, hs, line_color="dodgerblue", line_width=2)
         export_png(p3, filename=png_path)
@@ -1442,7 +1469,7 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
 
     def plot(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
              target_year=2016, target_week=10, target_month=5, target_day=1,
-             nlags=15, smoothing=True):
+             nlags=7, smoothing=True):
         """
         Plot seasonality itself and autocorrelation of residuals
 
@@ -1621,7 +1648,13 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
         return seas
 
     def compute_seasonality(self, X, return_resid=False):
-        """Decompose seasonality single column of DataFrame
+        """Decompose seasonality of single column of DataFrame
+
+        There are two method to compute hourly residuals from daily another residuals
+        1. Subtract First (Wrong)
+           * Residual population makes hourly seasonality flat, which is wrong
+        2. Seasonality population first (Right)
+           * Hourly seasonality comptued correctly
         """
         # for key, convert series to dataframe
         X_h = X.copy().to_frame()
@@ -1642,42 +1675,52 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
 
         # 2. Hourly Seasonality (hh: 00 ~ 23)
         # join seasonality to original X_h DataFrame
-        # populate residuals from daily averaged data to hourly data
+        # populate seasonality from daily averaged data to hourly data
 
-        # residuals are daily index, so populate to hourly
+        ## method to generate key column from index
+        def key_md(idx): return ''.join((str(idx.month).zfill(2),
+                                         str(idx.day).zfill(2)))
+        def key_h(idx): return str(idx.hour).zfill(2)
 
-        # 3.1. Add hourly keys to hourly DataFrame
-
-        ## Populate daily averaged to hourly data
-        ## 1. resid_weekly has residuals by daily data
-        ## 2. I want populate resid_weekly to hourly data which means residuals are copied to 2r hours
-        ## 3. That means key should be YYYYMMDD
-        def key_ymd(idx): return ''.join((str(idx.year).zfill(4),
-                                          str(idx.month).zfill(2),
-                                          str(idx.day).zfill(2)))
-
-        resid_annual['key_ymd'] = resid_annual.index.map(key_ymd)
         # Add column for key
-        X_h['key_ymd'] = X_h.index.map(key_ymd)
-        # there shouldn't be 'resid' column in X_h -> no suffix for 'resid'
+        df_sea_annual['key_md'] = df_sea_annual.index
+        X_h['key_md'] = X_h.index.map(key_md)
+        X_h['key_h'] = X_h.index.map(key_h)
 
-        X_h_res_pop = resid_annual.merge(X_h, how='left',
-                                         on='key_ymd', left_index=True, validate="1:m").dropna()
+        ## compute hourly populated seasonality from daily residuals
+        X_h_spop = df_sea_annual.merge(X_h, how='left',
+                                on='key_md', left_index=True, validate="1:m").dropna()
+        X_h_spop = X_h_spop.rename(columns={'sea': 'sea_annual'})
 
-        # 3.2. check no missing values
-        if len(X_h_res_pop.index) != len(X_h.index):
+        ## Check no missing values
+        if len(X_h_spop.index) != len(X_h.index):
             raise Exception(
                 "Merge Error: something missing when populate daily averaged DataFrame")
 
-        # 3.3 Compute seasonality
-        sea_hourly, df_sea_hourly, resid_hourly = utils.periodic_mean(
-            X_h_res_pop, 'resid', 'h')
+        # Subtract annual seasonality
+        X_h_spop['resid_d'] = X_h_spop['raw'] - X_h_spop['sea_annual']
 
-        # 3.4 drop key columns
-        X_h.drop('key_ymd', axis='columns')
+        # Compute seasonality, use .copy not to violate targeting DataFrame
+        sea_hourly, df_sea_hourly, resid_hourly = utils.periodic_mean(
+            X_h_spop.copy(), 'resid_d', 'h')
+
+        ## Add column from index for key
+        df_sea_hourly['key_h'] = df_sea_hourly.index
+
+        ## merge hourly seasonality to orignal hourly DataFram
+        X_h_hourly = df_sea_hourly.merge(X_h, how='left',
+                                         on='key_h', left_index=True, validate="1:m").dropna()
+        X_h_spop['sea_hourly'] = X_h_hourly['sea']
+        # Subtract annual seasonality
+        X_h_spop['resid'] = X_h_spop['resid_d'] - X_h_hourly['sea']
+
+        # 3.2 drop key columns and intermediate residual column
+        X_h_spop.drop('resid_d', axis='columns')
+        X_h_spop.drop('key_md', axis='columns')
+        X_h_spop.drop('key_h', axis='columns')
 
         if return_resid == True:
-            return resid_annual, X_h_res_pop, resid_hourly
+            return resid_annual, X_h_spop, resid_hourly
 
         return sea_annual, sea_hourly
 
@@ -2056,8 +2099,8 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".csv")
         df_hour = pd.DataFrame.from_dict(
-            {'date': hour_range, 'hs': hs})
-        df_hour.set_index('date', inplace=True)
+            {'hour': hour_range, 'hs': hs})
+        df_hour.set_index('hour', inplace=True)
         df_hour.to_csv(csv_path)
 
         png_path = png_dir / ("hourly_seasonality_" +
@@ -2070,7 +2113,7 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
         p3 = figure(title="Hourly Seasonality")
         p3.toolbar.logo = None
         p3.toolbar_location = None
-        p3.xaxis.axis_label = "dates"
+        p3.xaxis.axis_label = "hour"
         p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
         p3.line(hour_range_plt, hs, line_color="dodgerblue", line_width=2)
         export_png(p3, filename=png_path)
@@ -2135,7 +2178,7 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
 
     def plot(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
              target_year=2016, target_week=10, target_month=5, target_day=1,
-             nlags=15, smoothing=True):
+             nlags=7, smoothing=True):
         """
         Plot seasonality itself and autocorrelation of residuals
         Plot should not affected by other transformers, so recompute every seasonality when needed
@@ -2317,7 +2360,7 @@ class SeasonalityDecompositor_HA(TransformerMixin, BaseEstimator):
         sea_hourly, df_sea_hourly, resid_hourly = utils.periodic_mean(
             X_h, 'raw', 'h', smoothing=False)
 
-        # 2. Hourly Seasonality (hh: 00 ~ 23)
+        # 1. Hourly Seasonality (hh: 00 ~ 23)
         # join seasonality to original X_h DataFrame
         # populate residuals from daily averaged data to hourly data
 
@@ -2325,42 +2368,32 @@ class SeasonalityDecompositor_HA(TransformerMixin, BaseEstimator):
         resid_hourly_d = resid_hourly.resample('D').mean()
 
         sea_annual, df_sea_annual, resid_annual_d = utils.periodic_mean(
-            resid_hourly_d, 'resid', 'y', smoothing=self.smoothing, smoothingFrac=self.smoothingFrac)
+            resid_hourly_d.copy(), 'resid', 'y', smoothing=self.smoothing, smoothingFrac=self.smoothingFrac)
 
         if '0229' not in sea_annual:
             raise KeyError("You must include leap year in train data")
 
-        # 3.1. Add hourly keys to hourly DataFrame
-
-        # 3.1. Annual Seasonality (mmdd: 0101 ~ 1231)
-        # dictionary for key (mmdd) to value (daily average)
-
-        ## Populate daily averaged to hourly data
-        ## 1. resid_weekly has residuals by daily data
-        ## 2. I want populate resid_weekly to hourly data which means residuals are copied to 2r hours
-        ## 3. That means key should be YYYYMMDD
-        def key_ymd(idx): return ''.join((str(idx.year).zfill(4),
-                                          str(idx.month).zfill(2),
-                                          str(idx.day).zfill(2)))
+        ## method to generate key column from index
         def key_md(idx): return ''.join((str(idx.month).zfill(2),
                                          str(idx.day).zfill(2)))
+        def key_h(idx): return str(idx.hour).zfill(2)
 
-        # Add column for key
-        resid_hourly['key_ymd'] = resid_hourly.index.map(key_ymd)
-        resid_annual_pop = resid_hourly.copy()
+        ## Add column from index for key
+        resid_hourly['key_md'] = resid_hourly.index.map(key_md)
+        resid_apop = resid_hourly.copy()
 
         def get_res(key): return sea_annual[key_md(key.name)]
 
-        resid_annual_pop['resid'] = resid_hourly['resid'] - \
+        resid_apop['resid'] = resid_hourly['resid'] - \
             resid_hourly['resid'].to_frame().apply(get_res, axis=1)
 
         # 3.2. check no missing values
-        if len(resid_annual_pop.index) != len(resid_hourly.index):
+        if len(resid_apop.index) != len(resid_hourly.index):
             raise Exception(
                 "Merge Error: something missing when populate daily averaged DataFrame")
 
         if return_resid == True:
-            return resid_hourly, resid_annual_pop, resid_annual_d
+            return resid_hourly, resid_apop, resid_annual_d
 
         return sea_hourly, sea_annual
 
@@ -2943,38 +2976,37 @@ class SeasonalityDecompositor_A(TransformerMixin, BaseEstimator):
         if '0229' not in sea_annual:
             raise KeyError("You must include leap year in train data")
 
-        # Annaul residual to hourly DataFrame
-        # 2.1. Add hourly keys to hourly DataFrame
+        # 2. Daily Seasonality (hh: 00 ~ 23)
+        # join seasonality to original X_h DataFrame
+        # populate seasonality from daily averaged data to hourly data
 
-        ## Populate daily averaged to hourly data
-        ## 1. resid_weekly has residuals by daily data
-        ## 2. I want populate resid_weekly to hourly data which means residuals are copied to 2r hours
-        ## 3. That means key should be YYYYMMDD
+        ## method to generate key column from index
+        def key_md(idx): return ''.join((str(idx.month).zfill(2),
+                                         str(idx.day).zfill(2)))
 
-        def key_ymd(idx): return ''.join((str(idx.year).zfill(4),
-                                          str(idx.month).zfill(2),
-                                          str(idx.day).zfill(2)))
+        ## Add column from index for key
+        df_sea_annual['key_md'] = df_sea_annual.index
+        X_h['key_md'] = X_h.index.map(key_md)
 
-        resid_annual['key_ymd'] = resid_annual.index.map(key_ymd)
-        # Add column for key
-        X_h['key_ymd'] = X_h.index.map(key_ymd)
-        #X_h.insert(X_h.shape[1], 'key_ymd', key_ymd(X_h))
-        # there shouldn't be 'resid' column in X_h -> no suffix for 'resid'
+        ## compute hourly populated seasonality from daily residuals
+        X_h_spop = df_sea_annual.merge(X_h, how='left',
+                                       on='key_md', left_index=True, validate="1:m").dropna()
+        X_h_spop = X_h_spop.rename(columns={'sea': 'sea_annual'})
 
-        X_h_res_pop = resid_annual.merge(X_h, how='left',
-                                         on='key_ymd', left_index=True, validate="1:m").dropna()
+        ## new hourly residual column from daily residuals
+        X_h_spop['resid'] = X_h_spop['raw'] - X_h_spop['sea_annual']
 
         # 3.2. check no missing values
-        if len(X_h_res_pop.index) != len(X_h.index):
+        if len(X_h_spop.index) != len(X_h.index):
             raise Exception(
                 "Merge Error: something missing when populate daily averaged DataFrame")
 
         # 3.4 drop key columns
-        X_h.drop('key_ymd', axis='columns')
+        X_h.drop('key_md', axis='columns')
 
         # To make consistent output in fit, return dummy variables
         if return_resid == True:
-            return resid_annual, X_h_res_pop
+            return resid_annual, X_h_spop
 
         # To return with column names, return dummy value
         return sea_annual, None
@@ -3585,8 +3617,8 @@ class SeasonalityDecompositor_H(TransformerMixin, BaseEstimator):
                                dt1.strftime("%Y%m%d%H") + "_" +
                                dt2.strftime("%Y%m%d%H") + ".csv")
         df_hour = pd.DataFrame.from_dict(
-            {'date': hour_range, 'hs': hs})
-        df_hour.set_index('date', inplace=True)
+            {'hour': hour_range, 'hs': hs})
+        df_hour.set_index('hour', inplace=True)
         df_hour.to_csv(csv_path)
 
         png_path = png_dir / ("hourly_seasonality_" +
@@ -3599,7 +3631,7 @@ class SeasonalityDecompositor_H(TransformerMixin, BaseEstimator):
         p3 = figure(title="Hourly Seasonality")
         p3.toolbar.logo = None
         p3.toolbar_location = None
-        p3.xaxis.axis_label = "dates"
+        p3.xaxis.axis_label = "hour"
         p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
         p3.line(hour_range_plt, hs, line_color="dodgerblue", line_width=2)
         export_png(p3, filename=png_path)

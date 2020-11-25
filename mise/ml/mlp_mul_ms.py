@@ -435,16 +435,16 @@ class BaseMLPModel(LightningModule):
         _y = y.detach().cpu().clone().numpy()
         y_raw = y_raw.detach().cpu().clone().numpy()
         _y_hat = y_hat.detach().cpu().clone().numpy()
-        y_hat_ = np.array(self.test_dataset.inverse_transform(_y_hat, dates))
+        y_hat_inv = np.array(self.test_dataset.inverse_transform(_y_hat, dates))
 
-        _mae = mean_absolute_error(y_raw, y_hat_)
-        _mse = mean_squared_error(y_raw, y_hat_)
-        _r2 = r2_score(y_raw, y_hat_)
+        _mae = mean_absolute_error(y_raw, y_hat_inv)
+        _mse = mean_squared_error(y_raw, y_hat_inv)
+        _r2 = r2_score(y_raw, y_hat_inv)
 
         return {
             'loss': _loss,
             'obs': y_raw,
-            'sim': y_hat_,
+            'sim': y_hat_inv,
             'dates': dates,
             'metric': {
                 'MSE': _mse,
