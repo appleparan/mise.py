@@ -68,8 +68,8 @@ def ml_mlp_mul_ms(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 100
-    #fast_dev_run = True
-    #n_trials = 1
+    fast_dev_run = True
+    n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -532,7 +532,11 @@ class BaseMLPModel(LightningModule):
 
         return _df_obs, _df_sim
 
-    def prepare_data(self):
+    def setup(self, stage=None):
+        """Data operations on every GPU
+        Wrong usage of LightningModule. Need to Refactored
+        * TODO: Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
+        """
         # create custom dataset
         train_valid_set = data.MultivariateMeanSeasonalityDataset(
             station_name=self.station_name,

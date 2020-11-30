@@ -417,15 +417,15 @@ class BaseMLPModel(LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, y, _y_raw, dates = batch
-        y_hat = self(x)
+        _y_hat = self(x)
 
-        _loss = self.loss(y, y_hat)
+        _loss = self.loss(y, _y_hat)
 
         # transformed y would be smoothed, so inverse_transform can't recover raw value
         _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
-        y_hat_inv = np.array(self.test_dataset.inverse_transform(_y_hat, dates))
+        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
 
         _mae = mean_absolute_error(y_raw, y_hat_inv)
         _mse = mean_squared_error(y_raw, y_hat_inv)
@@ -522,7 +522,11 @@ class BaseMLPModel(LightningModule):
 
         return _df_obs, _df_sim
 
-    def prepare_data(self):
+    def setup(self, stage=None):
+        """Data operations on every GPU
+        Wrong usage of LightningModule. Need to Refactored
+        * TODO: Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
+        """
         # create custom dataset
         train_valid_set = data.UnivariateMeanSeasonalityDataset(
             station_name=self.station_name,

@@ -237,14 +237,11 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
 
         # mix ColumnTransformer & Pipeline
         # https://scikit-learn.org/stable/auto_examples/compose/plot_column_transformer_mixed_types.html
-
         numeric_pipeline_X = Pipeline(
-            [('seasonalitydecompositor', SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
-             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('seasonalitydecompositor', SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05))])
 
         numeric_pipeline_Y = Pipeline(
-            [('seasonalitydecompositor', SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
-             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('seasonalitydecompositor', SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05))])
 
         # Univariate -> only tself.
         preprocessor_X = ColumnTransformer(
@@ -275,8 +272,8 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
                            :(i+self.sample_size+self.output_size), :]
 
         # To embed dates, x and y is DataFrame
-        return np.squeeze(self._scaler.transform(x)).astype('float32'), \
-            np.squeeze(self._scaler.transform(y)).astype('float32'), \
+        return np.squeeze(self._scaler_X.transform(x)).astype('float32'), \
+            np.squeeze(self._scaler_Y.transform(y)).astype('float32'), \
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
             y.index.to_numpy()
         #        self._dates[(i+self.sample_size)
@@ -286,29 +283,28 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
         """Compute seasonality and transform by seasonality
         """
         # compute seasonality
-        self._scaler_X.fit(self._xs, y=self._xs)
+        self._scaler_X.fit(self._xs)
         self._scaler_Y.fit(self._ys, y=self._ys)
 
         # plot
         self.plot_seasonality(data_dir, png_dir, svg_dir)
 
-        # fit and transform data by transformer
-        self._xs = self.transform_df(self._xs)
-        self._ys = self.transform_df(self._ys)
+        # getitem will transform, so doesn't need
+        #self._xs = pd.DataFrame(data=self.scaler_X.transform(self._xs),
+        #    index=self._xs.index, columns=self._xs.columns)
+        #self._ys = pd.DataFrame(data=self.scaler_Y.transform(self._ys),
+        #    index=self._ys.index, columns=self._ys.columns)
 
-    def transform_df(self, A: pd.DataFrame):
-        """transform accepts DataFrame, but output is always ndarray
-        so keep DataFrame structure
+    def transform(self):
+        """transform xs and ys as a part of preprocess to reduce training time
         """
-        _transA = self._scaler_X.transform(A)
-
-        # just alter data by transformed data
-        return pd.DataFrame(data=np.squeeze(_transA),
-            index=A.index,
-            columns=A.columns)
+        self._xs = pd.DataFrame(data=self._scaler_X.transform(self._xs),
+            index=self._xs.index, columns=self._xs.columns)
+        self._ys = pd.DataFrame(data=self._scaler_Y.transform(self._ys),
+            index=self._ys.index, columns=self._ys.columns)
 
     def inverse_transform(self, Ys: tuple, dates: tuple):
-        """transform accepts DataFrame, but output is always ndarray
+        """inverse_transform accepts DataFrame, but output is always ndarray
         so keep DataFrame structure
 
         Args:
@@ -493,19 +489,19 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         """Compute seasonality and transform by seasonality
         """
         # compute seasonality
-        self._scaler_X.fit(self._xs, y=self._xs)
+        self._scaler_X.fit(self._xs)
         self._scaler_Y.fit(self._ys, y=self._ys)
         # plot
         self.plot_seasonality(data_dir, png_dir, svg_dir)
 
-        # fit and transform data by transformer
-        self._xs = pd.DataFrame(data=self.scaler_X.transform(self._xs),
+    def transform(self):
+        self._xs = pd.DataFrame(data=self._scaler_X.transform(self._xs),
             index=self._xs.index, columns=self._xs.columns)
-        self._ys = pd.DataFrame(data=self.scaler_Y.transform(self._ys),
+        self._ys = pd.DataFrame(data=self._scaler_Y.transform(self._ys),
             index=self._ys.index, columns=self._ys.columns)
 
     def inverse_transform(self, Ys: tuple, dates: tuple):
-        """transform accepts DataFrame, but output is always ndarray
+        """inverse_transform accepts DataFrame, but output is always ndarray
         so keep DataFrame structure
 
         Args:
@@ -1815,6 +1811,7 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
             def _sum_seasonality(idx: pd.DatetimeIndex):
                 """Method for rowwise operation
                 """
+
                 return \
                     self.sea_annual[name][utils.parse_ykey(idx)] + \
                     self.sea_hourly[name][utils.parse_hkey(idx)]
@@ -3105,6 +3102,7 @@ class SeasonalityDecompositor_A(TransformerMixin, BaseEstimator):
 
             # index to sum of seasonality
             seas = _Y.index.map(_sum_seasonality)
+
             _Y_df = _Y.to_frame()
             _Y_df['seas'] = seas
 
