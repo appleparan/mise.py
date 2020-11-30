@@ -450,8 +450,9 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
                 ('num_2', numeric_pipeline_X_2, self.features_2),
                 ('num_1', numeric_pipeline_X_1, self.features_1)])
 
-        # y is always 1D, so doesn't need ColumnTransfomer
-        preprocessor_Y = numeric_pipeline_Y
+        preprocessor_Y = ColumnTransformer(
+            transformers=[
+                ('num', numeric_pipeline_Y, [self.target])])
 
         self._scaler_X = kwargs.get('scaler_X', preprocessor_X)
         self._scaler_Y = kwargs.get('scaler_Y', preprocessor_Y)
@@ -524,7 +525,8 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         #return _inv_transYs
 
     def plot_seasonality(self, data_dir, png_dir, svg_dir):
-        p = self._scaler_Y
+        p = self._scaler_Y.named_transformers_['num']
+
         p['seasonalitydecompositor'].plot(self._xs, self.target,
             self.fdate, self.tdate, data_dir, png_dir, svg_dir)
 
@@ -605,10 +607,10 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         # https://scikit-learn.org/stable/auto_examples/compose/plot_column_transformer_mixed_types.html
 
         # pipeline for regression data
-        numeric_pipeline_X_1 = Pipeline(
+        numeric_pipeline_X_std = Pipeline(
             [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
-        numeric_pipeline_X_2 = Pipeline(
+        numeric_pipeline_X_sea = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
              ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
@@ -622,10 +624,12 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         # Multivariate -> Need ColumnTransformer
         preprocessor_X = ColumnTransformer(
             transformers=[
-                ('num_2', numeric_pipeline_X_2, self.features_2),
-                ('num_1', numeric_pipeline_X_1, self.features_1)])
+                ('num_sea', numeric_pipeline_X_sea, self.features_2),
+                ('num_std', numeric_pipeline_X_std, self.features_1)])
 
-        preprocessor_Y = numeric_pipeline_Y
+        preprocessor_Y = ColumnTransformer(
+            transformers=[
+                ('num', numeric_pipeline_Y, [self.target])])
 
         # univariate dataset only needs single pipeline
         self._scaler_X = kwargs.get('scaler_X', preprocessor_X)
@@ -663,7 +667,7 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         """Compute seasonality and transform by seasonality
         """
         # compute seasonality
-        self._scaler_X.fit(self._xs, y=self._xs)
+        self._scaler_X.fit(self._xs)
         self._scaler_Y.fit(self._ys, y=self._ys)
 
         # plot
@@ -701,20 +705,26 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
 
         return _inv_transYs
 
-    def build_seasonality(self, X: pd.DataFrame):
+    def get_seasonality(self, scaler, cols):
         """
             build seasonalities by given DataFrame's DateTimeIndex
         """
 
         # test
-        p = self._scaler_X.named_transformers_['num_2']
-        sea_annual = p['seasonalitydecompositor'].build_seasonality(X[self.features_sea_embed], 'y')
-        sea_hourly = p['seasonalitydecompositor'].build_seasonality(X[self.features_sea_embed], 'h')
+        p = scaler.named_transformers_['num_sea']
+
+        # get total seasonality
+        _sea_annual = p.get_params()['seasonalitydecompositor__sea_annual']
+        _sea_hourly = p.get_params()['seasonalitydecompositor__sea_hourly']
+
+        # filter by columns
+        sea_annual = {k: v for k, v in _sea_annual.items() if k in cols}
+        sea_hourly = {k: v for k, v in _sea_hourly.items() if k in cols}
 
         return sea_annual, sea_hourly
 
     def plot_seasonality(self, data_dir, png_dir, svg_dir):
-        p = self._scaler_X.named_transformers_['num_2']
+        p = self._scaler_Y.named_transformers_['num']
         p['seasonalitydecompositor'].plot(self._xs, self.target,
                                           self.fdate, self.tdate, data_dir, png_dir, svg_dir)
 
@@ -728,6 +738,14 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
     @property
     def scaler_Y(self):
         return self._scaler_Y
+
+    @property
+    def ys(self):
+        return self._ys
+
+    @property
+    def ys_raw(self):
+        return self._ys_raw
 
 class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
     """Decompose Seasonality
