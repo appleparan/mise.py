@@ -473,7 +473,7 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         y_raw = self._ys_raw.iloc[(i+self.sample_size)
                            :(i+self.sample_size+self.output_size), :]
 
-        return np.squeeze(x.to_numpy().flatten()).astype('float32'), \
+        return np.squeeze(x.to_numpy()).astype('float32'), \
             np.squeeze(y.to_numpy()).astype('float32'), \
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
             y.index.to_numpy()
@@ -524,7 +524,7 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         #return _inv_transYs
 
     def plot_seasonality(self, data_dir, png_dir, svg_dir):
-        p = self._scaler_X.named_transformers_['num_2']
+        p = self._scaler_Y
         p['seasonalitydecompositor'].plot(self._xs, self.target,
             self.fdate, self.tdate, data_dir, png_dir, svg_dir)
 
@@ -631,6 +631,9 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         self._scaler_X = kwargs.get('scaler_X', preprocessor_X)
         self._scaler_Y = kwargs.get('scaler_Y', preprocessor_Y)
 
+        self.embed_sea_annual = None
+        self.embed_sea_hourly = None
+
     def __getitem__(self, i: int):
         """
         get X, Y for given index `di`
@@ -643,24 +646,16 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
             Tensor: output without transform
         """
         x = self._xs.iloc[i:i+self.sample_size, :]
-        x_embed = self._ys.iloc[i:(i+self.sample_size)]
         # save initial input as target variable input at last step (single step)
         y0 = self._ys.iloc[i+self.sample_size-1]
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
         y_raw = self._ys_raw.iloc[(i+self.sample_size)
                                  :(i+self.sample_size+self.output_size), :]
 
-        sea_annual, sea_hourly = self.build_seasonality(x)
-
-        # flatten and concatenate -> make two 2D array to one 1D array
-        x_embed = np.concatenate([sea_annual.to_numpy().astype('float32').flatten(),
-                                  sea_hourly.to_numpy().astype('float32').flatten()])
-
         # To embed dates, x and y is DataFrame
-        return np.squeeze(self._scaler_X.transform(x)).astype('float32'), \
-            x_embed, \
+        return np.squeeze(x.to_numpy()).astype('float32'), \
             y0.astype('float32'), \
-            np.squeeze(self._scaler_Y.transform(y)).astype('float32'), \
+            np.squeeze(y.to_numpy()).astype('float32'), \
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
             self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
@@ -674,10 +669,12 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         # plot
         self.plot_seasonality(data_dir, png_dir, svg_dir)
 
-        # fit and transform data by transformer
-        self._xs = pd.DataFrame(data=self.scaler_X.transform(self._xs),
+        self.transform()
+
+    def transform(self):
+        self._xs = pd.DataFrame(data=self._scaler_X.transform(self._xs),
             index=self._xs.index, columns=self._xs.columns)
-        self._ys = pd.DataFrame(data=self.scaler_Y.transform(self._ys),
+        self._ys = pd.DataFrame(data=self._scaler_Y.transform(self._ys),
             index=self._ys.index, columns=self._ys.columns)
 
     def inverse_transform(self, Ys: tuple, dates: tuple):

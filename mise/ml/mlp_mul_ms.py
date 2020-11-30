@@ -68,8 +68,8 @@ def ml_mlp_mul_ms(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 100
-    fast_dev_run = True
-    n_trials = 1
+    #fast_dev_run = True
+    #n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -329,7 +329,6 @@ class BaseMLPModel(LightningModule):
         print(self.linears)
         self.dropout = nn.Dropout(p=0.2)
         self.loss = nn.MSELoss(reduction='mean')
-        
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
@@ -575,6 +574,9 @@ class BaseMLPModel(LightningModule):
             output_size=self.output_size,
             scaler_X=train_valid_set.scaler_X,
             scaler_Y=train_valid_set.scaler_Y)
+
+        # preprocess
+        test_set.transform()
 
         # save dataset
         train_valid_set.to_csv(

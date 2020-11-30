@@ -417,13 +417,13 @@ class BaseMLPModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, y, _y_raw, dates = batch
+        x, _y, _y_raw, dates = batch
         _y_hat = self(x)
 
-        _loss = self.loss(y, _y_hat)
+        _loss = self.loss(_y, _y_hat)
 
         # transformed y would be smoothed, so inverse_transform can't recover raw value
-        _y = y.detach().cpu().clone().numpy()
+        y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
@@ -561,6 +561,9 @@ class BaseMLPModel(LightningModule):
             output_size=self.output_size,
             scaler_X=train_valid_set.scaler_X,
             scaler_Y=train_valid_set.scaler_Y)
+
+        # preprocess
+        test_set.transform()
 
         # save dataset
         train_valid_set.to_csv(
