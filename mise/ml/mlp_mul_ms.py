@@ -68,8 +68,8 @@ def ml_mlp_mul_ms(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 100
-    #fast_dev_run = True
-    #n_trials = 1
+    fast_dev_run = True
+    n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -306,7 +306,7 @@ class BaseMLPModel(LightningModule):
                 "num_layers", 2, 8)
             for l in range(self.hparams.num_layers - 1):
                 layer_szname = "layer" + str(l) + "_size"
-                layer_size = self.trial.suggest_int(layer_szname, 8, 256)
+                layer_size = self.trial.suggest_int(layer_szname, 8, 512)
                 self.hparams.update({layer_szname:  layer_size})
                 self.layer_sizes.insert(len(self.layer_sizes)-1, layer_size)
         else:
@@ -326,8 +326,10 @@ class BaseMLPModel(LightningModule):
         for i in range(self.hparams.num_layers):
             self.linears.append(
                 nn.Linear(self.layer_sizes[i], self.layer_sizes[i + 1]))
-
+        print(self.linears)
+        self.dropout = nn.Dropout(p=0.2)
         self.loss = nn.MSELoss(reduction='mean')
+        
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
@@ -341,7 +343,7 @@ class BaseMLPModel(LightningModule):
 
         for (i, layer) in enumerate(self.linears):
             if i != len(self.linears):
-                x = F.leaky_relu(layer(x))
+                x = self.dropout(F.leaky_relu(layer(x)))
             else:
                 x = layer(x)
 
@@ -351,15 +353,15 @@ class BaseMLPModel(LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr | self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        x, y, y_raw, dates = batch
-        y_hat = self(x)
-        _loss = self.loss(y_hat, y)
+        x, _y, _y_raw, dates = batch
+        _y_hat = self(x)
+        _loss = self.loss(_y, _y_hat)
 
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
@@ -390,15 +392,15 @@ class BaseMLPModel(LightningModule):
         return torch.optim.Adam(self.parameters())
 
     def validation_step(self, batch, batch_idx):
-        x, y, y_raw, dates = batch
-        y_hat = self(x)
-        _loss = self.loss(y, y_hat)
+        x, _y, _y_raw, dates = batch
+        _y_hat = self(x)
+        _loss = self.loss(_y, _y_hat)
 
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
@@ -426,16 +428,15 @@ class BaseMLPModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, y, y_raw,  dates = batch
-        y_hat = self(x)
-
-        _loss = self.loss(y, y_hat)
+        x, _y, _y_raw, dates = batch
+        _y_hat = self(x)
+        _loss = self.loss(_y, _y_hat)
 
         # transformed y might be smoothed
-        _y = y.detach().cpu().clone().numpy()
-        y_raw = y_raw.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        y_hat_inv = np.array(self.test_dataset.inverse_transform(_y_hat, dates))
+        y = _y.detach().cpu().clone().numpy()
+        y_raw = _y_raw.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
 
         _mae = mean_absolute_error(y_raw, y_hat_inv)
         _mse = mean_squared_error(y_raw, y_hat_inv)

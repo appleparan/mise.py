@@ -316,7 +316,8 @@ class BaseMLPModel(LightningModule):
         for i in range(self.hparams.num_layers):
             self.linears.append(
                 nn.Linear(self.layer_sizes[i], self.layer_sizes[i + 1]))
-
+        print(self.linears)
+        self.dropout = nn.Dropout(p=0.2)
         self.loss = nn.MSELoss(reduction='mean')
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
@@ -331,7 +332,7 @@ class BaseMLPModel(LightningModule):
 
         for (i, layer) in enumerate(self.linears):
             if i != len(self.linears):
-                x = F.leaky_relu(layer(x))
+                x = self.dropout(F.leaky_relu(layer(x)))
             else:
                 x = layer(x)
 

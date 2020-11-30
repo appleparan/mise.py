@@ -314,6 +314,7 @@ class BaseMLPModel(LightningModule):
             self.linears.append(
                 nn.Linear(self.layer_sizes[i], self.layer_sizes[i + 1]))
         print(self.linears)
+        self.dropout = nn.Dropout(p=0.2)
         self.loss = nn.MSELoss(reduction='mean')
 
         self._train_set = None
@@ -332,7 +333,7 @@ class BaseMLPModel(LightningModule):
 
         for (i, layer) in enumerate(self.linears):
             if i != len(self.linears):
-                x = F.leaky_relu(layer(x))
+                x = self.dropout(F.leaky_relu(layer(x)))
             else:
                 x = layer(x)
 
