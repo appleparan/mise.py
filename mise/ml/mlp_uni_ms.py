@@ -343,8 +343,8 @@ class BaseMLPModel(LightningModule):
     def training_step(self, batch, batch_idx):
         x, y, y_raw, dates = batch
         y_hat = self(x)
-        _loss = self.loss(y_hat, y)
 
+        _loss = self.loss(y_hat, y)
         _y = y.detach().cpu().clone().numpy()
         _y_hat = y_hat.detach().cpu().clone().numpy()
         _mae = mean_absolute_error(_y, _y_hat)

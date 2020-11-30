@@ -271,13 +271,10 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
         y_raw = self._ys_raw.iloc[(i+self.sample_size)
                            :(i+self.sample_size+self.output_size), :]
 
-        # To embed dates, x and y is DataFrame
-        return np.squeeze(self._scaler_X.transform(x)).astype('float32'), \
-            np.squeeze(self._scaler_Y.transform(y)).astype('float32'), \
+        return np.squeeze(x.to_numpy()).astype('float32'), \
+            np.squeeze(y.to_numpy()).astype('float32'), \
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
             y.index.to_numpy()
-        #        self._dates[(i+self.sample_size)
-        #                    :(i+self.sample_size+self.output_size)]
 
     def preprocess(self, data_dir, png_dir, svg_dir):
         """Compute seasonality and transform by seasonality
@@ -289,11 +286,7 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
         # plot
         self.plot_seasonality(data_dir, png_dir, svg_dir)
 
-        # getitem will transform, so doesn't need
-        #self._xs = pd.DataFrame(data=self.scaler_X.transform(self._xs),
-        #    index=self._xs.index, columns=self._xs.columns)
-        #self._ys = pd.DataFrame(data=self.scaler_Y.transform(self._ys),
-        #    index=self._ys.index, columns=self._ys.columns)
+        self.transform()
 
     def transform(self):
         """transform xs and ys as a part of preprocess to reduce training time
@@ -480,8 +473,8 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         y_raw = self._ys_raw.iloc[(i+self.sample_size)
                            :(i+self.sample_size+self.output_size), :]
 
-        return np.squeeze(self._scaler_X.transform(x)).astype('float32'), \
-            np.squeeze(self._scaler_Y.transform(y)).astype('float32'), \
+        return np.squeeze(x.to_numpy().flatten()).astype('float32'), \
+            np.squeeze(y.to_numpy()).astype('float32'), \
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
             y.index.to_numpy()
 
@@ -493,6 +486,8 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         self._scaler_Y.fit(self._ys, y=self._ys)
         # plot
         self.plot_seasonality(data_dir, png_dir, svg_dir)
+
+        self.transform()
 
     def transform(self):
         self._xs = pd.DataFrame(data=self._scaler_X.transform(self._xs),
