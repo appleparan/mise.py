@@ -314,7 +314,8 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
             zip(Ys, dates)))
 
         # execute pipeline's inverse transform
-        _inv_transYs = tuple(map(lambda b: np.squeeze(self._scaler_Y.inverse_transform(b)), dfs))
+        _inv_transYs = tuple(map( \
+            lambda b: np.squeeze(self._scaler_Y.named_transformers_['num'].inverse_transform(b)), dfs))
 
         # numpy.ndarray
         return _inv_transYs
