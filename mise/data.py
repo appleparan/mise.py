@@ -248,7 +248,9 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
             transformers=[
                 ('num', numeric_pipeline_X, self.features)])
 
-        preprocessor_Y = numeric_pipeline_Y
+        preprocessor_Y = ColumnTransformer(
+            transformers=[
+                ('num', numeric_pipeline_Y, [self.target])])
 
         # univariate dataset only needs single pipeline
         self._scaler_X = kwargs.get('scaler_X', preprocessor_X)
@@ -514,7 +516,8 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         # execute pipeline's inverse transform
         # transform : (DataFrame) -> SeasonalityDecompositor (needs date) -> StandardScaler -> (ndarray)
         # inverse_transform : (ndarray) -> StandardScaler -> (ndarray) -> (DataFrame) -> SeasonaltyDecompositor -> (ndarray)
-        _inv_transYs = tuple(map(lambda b: np.squeeze(self._scaler_Y.inverse_transform(b)), dfs))
+        _inv_transYs = tuple(map(lambda b: \
+            np.squeeze(self._scaler_Y.named_transformers_['num'].inverse_transform(b)), dfs))
 
         # numpy.ndarray
         return _inv_transYs
