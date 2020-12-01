@@ -238,10 +238,10 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
         # mix ColumnTransformer & Pipeline
         # https://scikit-learn.org/stable/auto_examples/compose/plot_column_transformer_mixed_types.html
         numeric_pipeline_X = Pipeline(
-            [('seasonalitydecompositor', SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05))])
+            [('seasonalitydecompositor', SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05))])
 
         numeric_pipeline_Y = Pipeline(
-            [('seasonalitydecompositor', SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05))])
+            [('seasonalitydecompositor', SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05))])
 
         # Univariate -> only tself.
         preprocessor_X = ColumnTransformer(
@@ -435,12 +435,12 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
 
         numeric_pipeline_X_2 = Pipeline(
             [('seasonalitydecompositor',
-                SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
+                SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
              ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
-                SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
+                SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
              ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         # Univariate -> only pipline needed
@@ -612,12 +612,12 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
 
         numeric_pipeline_X_sea = Pipeline(
             [('seasonalitydecompositor',
-                SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
+                SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
              ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
-                SeasonalityDecompositor_AH(smoothing=True, smoothingFrac=0.05)),
+                SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
              ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         # Univariate -> only pipline needed
@@ -661,6 +661,7 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
             y0.astype('float32'), \
             np.squeeze(y.to_numpy()).astype('float32'), \
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
+            self._dates[i:(i+self.sample_size)], \
             self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
     def preprocess(self, data_dir, png_dir, svg_dir):
@@ -715,13 +716,15 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
 
         # get total seasonality
         _sea_annual = p.get_params()['seasonalitydecompositor__sea_annual']
+        _sea_weekly = p.get_params()['seasonalitydecompositor__sea_weekly']
         _sea_hourly = p.get_params()['seasonalitydecompositor__sea_hourly']
 
         # filter by columns
         sea_annual = {k: v for k, v in _sea_annual.items() if k in cols}
+        sea_weekly = {k: v for k, v in _sea_weekly.items() if k in cols}
         sea_hourly = {k: v for k, v in _sea_hourly.items() if k in cols}
 
-        return sea_annual, sea_hourly
+        return sea_annual, sea_weekly, sea_hourly
 
     def plot_seasonality(self, data_dir, png_dir, svg_dir):
         p = self._scaler_Y.named_transformers_['num']
