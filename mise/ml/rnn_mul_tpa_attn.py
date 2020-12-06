@@ -64,8 +64,8 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
-    fast_dev_run = False
-    n_trials = 100
+    fast_dev_run = True
+    n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -557,15 +557,15 @@ class BaseTPAAttnModel(LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        x, x1d, y0, y, dates = batch
-        y_hat = self(x, y0, y)
-        _loss = self.loss(y_hat, y)
+        x, _x1d, _y0, _y, _y_raw, dates = batch
+        _y_hat = self(x, _y0, _y)
+        _loss = self.loss(_y_hat, _y)
 
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
@@ -593,15 +593,15 @@ class BaseTPAAttnModel(LightningModule):
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
-        x, x1d, y0, y, dates = batch
-        y_hat = self(x, y0, y)
+        x, _x1d, _y0, _y, _y_raw, dates = batch
+        _y_hat = self(x, _y0, _y)
+        _loss = self.loss(_y_hat, _y)
 
-        _loss = self.loss(y, y_hat)
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
@@ -629,20 +629,25 @@ class BaseTPAAttnModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, x1d, y0, y, dates = batch
-        y_hat = self(x, y0, y)
+        x, _x1d, _y0, _y, _y_raw, dates = batch
 
-        _loss = self.loss(y, y_hat)
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        _y_hat = self(x, _y0, _y)
+        _loss = self.loss(_y, _y_hat)
+
+        # transformed y might be smoothed
+        y = _y.detach().cpu().clone().numpy()
+        y_raw = _y_raw.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+
+        _mae = mean_absolute_error(y_raw, y_hat_inv)
+        _mse = mean_squared_error(y_raw, y_hat_inv)
+        _r2 = r2_score(y_raw, y_hat_inv)
 
         return {
             'loss': _loss,
-            'obs': y,
-            'sim': y_hat,
+            'obs': y_raw,
+            'sim': y_hat_inv,
             'dates': dates,
             'metric': {
                 'MSE': _mse,
@@ -705,15 +710,25 @@ class BaseTPAAttnModel(LightningModule):
         # single batch to dataframe
         # dataframe that index is starting date
         values, indicies = [], []
+
         for _d, _y in zip(dates, ys):
-            values.append(_y.cpu().detach().numpy())
+            #values.append(_y.cpu().detach().numpy())
+            if isinstance(_y, torch.Tensor):
+                values.append(_y.cpu().detach().numpy())
+            elif isinstance(_y, np.ndarray):
+                values.append(_y)
+
             # just append single key date
             indicies.append(_d[0])
         _df_obs = pd.DataFrame(data=values, index=indicies, columns=cols)
 
         values, indicies = [], []
         for _d, _y_hat in zip(dates, y_hats):
-            values.append(_y_hat.cpu().detach().numpy())
+            if isinstance(_y_hat, torch.Tensor):
+                values.append(_y_hat.cpu().detach().numpy())
+            elif isinstance(_y_hat, np.ndarray):
+                values.append(_y_hat)
+
             # just append single key date
             indicies.append(_d[0])
         _df_sim = pd.DataFrame(data=values, index=indicies, columns=cols)
@@ -737,6 +752,9 @@ class BaseTPAAttnModel(LightningModule):
         train_valid_set.to_csv(
             self.data_dir / ("df_train_valid_set_" + self.target + ".csv"))
 
+        # fit & transform (standardization)
+        train_valid_set.preprocess()
+
         # split train/valid/test set
         train_len = int(len(train_valid_set) *
                         train_valid_set.train_valid_ratio)
@@ -752,7 +770,9 @@ class BaseTPAAttnModel(LightningModule):
             fdate=self.test_fdate,
             tdate=self.test_tdate,
             sample_size=self.sample_size,
-            output_size=self.output_size)
+            output_size=self.output_size,
+            scaler_X=train_valid_set.scaler_X,
+            scaler_Y=train_valid_set.scaler_Y)
         test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
 
         # assign to use in dataloaders
@@ -789,26 +809,29 @@ class BaseTPAAttnModel(LightningModule):
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
         data: list of tuple  (x, x1d, y0, y, dates).
-            - x: pandas DataFrame or numpy of shape (sample_size, num_features);
-            - x1d: pandas DataFrma or numpy of shape (sample_size)
+            - x: pandas DataFrame or numpy of shape (sample_size, num_features)
             - y0: scalar
-            - y: pandas DataFrame or numpy of shape (output_size);
-            - date: pandas DateTimeIndex of shape (output_size):
+            - y: pandas DataFrame or numpy of shape (output_size)
+            - y_raw: pandas DataFrame or numpy of shape (output_size)
+            - date: pandas DateTimeIndex of shape (output_size)
 
         Returns:
-            - xs: torch Tensor of shape (batch_size, sample_size, num_features);
-            - xs_1d: torch Tensor of shape (batch_size, sample_size);
-            - ys: torch Tensor of shape (batch_size, output_size);
+            - xs: torch Tensor of shape (batch_size, sample_size, num_features)
             - y0: torch scalar Tensor
-            - dates: pandas DateTimeIndex of shape (batch_size, output_size):
+            - ys: torch Tensor of shape (batch_size, output_size)
+            - y_raw: torch Tensor of shape (batch_size, output_size)
+            - dates: pandas DateTimeIndex of shape (batch_size, output_size)
         """
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, xs_1d, ys0, ys, dates = zip(*batch)
+        xs, xs_1d, ys0, ys, ys_raw, dates = zip(*batch)
 
-        return torch.as_tensor(xs), torch.as_tensor(xs_1d), \
-            torch.as_tensor(ys0), torch.as_tensor(ys), dates
+        return torch.as_tensor(xs), \
+            torch.as_tensor(xs_1d), \
+            torch.as_tensor(ys0), \
+            torch.as_tensor(ys_raw), \
+            torch.as_tensor(ys), dates
 
 
 def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
