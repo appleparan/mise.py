@@ -548,7 +548,39 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
 class MultivariateRNNDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self._df_raw = self._df.copy()
+        # 2D, in Univariate -> (row x 1)
         self._xs = self._df[self.features]
+        self._xs_raw = self._xs.copy()
+
+        # 1D
+        self._ys = self._df[self.target]
+        self._ys.name = self.target
+        # convert to DataFrame to apply ColumnTransformer easily
+        self._ys = self._ys.to_frame()
+        self._ys_raw = self._ys.copy()
+
+         # pipeline for regression data
+        numeric_pipeline_X = Pipeline(
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+
+        numeric_pipeline_Y = Pipeline(
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+
+        # Univariate -> only pipline needed
+        # Multivariate -> Need ColumnTransformer
+        preprocessor_X = ColumnTransformer(
+            transformers=[
+                ('num', numeric_pipeline_X, self.features)])
+
+        preprocessor_Y = ColumnTransformer(
+            transformers=[
+                ('num', numeric_pipeline_Y, [self.target])])
+
+        # univariate dataset only needs single pipeline
+        self._scaler_X = kwargs.get('scaler_X', preprocessor_X)
+        self._scaler_Y = kwargs.get('scaler_Y', preprocessor_Y)
 
     def __getitem__(self, i: int):
         """
@@ -566,16 +598,69 @@ class MultivariateRNNDataset(BaseDataset):
         # save initial input as target variable input at last step (single step)
         y0 = self._ys.iloc[i+self.sample_size-1]
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+        y_raw = self._ys_raw.iloc[(i+self.sample_size)
+            :(i+self.sample_size+self.output_size), :]
 
         # return X, Y, Y_dates
         return np.squeeze(x).to_numpy().astype('float32'), \
             np.squeeze(x_1d).to_numpy().astype('float32'), \
             y0.astype('float32'), \
             np.squeeze(y).astype('float32'), \
+            np.squeeze(y_raw).astype('float32'), \
             self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+
+    def preprocess(self):
+        """Transform by scaler
+        """
+        # compute seasonality
+        self._scaler_X.fit(self._xs)
+        self._scaler_Y.fit(self._ys, y=self._ys)
+
+        self.transform()
+
+    def transform(self):
+        self._xs = pd.DataFrame(data=self._scaler_X.transform(self._xs),
+                                index=self._xs.index, columns=self._xs.columns)
+        self._ys = pd.DataFrame(data=self._scaler_Y.transform(self._ys),
+                                index=self._ys.index, columns=self._ys.columns)
+
+    def inverse_transform(self, Ys: tuple, dates: tuple):
+        """transform accepts DataFrame, but output is always ndarray
+        so keep DataFrame structure
+
+        Args:
+            Ys(tuple): batched ndarray, the shape of each element is (output_size,)
+            dates(tuple): batched ndarray, the shape of each element is (output_size,)
+
+        Return
+            Yhats(tuple): batched DataFrames, the shape of each element is (output_size,)
+        """
+        # temporary DataFrame to pass dates
+        dfs = list(map(lambda b: pd.DataFrame(data=b[0], index=b[1], columns=[self.target]),
+                       zip(Ys, dates)))
+
+        # execute pipeline's inverse transform
+        # transform : (DataFrame) -> SeasonalityDecompositor (needs date) -> StandardScaler -> (ndarray)
+        # inverse_transform : (ndarray) -> StandardScaler -> (ndarray) -> (DataFrame) -> SeasonaltyDecompositor -> (ndarray)
+        _inv_transYs = tuple(map(lambda b:
+                                 np.squeeze(self._scaler_Y.named_transformers_['num'].inverse_transform(b)), dfs))
+
+        return _inv_transYs
 
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
+
+    @property
+    def scaler_X(self):
+        return self._scaler_X
+
+    @property
+    def scaler_Y(self):
+        return self._scaler_Y
+
+    @property
+    def ys(self):
+        return self._ys
 
 class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
