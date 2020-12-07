@@ -193,12 +193,15 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             fig.savefig(output_dir / "opt_history.png", format='png')
             fig.savefig(output_dir / "opt_history.svg", format='svg')
 
-            ax_pcoord = optmpl.plot_parallel_coordinate(
-                study, params=["hidCNN", "filter_size", "hidden_size"])
-            fig = ax_pcoord.get_figure()
-            fig.set_size_inches(12, 8)
-            fig.savefig(output_dir / "parallel_coord.png", format='png')
-            fig.savefig(output_dir / "parallel_coord.svg", format='svg')
+            try:
+                ax_pcoord = optmpl.plot_parallel_coordinate(
+                    study, params=['num_layers'])
+                fig = ax_pcoord.get_figure()
+                fig.set_size_inches(12, 8)
+                fig.savefig(output_dir / "parallel_coord.png", format='png')
+                fig.savefig(output_dir / "parallel_coord.svg", format='svg')
+            except ZeroDivisionError:
+                pass
 
             # set hparams with optmized value
             hparams.hidCNN = trial.params['hidCNN']
