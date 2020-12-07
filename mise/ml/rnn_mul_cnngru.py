@@ -195,7 +195,7 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
 
             try:
                 ax_pcoord = optmpl.plot_parallel_coordinate(
-                    study, params=['num_layers'])
+                    study, params=['filter_size', 'hidCNN', 'hidden_size'])
                 fig = ax_pcoord.get_figure()
                 fig.set_size_inches(12, 8)
                 fig.savefig(output_dir / "parallel_coord.png", format='png')
