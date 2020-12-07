@@ -20,6 +20,7 @@ import torch.nn.functional as F
 from torch.utils.data import random_split, DataLoader
 from torch.utils.data import RandomSampler, SequentialSampler, BatchSampler
 from torch.utils.tensorboard import SummaryWriter
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 import pytorch_lightning as pl
 from pytorch_lightning.core.lightning import LightningModule
@@ -38,8 +39,9 @@ from bokeh.io import export_png, export_svgs
 
 import matplotlib.pyplot as plt
 
-import data
+from data import load_imputed, MultivariateRNNDataset
 from constants import SEOUL_STATIONS, SEOULTZ
+import utils
 
 HOURLY_DATA_PATH = "/input/python/input_seoul_imputed_hourly_pandas.csv"
 DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
@@ -58,14 +60,16 @@ class MetricsCallback(Callback):
     def on_validation_end(self, trainer, pl_module):
         self.metrics.append(trainer.callback_metrics)
 
-def ml_rnn_mul_tpa_attn(station_name="종로구"):
-    print("Start Multivariate Temporal Pattern Attention(TPA) Model")
+def ml_mlp_mul_transformer_t2v(station_name="종로구"):
+    print("Start Multivariate Transformer + Time2Vec Model")
     targets = ["PM10", "PM25"]
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 100
+    #fast_dev_run = False
+    #n_trials = 2
 
     # Hyper parameter
     epoch_size = 500
@@ -84,6 +88,8 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
 
     train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                       "temp", "u", "v", "pres", "humid", "prep", "snow"]
+    train_features_aerosol = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",]
+    train_features_weather = ["temp", "u", "v", "pres", "humid", "prep", "snow"]
 
     for target in targets:
         print("Training " + target + "...")
@@ -94,7 +100,7 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/RNNTPAMultivariate/" +
+        output_dir = Path("/mnt/data/MLPTransformerT2VMultivariate/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
@@ -102,7 +108,7 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
 
         if not Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
             # load imputed result
-            _df_h = data.load_imputed(HOURLY_DATA_PATH)
+            _df_h = load_imputed(HOURLY_DATA_PATH)
             df_h = _df_h.query('stationCode == "' +
                                str(SEOUL_STATIONS[station_name]) + '"')
             df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
@@ -115,9 +121,10 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
             mode='auto')
 
         hparams = Namespace(
-            filter_size=3,
-            num_filters=32,
-            hidden_size=16,
+            nhead=16,
+            head_dim=128,
+            d_feedforward=256,
+            num_layers=3,
             learning_rate=learning_rate,
             batch_size=batch_size)
 
@@ -133,12 +140,14 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
                 os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss"
             )
 
-            model = BaseTPAAttnModel(trial=trial,
+            model = BaseTransformerModel(trial=trial,
                                      hparams=hparams,
                                      sample_size=sample_size,
                                      output_size=output_size,
                                      target=target,
                                      features=train_features,
+                                     features_aerosol=train_features_aerosol,
+                                     features_weather=train_features_weather,
                                      train_fdate=train_fdate, train_tdate=train_tdate,
                                      test_fdate=test_fdate, test_tdate=test_tdate,
                                      output_dir=output_dir)
@@ -197,7 +206,7 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
 
             try:
                 ax_pcoord = optmpl.plot_parallel_coordinate(
-                    study, params=['filter_size', 'num_filters', 'hidden_size'])
+                    study, params=['num_layers'])
                 fig = ax_pcoord.get_figure()
                 fig.set_size_inches(12, 8)
                 fig.savefig(output_dir / "parallel_coord.png", format='png')
@@ -206,15 +215,18 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
                 pass
 
             # set hparams with optmized value
-            hparams.num_filters = trial.params['num_filters']
-            hparams.hidden_size = trial.params['hidden_size']
-            hparams.filter_size = trial.params['filter_size']
+            hparams.nhead = trial.params['nhead']
+            hparams.head_dim = trial.params['head_dim']
+            hparams.d_feedforward = trial.params['d_feedforward']
+            hparams.num_layers = trial.params['num_layers']
 
-        model = BaseTPAAttnModel(hparams=hparams,
+        model = BaseTransformerModel(hparams=hparams,
                                  sample_size=sample_size,
                                  output_size=output_size,
                                  target=target,
                                  features=train_features,
+                                 features_aerosol=train_features_aerosol,
+                                 features_weather=train_features_weather,
                                  train_fdate=train_fdate, train_tdate=train_tdate,
                                  test_fdate=test_fdate, test_tdate=test_tdate,
                                  output_dir=output_dir)
@@ -235,213 +247,94 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
         trainer.test()
 
 
-class EncoderRNN(nn.Module):
+class EmbeddingLayer(nn.Module):
+    """Embedding Time Series by Learnable Linear Projection
     """
-    Encoder, but not same as Seq2Seq's
-    Map data to hidden represeentation.
-    """
-
-    def __init__(self, input_size, hidden_size):
+    def __init__(self, input_size, embed_size):
         super().__init__()
-        self.hidden_size = hidden_size
-        self.embedding = nn.Linear(input_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
+        self.input_size = input_size
+        self.embed_size = embed_size
 
-    def forward(self, _input):
-        """
+        # Nonlinear term : on-periodic patterns depends on time
+        # frequency of sine function
+        self.W = nn.Linear(self.input_size, self.embed_size)
+        # phase-shift of sine function
+        self.b = nn.Linear(self.input_size, self.embed_size)
 
-        Args:
-            _input: tensor containing the features of the input sequence.
-                input_size == feature_size
-                [batch_size, sample_size, input_size]
-
-        Return:
-            outputs: tensor containing the output features h_t from the last layer of the GRU
-                [sample_size, batch_size, num_directions*hidden_size]
-            hidden: hidden state of last sequence (when t = batch_size)
-                [num_layers * num_direction, batch_size, hidden_size]
-        """
-        # no embedding
-        # _input: [batch_size, sample_size, input_size(=len(features))]
-        batch_size = _input.size(0)
-        sample_size = _input.size(1)
-        feature_size = _input.size(2)
-
-        #outputs, hidden = self.gru(_input)
-        H = torch.zeros(batch_size, sample_size-1, self.hidden_size).to(device)
-        for t in range(sample_size - 1):
-            xconcat = self.embedding(_input[:, t, :])
-            _, h = self.gru(xconcat.unsqueeze(1))
-            H[:, t, :] = h.squeeze(0)
-
-        # apply gru last step
-        _, h_last = self.gru(self.embedding(_input[:, -1, :]).unsqueeze(1))
-
-        # outputs: [sample_size, batch_size, num_directions*hidden_size]
-        # hidden: [num_layers * num_direction, batch_size, hidden_size]
-        return H, h_last
+    def forward(self, x):
+        # 1 <= i <= k, parallel computation by matrix
+        return torch.matmul(x, self.W) + self.b
 
 
-class Attention(nn.Module):
-    """ Attention Layer (Luong Attention)
-    Use Global Attention with general score function
+class Time2Vec(nn.Module):
+    """Encode time information
 
-    Args:
-        hidden_size
+    phi and omega has k + 1 elements per each time step
+    so, from input (batch_size, sample_size) will be
+    ouptut (batch_size, sample_size, embed_size)
 
-    Reference:
-        * http://www.phontron.com/class/nn4nlp2017/assets/slides/nn4nlp-09-attention.pdf
+    Reference
+    * https://arxiv.org/abs/1907.05321
+    * https://github.com/ojus1/Time2Vec-PyTorch
     """
-
-    def __init__(self, hidden_size, num_filters, filter_size):
+    def __init__(self, input_size, embed_size):
         super().__init__()
-        # input: previous hidden state of decoder +
-        #   hidden state of encoder
-        # output: attention vector; length of source sentence
-        # RNN hidden size, hidRNN
-        self.hidden_size = hidden_size
-        # number of CNN filter, num_filters
-        self.num_filters = num_filters
-        # filter_size, same as kernel_size[1]
-        self.filter_size = filter_size
-        # attn_feature_size for attention layer, because there is no padding
-        self.attn_feature_size = hidden_size - filter_size + 1
-        # must be positive
-        assert self.attn_feature_size > 0
+        self.input_size = input_size
+        self.embed_size = embed_size
 
-        self.attn = nn.Linear(hidden_size, num_filters)
+        self.lin = nn.Linear(self.input_size, 1)
+        self.nonlin = nn.Linear(self.input_size, self.embed_size - 1)
 
-    def forward(self, query, values):
+        # activation
+        self.F = lambda x: torch.sin(x)
+
+    def forward(self, x):
+        """Compute following equation
+
+        t2v(t)[i] = omega[i] * x[t] + phi[i] if i == 0
+        t2v(t)[i] = f(omega[i] * x[t] + phi[i]) if 1 <= i <= k
+
+        so, just applying Linear layer twice
+
+        x: (batch_size, feature_size, sample_size)
+        v1: (batch_size, feature_size, 1)
+        v2: (batch_size, feature_size, embed_size-1)
         """
-        Args:
-            query: single hidden state for querying its attention weights,
-                usually last hidden state
-                [num_layer*num_direction, batch_size, hidden_size
-            values:
-                convolution result of hidden states
-                [batch_size, num_filters, num_directions*attn_feature_size]
+        batch_size = x.size(0)
 
-        Returns
-            context: context vector for each sequence [batch_size, hidden_size]
-            attention_weights: attention weight for save [batch size, sample_size]
-        """
-        # query : [num_layer*num_direction, batch_size, hidden_size]
-        # in our model, num_directions always 1
-        # values : [batch_size, num_filters, attn_feature_size]
-        batch_size = values.shape[0]
-        num_filters = values.shape[1]
+        v1 = self.lin(x)
+        v2 = self.F(self.nonlin(x))
 
-        # query: (1, batch_size, num_filters)
-        # attention_weights: (batch_size, attn_feature_size)
-        # attention weights to each row
-        attention_weights = self.attn(query.squeeze(0))
-
-        # a: (batch_size, num_filters, self.attn_feature_size)
-        # H^c(values) * W * h_t(query)
-        a = attention_weights.unsqueeze(2).repeat(1, 1, self.attn_feature_size)
-        # attention score (alpha) to each row
-        # score: (batch_size, attn_feature_size)
-        # equation (11) -> (12) in TPA paper
-        # score should be scalar "to each row"
-        score = torch.sigmoid(torch.sum(values * a, 1))
-
-        # apply attention core to convonlution results
-        # equation (13) in TPA paper (v_t)
-        # \sum{\alpha * H_c}
-        # context: (batch_size, num_filters)
-        context = torch.sum(score.unsqueeze(1).repeat(
-            1, num_filters, 1) * values, dim=2)
-
-        # context : [batch_size, num_filters]
-        # attention_weights : [batch size, num_filters]
-        return context, attention_weights
+        return torch.cat([v1, v2], dim=2)
 
 
-class DecoderRNN(nn.Module):
+class TransformerEncoderBatchNormLayer(nn.TransformerEncoderLayer):
+    r"""
+    Use BatchNorm instead of LayerNorm
     """
-    Decoder, but not same as Seq2Seq's
+    def __init__(self, d_model, nhead, dim_features=13, dim_feedforward=2048, dropout=0.1, activation="relu"):
+        super().__init__(d_model, nhead, \
+            dim_feedforward=dim_feedforward, dropout=dropout, activation=activation)
 
-    input is last hidden state of Encoder
+        # apply BatchNorm over C, computing statistics of (N, L) when input is (N, C, L)
+        # Our input: (batch_size, feature_size, d_model) = (N, C, L)
+        # this will normalize batch by column-wise
+        self.norm1 = nn.BatchNorm1d(dim_features)
+        self.norm2 = nn.BatchNorm1d(dim_features)
 
-    # Reference
-    * https://arxiv.org/abs/1409.3215
-    * https://arxiv.org/abs/1406.1078
-    * https://github.com/bentrevett/pytorch-seq2seq
-    * https://arxiv.org/abs/1502.04681
+
+class BaseTransformerModel(LightningModule):
     """
-
-    def __init__(self, hidden_size, num_filters, output_size, attention):
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.num_filters = num_filters
-        self.output_size = output_size
-        self.attention = attention
-
-        # no embedding -> GRU input size is 1
-        self.gru = nn.GRU(hidden_size + num_filters,
-                          hidden_size, batch_first=True)
-        self.out = nn.Linear(hidden_size + num_filters, hidden_size)
-
-    def forward(self, hidden, encoder_outputs):
-        """
-        Args:
-            x: x is a decoder input for single step, so shape must be (batch_size, 1)
-            hidden: previous hidden state of the decoder, and doesn't affect by batch_first
-                (num_layers * num_directions, batch, hidden_size)
-            encoder_outputs: outputs of encoder for context (batch_size, sample_size-1, num_directions*attn_hidden_size)
-
-        Returns:
-            prediction: output for this step and input for next step,
-            hidden: hidden state for next step
-
-        # Reference
-        * https://github.com/bentrevett/pytorch-seq2seq
-        * https://www.tensorflow.org/tutorials/text/nmt_with_attention
-        * https://pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html
-
-        """
-        # context : [batch_size, num_filters]
-        # attention_weights : [batch size, num_filters]
-        # context is always composed of new hidden state and same encoder_outputs over sequences
-        context, a = self.attention(hidden, encoder_outputs)
-
-        # every output needs ATTENTION!, now I just use feedforward network to combine
-        # attention_vector : (batch_size, hidden_size + num_filters)
-        # attention_vector.unsqueeze(1) : [batch_size, 1, hidden_size + num_filters]
-        # equation (14) in TPA paper
-        attention_vector = torch.cat((context, hidden.squeeze(0)), dim=1)
-        # hidden : [num_layers * num_directions, batch_size, hidden_size]
-
-        # self.out has indepedent weights for W_h and W_v
-        # equation (15) in TPA
-        # x: (batch_size, 1)
-        # attention_vector: (batch_size, num_filters)
-        # prediction: (batch size, hidden-size)
-        prediction = self.out(attention_vector)
-
-        # prediction: [batch size, hidden_size]
-        # current hidden state is a input of next step's hidden state
-        # hidden : [num_layers * num_directions, batch_size, hidden_size]
-        return prediction, hidden
-
-class BaseTPAAttnModel(LightningModule):
-    """
-    Temporal Pattern Attention model
+    Temporal Pattern Attention Seasonality Embedding model
     """
     def __init__(self, **kwargs):
         super().__init__()
-        # h_out = (h_in + 2 * padding[0] - dilation[0]*(kernel_size[0] - 1) - 1) / stride[0] + 1
-        # to make h_out == h_in, dilation[0] == 1, stride[0] == 1,
-        # 2*padding[0] + 1 = kernel_size[0]
-
-        # w_out = (w_in + 2 * padding[1] - dilation[1]*(kernel_size[1] - 1) - 1) / stride[1] + 1
-        # to make w_out == w_in, dilation[1] == 1, stride[1] == 1,
-        # 2*padding[1] + 1 = kernel_size[1]
 
         self.hparams = kwargs.get('hparams', Namespace(
-            num_filters=24,
-            hidden_size=16,
-            filter_size=1,
+            nhead=16,
+            head_dim=128,
+            d_feedforward=256,
+            num_layers=3,
             learning_rate=1e-3,
             batch_size=32
         ))
@@ -450,6 +343,10 @@ class BaseTPAAttnModel(LightningModule):
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                                                 "temp", "u", "v", "pres", "humid", "prep", "snow"])
+        self.features_aerosol = kwargs.get('features_aerosol',
+                                            ["SO2", "CO", "O3", "NO2", "PM10", "PM25"])
+        self.features_weather = kwargs.get('features_weather',
+                                            ["temp", "u", "v", "pres", "humid", "prep", "snow"])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
@@ -461,7 +358,7 @@ class BaseTPAAttnModel(LightningModule):
             2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
-            'output_dir', Path('/mnt/data/RNNTPAMultivariate/'))
+            'output_dir', Path('/mnt/data/MLPTransformerT2VMultivariate/'))
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.png_dir = kwargs.get(
@@ -479,14 +376,16 @@ class BaseTPAAttnModel(LightningModule):
         self.output_size = kwargs.get('output_size', 24)
 
         if self.trial:
-            self.hparams.filter_size = self.trial.suggest_int(
-                "filter_size", 1, 7, step=2)
-            self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 8, 256)
-            self.hparams.num_filters = self.trial.suggest_int(
-                "num_filters", 8, 256)
-        self.kernel_shape = (self.sample_size-1, self.hparams.filter_size)
-
+            self.hparams.head_dim = self.trial.suggest_int(
+                "head_dim", 8, 128, step=2)
+            self.hparams.nhead = self.trial.suggest_int(
+                "nhead", 1, 16)
+            self.hparams.d_feedforward = self.trial.suggest_int(
+                "d_feedforward", 128, 2048, step=2)
+            self.hparams.num_layers = self.trial.suggest_int(
+                "num_layers", 3, 8)
+            print(self.hparams)
+        self.d_model = self.hparams.nhead * self.hparams.head_dim
         self.loss = nn.MSELoss(reduction='mean')
 
         self._train_set = None
@@ -496,76 +395,79 @@ class BaseTPAAttnModel(LightningModule):
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
 
+        # Time2Vec
+        # embed sample_size -> d_model by column-wise
+        self.t2v = Time2Vec(self.sample_size, self.d_model)
+
+        # method in A Transformer-based Framework for Multivariate Time Series Representation Learning
+        #self.embedding = EmbeddingLayer(self.sample_size, self.d_model)
+        # also needs positional Encoding
+
+        self.encoder_layer = TransformerEncoderBatchNormLayer(d_model=self.d_model,
+                                                              nhead=self.hparams.nhead,
+                                                              dim_features=len(self.features),
+                                                              dim_feedforward=self.hparams.d_feedforward,
+                                                              activation="gelu")
+        self.transformer_encoder = nn.TransformerEncoder(
+            self.encoder_layer, num_layers=self.hparams.num_layers)
+
+        self.outW = nn.Linear(len(self.features) * self.d_model, self.output_size)
+
         self.train_logs = {}
         self.valid_logs = {}
 
-        # kernel_size = 2*padding_size+1
-        # convolution filter to time array
-        #padding_size = (int((self.hparams.filter_size - 1)/2), 0)
-        # Time is horizontal axis
-        #padding_size = (0, int((self.hparams.filter_size - 1)/2))
-
-        # no padding
-        self.conv = nn.Conv2d(1, self.hparams.num_filters, self.kernel_shape)
-
-        self.encoder = EncoderRNN(
-            len(self.features), self.hparams.hidden_size)
-        self.attention = Attention(
-            self.hparams.hidden_size, self.hparams.num_filters, self.hparams.filter_size)
-        self.decoder = DecoderRNN(
-            self.hparams.hidden_size, self.hparams.num_filters, self.output_size, self.attention)
-        self.output = nn.Linear(self.hparams.hidden_size, self.output_size)
-
-    def forward(self, _x, y0, y):
+    def forward(self, x, y):
         """
         Args:
             _x  : Input feed to Encoder, shape is (batch_size, sample_size, feature_size)
             y0 : First step output feed to Decoder, shape is (batch_size, 1)
             y  : Output, shape is (batch_size, output_size)
+
+        Returns:
+            outputs: output tensor
+
+        Reference:
+            * https://arxiv.org/abs/2010.02803 :
+                A Transformer-based Framework for Multivariate Time Series Representation Learning
+            * https://arxiv.org/abs/1907.05321 :
+                Time2Vec: Learning a Vector Representation of Time
+            * https://arxiv.org/abs/2001.08317 :
+                Deep Transformer Models for Time Series Forecasting: The Influenza Prevalence Case
         """
-        batch_size = _x.shape[0]
-        sample_size = _x.shape[1]
-        feature_size = _x.shape[2]
+        batch_size = x.shape[0]
+        sample_size = x.shape[1]
+        feature_size = x.shape[2]
 
-        # first, encode RNN hidden state
-        encoder_outputs, encoder_hidden = self.encoder(_x)
+        # to apply transformer by column-wise
+        # x: (batch_size, sample_size, feature_size)
+        # x.permute(0,2,1): (batch_size, feature_size, sample_size)
+        # x_t2v: (batch_size, feature_size, d_model)
+        x_t2v = self.t2v(x.permute(0, 2, 1))
 
-        # encoder_outputs : (batch_size, sample_size-1, feature_size)
-        # x_rnn : (batch_size, sample_size-1, feature_size)
-        x_rnn = F.leaky_relu(encoder_outputs)
+        # then apply x_t2v (same as Positional Encoding) to TransformerEncoder
+        # u:  (batch_size, feature_size, d_model)
+        u = self.encoder_layer(x_t2v)
 
-        # CNN needs shape as NxC_inxHxW
-        # H : hidden_size
-        # W : sample_size-1
-        # x_rnn.unsqueeze(1): (batch_size, 1, sample_size-1, hidden_size)
-        # self.conv(x_rnn.unsqueeze(1)): (batch_size, num_filters, 1, hidden_size)
-        # x_cnn: (batch_size, num_filters, (hidden_size - kernel_size[0] + 1))
-        # NCHW
-        x_cnn = self.conv(x_rnn.unsqueeze(1)).squeeze(2)
+        # z: (batch_size, feature_size * d_model)
+        z = u.reshape(batch_size, feature_size * self.d_model)
 
-        # set input of decoder as last hidden state of encoder
-        # batch_first doesn't affect to hidden's size
-        # hidden: (1, batch_size, hidden_size)
-        hidden = encoder_hidden
+        # yhat: (batch_size, output_size)
+        yhat = self.outW(z)
 
-        # x_cnn: (batch_size, num_filters, attn_feature_size)
-        _outputs, _hidden = self.decoder(hidden, x_cnn)
-
-        # equation (15) in TPA paper
-        outputs = self.output(_outputs)
-
-        return outputs
+        return yhat
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        x, _x1d, _y0, _y, _y_raw, dates = batch
-        _y_hat = self(x, _y0, _y)
-        _loss = self.loss(_y_hat, _y)
+        x, x_1d, _y0, _y, _y_raw, dates = batch
+
+        _y_hat = self(x, _y)
+        _loss = self.loss(_y, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
+
         _mae = mean_absolute_error(y, y_hat)
         _mse = mean_squared_error(y, y_hat)
         _r2 = r2_score(y, y_hat)
@@ -596,12 +498,14 @@ class BaseTPAAttnModel(LightningModule):
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
-        x, _x1d, _y0, _y, _y_raw, dates = batch
-        _y_hat = self(x, _y0, _y)
-        _loss = self.loss(_y_hat, _y)
+        x, x_1d, _y0, _y, _y_raw, dates = batch
+
+        _y_hat = self(x, _y)
+        _loss = self.loss(_y, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
+
         _mae = mean_absolute_error(y, y_hat)
         _mse = mean_squared_error(y, y_hat)
         _r2 = r2_score(y, y_hat)
@@ -634,7 +538,7 @@ class BaseTPAAttnModel(LightningModule):
     def test_step(self, batch, batch_idx):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
-        _y_hat = self(x, _y0, _y)
+        _y_hat = self(x, _y)
         _loss = self.loss(_y, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
@@ -712,7 +616,6 @@ class BaseTPAAttnModel(LightningModule):
         # single batch to dataframe
         # dataframe that index is starting date
         values, indicies = [], []
-
         for _d, _y in zip(dates, ys):
             if isinstance(_y, torch.Tensor):
                 values.append(_y.cpu().detach().numpy())
@@ -736,9 +639,14 @@ class BaseTPAAttnModel(LightningModule):
 
         return _df_obs, _df_sim
 
-    def prepare_data(self):
+    def setup(self, stage=None):
+        """Data operations on every GPU
+        Wrong usage of LightningModule. Need to Refactored
+
+        * TODO : Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
+        """
         # create custom dataset
-        train_valid_set = data.MultivariateRNNDataset(
+        train_valid_set = MultivariateRNNDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
@@ -749,12 +657,17 @@ class BaseTPAAttnModel(LightningModule):
             output_size=self.output_size,
             train_valid_ratio=0.8)
 
+                # first mkdir of seasonality
+        Path.mkdir(self.png_dir / "seasonality", parents=True, exist_ok=True)
+        Path.mkdir(self.svg_dir / "seasonality", parents=True, exist_ok=True)
+        Path.mkdir(self.data_dir / "seasonality", parents=True, exist_ok=True)
+
+        # fit & transform (seasonality)
+        train_valid_set.preprocess()
+
         # save train/valid set
         train_valid_set.to_csv(
             self.data_dir / ("df_train_valid_set_" + self.target + ".csv"))
-
-        # fit & transform (standardization)
-        train_valid_set.preprocess()
 
         # split train/valid/test set
         train_len = int(len(train_valid_set) *
@@ -763,7 +676,7 @@ class BaseTPAAttnModel(LightningModule):
         train_set, valid_set = torch.utils.data.random_split(
             train_valid_set, [train_len, valid_len])
 
-        test_set = data.MultivariateRNNDataset(
+        test_set = MultivariateRNNDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
@@ -784,6 +697,8 @@ class BaseTPAAttnModel(LightningModule):
         self.train_sampler = RandomSampler(self.train_dataset)
         self.val_sampler = SequentialSampler(self.val_dataset)
         self.test_sampler = SequentialSampler(self.test_dataset)
+
+        print("Data Setup Completed")
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
@@ -810,29 +725,29 @@ class BaseTPAAttnModel(LightningModule):
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
         data: list of tuple  (x, x1d, y0, y, dates).
-            - x: pandas DataFrame or numpy of shape (sample_size, num_features)
+            - x: numpy of shape (sample_size, num_features);
             - y0: scalar
-            - y: pandas DataFrame or numpy of shape (output_size)
-            - y_raw: pandas DataFrame or numpy of shape (output_size)
-            - date: pandas DateTimeIndex of shape (output_size)
+            - y: numpy of shape (output_size);
+            - y_date: pandas DateTimeIndex of shape (output_size):
 
         Returns:
-            - xs: torch Tensor of shape (batch_size, sample_size, num_features)
+            - xs: torch Tensor of shape (batch_size, sample_size, num_features);
+            - xs_1d: torch Tensor of shape (batch_size, 1, num_features);
+            - ys: torch Tensor of shape (batch_size, output_size);
             - y0: torch scalar Tensor
-            - ys: torch Tensor of shape (batch_size, output_size)
-            - y_raw: torch Tensor of shape (batch_size, output_size)
-            - dates: pandas DateTimeIndex of shape (batch_size, output_size)
+            - dates: pandas DateTimeIndex of shape (batch_size, output_size):
         """
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, xs_1d, ys0, ys, ys_raw, dates = zip(*batch)
+        xs, xs_1d, ys0, ys, ys_raw, y_dates = zip(*batch)
 
         return torch.as_tensor(xs), \
             torch.as_tensor(xs_1d), \
             torch.as_tensor(ys0), \
+            torch.as_tensor(ys), \
             torch.as_tensor(ys_raw), \
-            torch.as_tensor(ys), dates
+            y_dates
 
 
 def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
