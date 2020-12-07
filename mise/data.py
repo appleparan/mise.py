@@ -614,7 +614,7 @@ class MultivariateRNNDataset(BaseDataset):
         """
         # compute seasonality
         self._scaler_X.fit(self._xs)
-        self._scaler_Y.fit(self._ys, y=self._ys)
+        self._scaler_Y.fit(self._ys)
 
         self.transform()
 
@@ -642,8 +642,8 @@ class MultivariateRNNDataset(BaseDataset):
         # execute pipeline's inverse transform
         # transform : (DataFrame) -> SeasonalityDecompositor (needs date) -> StandardScaler -> (ndarray)
         # inverse_transform : (ndarray) -> StandardScaler -> (ndarray) -> (DataFrame) -> SeasonaltyDecompositor -> (ndarray)
-        _inv_transYs = tuple(map(lambda b:
-                                 np.squeeze(self._scaler_Y.named_transformers_['num'].inverse_transform(b)), dfs))
+        _inv_transYs = tuple(map(lambda b: np.squeeze(
+                                    self._scaler_Y.named_transformers_['num'].inverse_transform(b)), dfs))
 
         return _inv_transYs
 

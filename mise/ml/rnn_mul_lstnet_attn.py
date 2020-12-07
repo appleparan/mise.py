@@ -65,6 +65,8 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 100
+    #fast_dev_run = True
+    #n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -772,6 +774,8 @@ class BaseLSTNetModel(LightningModule):
             scaler_X=train_valid_set.scaler_X,
             scaler_Y=train_valid_set.scaler_Y)
         test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
+
+        test_set.transform()
 
         # assign to use in dataloaders
         self.train_dataset = train_set

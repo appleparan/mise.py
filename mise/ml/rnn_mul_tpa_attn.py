@@ -516,7 +516,7 @@ class BaseTPAAttnModel(LightningModule):
             self.hparams.hidden_size, self.hparams.num_filters, self.output_size, self.attention)
         self.output = nn.Linear(self.hparams.hidden_size, self.output_size)
 
-    def forward(self, _x, y0, y):
+    def forward(self, _x):
         """
         Args:
             _x  : Input feed to Encoder, shape is (batch_size, sample_size, feature_size)
@@ -561,7 +561,8 @@ class BaseTPAAttnModel(LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, _x1d, _y0, _y, _y_raw, dates = batch
-        _y_hat = self(x, _y0, _y)
+
+        _y_hat = self(x)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
@@ -597,7 +598,8 @@ class BaseTPAAttnModel(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, _x1d, _y0, _y, _y_raw, dates = batch
-        _y_hat = self(x, _y0, _y)
+
+        _y_hat = self(x)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
@@ -634,7 +636,7 @@ class BaseTPAAttnModel(LightningModule):
     def test_step(self, batch, batch_idx):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
-        _y_hat = self(x, _y0, _y)
+        _y_hat = self(x)
         _loss = self.loss(_y, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
@@ -776,6 +778,8 @@ class BaseTPAAttnModel(LightningModule):
             scaler_Y=train_valid_set.scaler_Y)
         test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
 
+        test_set.transform()
+
         # assign to use in dataloaders
         self.train_dataset = train_set
         self.val_dataset = valid_set
@@ -831,8 +835,8 @@ class BaseTPAAttnModel(LightningModule):
         return torch.as_tensor(xs), \
             torch.as_tensor(xs_1d), \
             torch.as_tensor(ys0), \
-            torch.as_tensor(ys_raw), \
-            torch.as_tensor(ys), dates
+            torch.as_tensor(ys), \
+            torch.as_tensor(ys_raw), dates
 
 
 def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):

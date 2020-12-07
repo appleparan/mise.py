@@ -644,6 +644,8 @@ class BaseCNNGRUModel(LightningModule):
             scaler_Y=train_valid_set.scaler_Y)
         test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
 
+        test_set.transform()
+
         # assign to use in dataloaders
         self.train_dataset = train_set
         self.val_dataset = valid_set

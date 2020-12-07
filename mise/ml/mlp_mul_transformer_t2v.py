@@ -68,8 +68,6 @@ def ml_mlp_mul_transformer_t2v(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 100
-    #fast_dev_run = False
-    #n_trials = 2
 
     # Hyper parameter
     epoch_size = 500
@@ -416,7 +414,7 @@ class BaseTransformerModel(LightningModule):
         self.train_logs = {}
         self.valid_logs = {}
 
-    def forward(self, x, y):
+    def forward(self, x):
         """
         Args:
             _x  : Input feed to Encoder, shape is (batch_size, sample_size, feature_size)
@@ -462,7 +460,7 @@ class BaseTransformerModel(LightningModule):
     def training_step(self, batch, batch_idx):
         x, x_1d, _y0, _y, _y_raw, dates = batch
 
-        _y_hat = self(x, _y)
+        _y_hat = self(x)
         _loss = self.loss(_y, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
@@ -500,7 +498,7 @@ class BaseTransformerModel(LightningModule):
     def validation_step(self, batch, batch_idx):
         x, x_1d, _y0, _y, _y_raw, dates = batch
 
-        _y_hat = self(x, _y)
+        _y_hat = self(x)
         _loss = self.loss(_y, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
@@ -538,7 +536,7 @@ class BaseTransformerModel(LightningModule):
     def test_step(self, batch, batch_idx):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
-        _y_hat = self(x, _y)
+        _y_hat = self(x)
         _loss = self.loss(_y, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
@@ -688,6 +686,8 @@ class BaseTransformerModel(LightningModule):
             scaler_X=train_valid_set.scaler_X,
             scaler_Y=train_valid_set.scaler_Y)
         test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
+
+        test_set.transform()
 
         # assign to use in dataloaders
         self.train_dataset = train_set
