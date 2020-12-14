@@ -146,7 +146,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             # most basic trainer, uses good defaults
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
-                              min_epochs=1, max_epochs=35,
+                              min_epochs=1, max_epochs=20,
                               early_stop_callback=PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss"),
                               default_root_dir=output_dir,
@@ -163,9 +163,9 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
-            # timeout = 3600*5 = 5h
+            # timeout = 3600*6 = 21600 = 6h
             study.optimize(lambda trial: objective(
-                trial), n_trials=n_trials, timeout=18000)
+                trial), n_trials=n_trials, timeout=21600)
 
             trial = study.best_trial
 
