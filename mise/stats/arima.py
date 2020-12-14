@@ -47,6 +47,7 @@ def stats_arima(station_name = "종로구"):
 
     print("Data loading complete")
     targets = ["PM10", "PM25"]
+    orders = [(1, 0, 0), (1, 0, 1)]
     output_size = 24
     train_fdate = dt.datetime(2018, 1, 1, 0).astimezone(seoultz)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(seoultz)
@@ -56,60 +57,53 @@ def stats_arima(station_name = "종로구"):
     assert train_tdate + dt.timedelta(hours=1) == test_fdate
 
     for target in targets:
-        output_dir = Path('/mnt/data/ARIMA/' +
-                          station_name + "/" + target + "/")
-        png_dir = output_dir / Path('png/')
-        svg_dir = output_dir / Path('svg/')
-        data_dir = output_dir / Path('csv/')
-        Path.mkdir(data_dir, parents=True, exist_ok=True)
-        Path.mkdir(png_dir, parents=True, exist_ok=True)
-        Path.mkdir(svg_dir, parents=True, exist_ok=True)
-        norm_values, norm_maxlog = boxcox(df_h[target])
-        norm_target = "norm_" + target
+        for order in orders:
+            output_dir = Path('/mnt/data/ARIMA_' + str(order) + '/' +
+                            station_name + "/" + target + "/")
+            png_dir = output_dir / Path('png/')
+            svg_dir = output_dir / Path('svg/')
+            data_dir = output_dir / Path('csv/')
+            Path.mkdir(data_dir, parents=True, exist_ok=True)
+            Path.mkdir(png_dir, parents=True, exist_ok=True)
+            Path.mkdir(svg_dir, parents=True, exist_ok=True)
+            norm_values, norm_maxlog = boxcox(df_h[target])
+            norm_target = "norm_" + target
 
-        df_ta = df_h[[target]].copy()
-        df_ta[norm_target] = norm_values
+            df_ta = df_h[[target]].copy()
+            df_ta[norm_target] = norm_values
 
-        df_train = df_ta.loc[(df_ta.index.get_level_values(level='date') >= train_fdate) & \
-                          (df_ta.index.get_level_values(level='date') <= train_tdate)]
-        df_test = df_ta.loc[(df_ta.index.get_level_values(level='date') >= test_fdate) &
-                          (df_ta.index.get_level_values(level='date') <= test_tdate)]
+            df_train = df_ta.loc[(df_ta.index.get_level_values(level='date') >= train_fdate) & \
+                            (df_ta.index.get_level_values(level='date') <= train_tdate)]
+            df_test = df_ta.loc[(df_ta.index.get_level_values(level='date') >= test_fdate) &
+                            (df_ta.index.get_level_values(level='date') <= test_tdate)]
 
-        print("ACF analysis with " + target + "...")
-        # plot acf and pacf
-        nlags_acf = 24*10
-        _acf = acf(df_train[target], nlags=nlags_acf)
-        _pacf = pacf(df_train[target])
-        plot_acf(df_train[target], nlags_acf, _acf, _pacf, data_dir, png_dir, svg_dir)
+            print("ACF analysis with " + target + "...")
+            # plot acf and pacf
+            nlags_acf = 24*10
+            _acf = acf(df_train[target], nlags=nlags_acf)
+            _pacf = pacf(df_train[target])
+            plot_acf(df_train[target], nlags_acf, _acf, _pacf, data_dir, png_dir, svg_dir)
 
-        print("ARIMA with " + target + "...")
-        def run_arima(order):
-            df_obs = mw_df(df_ta, target, output_size,
-                        test_fdate, test_tdate)
-            df_sim = sim_arima(df_train, df_test,
-                               norm_target, order, test_fdate, test_tdate,
-                               norm_maxlog, output_size)
+            print("ARIMA " + str(order) + " of " + target + "...")
+            def run_arima(order):
+                df_obs = mw_df(df_ta, target, output_size,
+                            test_fdate, test_tdate)
+                df_sim = sim_arima(df_train, df_test,
+                                norm_target, order, test_fdate, test_tdate,
+                                norm_maxlog, output_size)
 
-            # join df
-            plot_arima(df_sim, df_obs, target, order, data_dir, png_dir, svg_dir, test_fdate,
-                       test_tdate, station_name, output_size)
-            # save to csv
-            csv_fname = "obs_arima(" + \
-                str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-                target + ".csv"
-            df_obs.to_csv(data_dir / csv_fname)
+                # join df
+                plot_arima(df_sim, df_obs, target, order, data_dir, png_dir, svg_dir, test_fdate,
+                        test_tdate, station_name, output_size)
+                # save to csv
+                csv_fname = "df_test_obs.csv"
+                df_obs.to_csv(data_dir / csv_fname)
 
-            csv_fname = "sim_arima(" + \
-                str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-                target + ".csv"
-            df_sim.to_csv(data_dir / csv_fname)
+                csv_fname = "df_test_sim.csv"
+                df_sim.to_csv(data_dir / csv_fname)
 
-        print("ARIMA(1, 0, 0)...")
-        run_arima((1, 0, 0))
-        #print("ARIMA(0, 0, 1)...")
-        #run_arima((0, 0, 1))
-        print("ARIMA(1, 0, 1)...")
-        run_arima((1, 0, 1))
+            print("ARIMA " + str(order) + " ...")
+            run_arima(order)
 
 
 def mw_df(df_org, target, output_size, fdate, tdate):
@@ -224,35 +218,26 @@ def plot_arima(df_sim, df_obs, target, order, data_dir, png_dir, svg_dir, _test_
         obs = _obs[str(t)].to_numpy()
         sim = _sim[str(t)].to_numpy()
 
-        scatter_fname = "scatter_arima(" + \
-            str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-            target + "_" + str(t).zfill(2) + "h"
+        scatter_fname = "scatter_" + str(t).zfill(2) + "h"
         plot_scatter(obs, sim, data_dir / Path(str(t).zfill(2)),
                      png_dir / Path(str(t).zfill(2)),
                      svg_dir / Path(str(t).zfill(2)), scatter_fname)
         # plot line
-        line_fname = "line_arima(" + \
-            str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-            target + "_" + str(t).zfill(2) + "h"
+        line_fname = "line_" + str(t).zfill(2) + "h"
         plot_dates = plot_line(obs, sim, test_fdate, test_tdate, target,
                                data_dir / Path(str(t).zfill(2)),
                                png_dir / Path(str(t).zfill(2)),
                                svg_dir / Path(str(t).zfill(2)), line_fname)
 
-        csv_fname = "data_arima(" + \
-            str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-            target + "_" + str(t).zfill(2) + "h.csv"
+        csv_fname = "data_" + str(t).zfill(2) + "h.csv"
         df_obs_sim = pd.DataFrame({'obs': obs, 'sim': sim}, index=plot_dates)
         df_obs_sim.to_csv(data_dir / Path(str(t).zfill(2)) / csv_fname)
 
         # np.corrcoef -> [[1.0, corr], [corr, 1]]
         corrs.append(np.corrcoef(obs, sim)[0, 1])
 
-    output_dir = dir_prefix
     # plot corr for all times
-    corr_fname = "corr_ARIMA_(" + \
-            str(order[0]) + ", " + str(order[1]) + ", " + str(order[2]) + ")_" + \
-            str(target)
+    corr_fname = "corr_time"
 
     plot_corr(times, corrs, data_dir, png_dir, svg_dir, corr_fname)
 

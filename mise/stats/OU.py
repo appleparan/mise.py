@@ -101,10 +101,10 @@ def stats_ou(station_name="종로구"):
             plot_OU(df_sim, df_obs, target, data_dir, png_dir, svg_dir, test_fdate,
                        test_tdate, station_name, output_size)
             # save to csv
-            csv_fname = "obs_OU_" + target + ".csv"
+            csv_fname = "df_test_obs.csv"
             df_obs.to_csv(data_dir / csv_fname)
 
-            csv_fname = "sim_OU_" + target + ".csv"
+            csv_fname = "df_test_sim.csv"
             df_sim.to_csv(data_dir / csv_fname)
 
         run_OU(intT)
