@@ -30,7 +30,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
-import optuna.visualization.matplotlib as optmpl
+import optuna.visualization as optv
 
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
@@ -64,7 +64,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 100
+    n_trials = 64
     #fast_dev_run = True
     #n_trials = 1
 
@@ -146,7 +146,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             # most basic trainer, uses good defaults
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
-                              min_epochs=1, max_epochs=15,
+                              min_epochs=1, max_epochs=50,
                               early_stop_callback=PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss"),
                               default_root_dir=output_dir,
@@ -162,11 +162,10 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             return metrics_callback.metrics[-1]["val_loss"].item()
 
         if n_trials > 1:
-            pruner = optuna.pruners.MedianPruner()
-
-            study = optuna.create_study(direction="minimize", pruner=pruner)
+            study = optuna.create_study(direction="minimize")
+            # timeout = 3600*5 = 5h
             study.optimize(lambda trial: objective(
-                trial), n_trials=n_trials, timeout=1800)
+                trial), n_trials=n_trials, timeout=18000)
 
             trial = study.best_trial
 
@@ -183,27 +182,48 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
                 print(dict_hparams, file=f)
 
             # plot optmization results
-            ax_edf = optmpl.plot_edf(study)
-            fig = ax_edf.get_figure()
-            fig.set_size_inches(12, 8)
-            fig.savefig(output_dir / "edf.png", format='png')
-            fig.savefig(output_dir / "edf.svg", format='svg')
+            fig_cont1 = optv.plot_contour(
+                study, params=['filter_size', 'hidCNN'])
+            fig_cont1.write_image(
+                str(output_dir / "contour_filter_size_hidCNN.png"))
+            fig_cont1.write_image(
+                str(output_dir / "contour_filter_size_hidCNN.svg"))
 
-            ax_his = optmpl.plot_optimization_history(study)
-            fig = ax_his.get_figure()
-            fig.set_size_inches(12, 8)
-            fig.savefig(output_dir / "opt_history.png", format='png')
-            fig.savefig(output_dir / "opt_history.svg", format='svg')
+            fig_cont2 = optv.plot_contour(
+                study, params=['hidCNN', 'hidden_size'])
+            fig_cont2.write_image(
+                str(output_dir / "contour_hidCNN_hidden_size.png"))
+            fig_cont2.write_image(
+                str(output_dir / "contour_hidCNN_hidden_size.svg"))
 
-            try:
-                ax_pcoord = optmpl.plot_parallel_coordinate(
-                    study, params=['filter_size', 'hidCNN', 'hidden_size'])
-                fig = ax_pcoord.get_figure()
-                fig.set_size_inches(12, 8)
-                fig.savefig(output_dir / "parallel_coord.png", format='png')
-                fig.savefig(output_dir / "parallel_coord.svg", format='svg')
-            except ZeroDivisionError:
-                pass
+            fig_cont3 = optv.plot_contour(
+                study, params=['filter_size', 'hidden_size'])
+            fig_cont3.write_image(
+                str(output_dir / "contour_filter_size_hidden_size.png"))
+            fig_cont3.write_image(
+                str(output_dir / "contour_filter_size_hidden_size.svg"))
+
+            fig_edf = optv.plot_edf(study)
+            fig_edf.write_image(str(output_dir / "edf.png"))
+            fig_edf.write_image(str(output_dir / "edf.svg"))
+
+            fig_iv = optv.plot_intermediate_values(study)
+            fig_iv.write_image(str(output_dir / "intermediate_values.png"))
+            fig_iv.write_image(str(output_dir / "intermediate_values.svg"))
+
+            fig_his = optv.plot_optimization_history(study)
+            fig_his.write_image(str(output_dir / "opt_history.png"))
+            fig_his.write_image(str(output_dir / "opt_history.svg"))
+
+            fig_pcoord = optv.plot_parallel_coordinate(
+                study, params=['filter_size', 'hidCNN', 'hidden_size'])
+            fig_pcoord.write_image(str(output_dir / "parallel_coord.png"))
+            fig_pcoord.write_image(str(output_dir / "parallel_coord.svg"))
+
+            fig_slice = optv.plot_slice(
+                study, params=['filter_size', 'hidCNN', 'hidden_size'])
+            fig_slice.write_image(str(output_dir / "slice.png"))
+            fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
             hparams.hidCNN = trial.params['hidCNN']
@@ -469,9 +489,9 @@ class BaseLSTNetModel(LightningModule):
             self.hparams.filter_size = self.trial.suggest_int(
                 "filter_size", 1, 7, step=2)
             self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 8, 256)
+                "hidden_size", 8, 256, log=True)
             self.hparams.hidCNN = self.trial.suggest_int(
-                "hidCNN", 8, 256)
+                "hidCNN", 8, 256, log=True)
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 
         self.loss = nn.MSELoss(reduction='mean')
