@@ -17,6 +17,7 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.tsatools import detrend
 from sklearn import preprocessing
 
+import bokeh
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
 from bokeh.io import export_png, export_svgs
@@ -1197,9 +1198,9 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         # annual (pick 1 year)
         dt1 = dt.datetime(year=target_year, month=1, day=1, hour=0)
         dt2 = dt.datetime(year=target_year, month=12, day=31, hour=23)
-        year_range = pd.date_range(start=dt1, end=dt2, tz=SEOULTZ).tolist()
+        year_range = pd.date_range(start=dt1, end=dt2, freq='D', tz=SEOULTZ).tolist()
         year_range_plt = pd.DatetimeIndex([i.replace(tzinfo=None) for i in pd.date_range(
-            start=dt1, end=dt2, tz=SEOULTZ)])
+            start=dt1, end=dt2, freq='D', tz=SEOULTZ)])
 
         # if not smoothing, just use predecomposed seasonality
         ys = [self.sea_annual[target][self.ydt2key(y)] for y in year_range]
@@ -1232,10 +1233,10 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         p1.xaxis.axis_label = "dates"
         p1.toolbar.logo = None
         p1.toolbar_location = None
-        p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                   months="%m/%d %H:%M",
-                                                   hours="%m/%d %H:%M",
-                                                   minutes="%m/%d %H:%M")
+        p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                   months="%b",
+                                                   hours="%H:%M")
+        p1.xaxis.ticker = bokeh.models.DatetimeTicker()
         p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2)
         export_png(p1, filename=png_path)
         p1.output_backend = "svg"
@@ -1253,10 +1254,10 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
             p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                   months="%b",
+                                                   hours="%H:%M")
+            p1.xaxis.ticker = bokeh.models.DatetimeTicker()
             p1.line(year_range_plt, ys_smooth, line_color="dodgerblue", line_width=2)
             export_png(p1, filename=png_path)
             p1.output_backend = "svg"
@@ -1273,10 +1274,10 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
             p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                   months="%b",
+                                                   hours="%H:%M")
+            p1.xaxis.ticker = bokeh.models.DatetimeTicker()
             p1.line(year_range_plt, ys_vanilla, line_color="dodgerblue", line_width=2)
             export_png(p1, filename=png_path)
             p1.output_backend = "svg"
@@ -1293,10 +1294,10 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
             p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                       months="%b",
+                                                       hours="%H:%M")
+            p1.xaxis.ticker = bokeh.models.DatetimeTicker()
             p1.line(year_range_plt, ys_smooth, line_color="dodgerblue",
                     line_width=2, legend_label="smooth")
             p1.line(year_range_plt, ys_vanilla, line_color="lightcoral",
@@ -1378,7 +1379,7 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         week_range = pd.date_range(
             start=dt1, end=dt2, freq='D', tz=SEOULTZ).tolist()
         week_range_plt = pd.DatetimeIndex([i.replace(tzinfo=None) for i in pd.date_range(
-            start=dt1, end=dt2, tz=SEOULTZ)])
+            start=dt1, end=dt2, freq='D', tz=SEOULTZ)])
 
         # Compute Weekly seasonality
         ws = [self.sea_weekly[target][self.wdt2key(w)] for w in week_range]
@@ -1402,8 +1403,8 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         p2.toolbar.logo = None
         p2.toolbar_location = None
         p2.xaxis.axis_label = "day"
-        p2.xaxis.formatter = DatetimeTickFormatter(
-            days="%a")
+        p2.xaxis.formatter = DatetimeTickFormatter(days="%a")
+        p2.xaxis.ticker = bokeh.models.DaysTicker(days=[w.day for w in week_range_plt])
         p2.line(week_range_plt, ws, line_color="dodgerblue", line_width=2)
         export_png(p2, filename=png_path)
         p2.output_backend = "svg"
@@ -1505,6 +1506,7 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         p3.toolbar_location = None
         p3.xaxis.axis_label = "hour"
         p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
+        p3.xaxis.ticker = bokeh.models.DatetimeTicker()
         p3.line(hour_range_plt, hs, line_color="dodgerblue", line_width=2)
         export_png(p3, filename=png_path)
         p3.output_backend = "svg"
@@ -2005,9 +2007,10 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
         # annual (pick 1 year)
         dt1 = dt.datetime(year=target_year, month=1, day=1, hour=0)
         dt2 = dt.datetime(year=target_year, month=12, day=31, hour=23)
-        year_range = pd.date_range(start=dt1, end=dt2, tz=SEOULTZ).tolist()
+        year_range = pd.date_range(
+            start=dt1, end=dt2, freq='D', tz=SEOULTZ).tolist()
         year_range_plt = pd.DatetimeIndex([i.replace(tzinfo=None) for i in pd.date_range(
-            start=dt1, end=dt2, tz=SEOULTZ)])
+            start=dt1, end=dt2, freq='D', tz=SEOULTZ)])
 
         # if not smoothing, just use predecomposed seasonality
         ys = [self.sea_annual[target][self.ydt2key(y)] for y in year_range]
@@ -2044,10 +2047,10 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
         p1.xaxis.axis_label = "dates"
         p1.toolbar.logo = None
         p1.toolbar_location = None
-        p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                   months="%m/%d %H:%M",
-                                                   hours="%m/%d %H:%M",
-                                                   minutes="%m/%d %H:%M")
+        p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                   months="%b",
+                                                   hours="%H:%M")
+        p1.xaxis.ticker = bokeh.models.DatetimeTicker()
         p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2)
         export_png(p1, filename=png_path)
         p1.output_backend = "svg"
@@ -2065,10 +2068,10 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
             p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                       months="%b",
+                                                       hours="%H:%M")
+            p1.xaxis.ticker = bokeh.models.DatetimeTicker()
             p1.line(year_range_plt, ys_smooth,
                     line_color="dodgerblue", line_width=2)
             export_png(p1, filename=png_path)
@@ -2086,10 +2089,10 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
             p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                   months="%b",
+                                                   hours="%H:%M")
+            p1.xaxis.ticker = bokeh.models.DatetimeTicker()
             p1.line(year_range_plt, ys_vanilla,
                     line_color="dodgerblue", line_width=2)
             export_png(p1, filename=png_path)
@@ -2107,10 +2110,10 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
             p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                   months="%b",
+                                                   hours="%H:%M")
+            p1.xaxis.ticker = bokeh.models.DatetimeTicker()
             p1.line(year_range_plt, ys_smooth, line_color="dodgerblue",
                     line_width=2, legend_label="smooth")
             p1.line(year_range_plt, ys_vanilla, line_color="lightcoral",
@@ -2213,7 +2216,8 @@ class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
         p3.toolbar.logo = None
         p3.toolbar_location = None
         p3.xaxis.axis_label = "hour"
-        p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
+        p3.xaxis.formatter = DatetimeTickFormatter(days="%H", hours="%H")
+        p3.xaxis.ticker = bokeh.models.DatetimeTicker()
         p3.line(hour_range_plt, hs, line_color="dodgerblue", line_width=2)
         export_png(p3, filename=png_path)
         p3.output_backend = "svg"
@@ -2657,7 +2661,8 @@ class SeasonalityDecompositor_HA(TransformerMixin, BaseEstimator):
         p3.toolbar.logo = None
         p3.toolbar_location = None
         p3.xaxis.axis_label = "dates"
-        p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
+        p3.xaxis.formatter = DatetimeTickFormatter(days="%H", hours="%H")
+        p3.xaxis.ticker = bokeh.models.DatetimeTicker()
         p3.line(hour_range_plt, hs, line_color="dodgerblue", line_width=2)
         export_png(p3, filename=png_path)
         p3.output_backend = "svg"
@@ -2730,9 +2735,9 @@ class SeasonalityDecompositor_HA(TransformerMixin, BaseEstimator):
         # annual (pick 1 year)
         dt1 = dt.datetime(year=target_year, month=1, day=1, hour=0)
         dt2 = dt.datetime(year=target_year, month=12, day=31, hour=23)
-        year_range = pd.date_range(start=dt1, end=dt2, tz=SEOULTZ).tolist()
+        year_range = pd.date_range(start=dt1, end=dt2, freq='D', tz=SEOULTZ).tolist()
         year_range_plt = pd.DatetimeIndex([i.replace(tzinfo=None) for i in pd.date_range(
-            start=dt1, end=dt2, tz=SEOULTZ)])
+            start=dt1, end=dt2, freq='D', tz=SEOULTZ)])
 
         # if not smoothing, just use predecomposed seasonality
         ys = [self.sea_annual[target][self.ydt2key(y)] for y in year_range]
@@ -2767,10 +2772,10 @@ class SeasonalityDecompositor_HA(TransformerMixin, BaseEstimator):
         p1.xaxis.axis_label = "dates"
         p1.toolbar.logo = None
         p1.toolbar_location = None
-        p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                   months="%m/%d %H:%M",
-                                                   hours="%m/%d %H:%M",
-                                                   minutes="%m/%d %H:%M")
+        p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                   months="%b",
+                                                   hours="%H:%M")
+        p1.xaxis.ticker = bokeh.models.DatetimeTicker()
         p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2)
         export_png(p1, filename=png_path)
         p1.output_backend = "svg"
@@ -2788,10 +2793,10 @@ class SeasonalityDecompositor_HA(TransformerMixin, BaseEstimator):
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
             p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                   months="%b",
+                                                   hours="%H:%M")
+            p1.xaxis.ticker = bokeh.models.DatetimeTicker()
             p1.line(year_range_plt, ys_smooth,
                     line_color="dodgerblue", line_width=2)
             export_png(p1, filename=png_path)
@@ -2809,10 +2814,10 @@ class SeasonalityDecompositor_HA(TransformerMixin, BaseEstimator):
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
             p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                   months="%b",
+                                                   hours="%H:%M")
+            p1.xaxis.ticker = bokeh.models.DatetimeTicker()
             p1.line(year_range_plt, ys_vanilla,
                     line_color="dodgerblue", line_width=2)
             export_png(p1, filename=png_path)
@@ -3271,10 +3276,10 @@ class SeasonalityDecompositor_A(TransformerMixin, BaseEstimator):
         p1.xaxis.axis_label = "dates"
         p1.toolbar.logo = None
         p1.toolbar_location = None
-        p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                   months="%m/%d %H:%M",
-                                                   hours="%m/%d %H:%M",
-                                                   minutes="%m/%d %H:%M")
+        p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                       months="%b",
+                                                       hours="%H:%M")
+        p1.xaxis.ticker = bokeh.models.DatetimeTicker()
         p1.line(year_range_plt, ys, line_color="dodgerblue", line_width=2)
         export_png(p1, filename=png_path)
         p1.output_backend = "svg"
@@ -3292,10 +3297,10 @@ class SeasonalityDecompositor_A(TransformerMixin, BaseEstimator):
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
             p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                       months="%b",
+                                                       hours="%H:%M")
+            p1.xaxis.ticker = bokeh.models.DatetimeTicker()
             p1.line(year_range_plt, ys_smooth,
                     line_color="dodgerblue", line_width=2)
             export_png(p1, filename=png_path)
@@ -3313,10 +3318,10 @@ class SeasonalityDecompositor_A(TransformerMixin, BaseEstimator):
             p1.xaxis.axis_label = "dates"
             p1.toolbar.logo = None
             p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
+            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d",
+                                                       months="%b",
+                                                       hours="%H:%M")
+            p1.xaxis.ticker = bokeh.models.DatetimeTicker()
             p1.line(year_range_plt, ys_vanilla,
                     line_color="dodgerblue", line_width=2)
             export_png(p1, filename=png_path)
@@ -3733,76 +3738,11 @@ class SeasonalityDecompositor_H(TransformerMixin, BaseEstimator):
         p3.toolbar_location = None
         p3.xaxis.axis_label = "hour"
         p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
+        p3.xaxis.ticker = bokeh.models.DatetimeTicker()
         p3.line(hour_range_plt, hs, line_color="dodgerblue", line_width=2)
         export_png(p3, filename=png_path)
         p3.output_backend = "svg"
         export_svgs(p3, filename=str(svg_path))
-
-        if smoothing:
-            # 1. smooth
-            png_path = png_dir / ("hourly_seasonality_(smooth)_" +
-                                  dt1.strftime("%Y%m%d%H") + "_" +
-                                  dt2.strftime("%Y%m%d%H") + ".png")
-            svg_path = svg_dir / ("hourly_seasonality_(smooth)_" +
-                                  dt1.strftime("%Y%m%d%H") + "_" +
-                                  dt2.strftime("%Y%m%d%H") + ".svg")
-            p1 = figure(title="Hourly Seasonality(Smooth)")
-            p1.xaxis.axis_label = "dates"
-            p1.toolbar.logo = None
-            p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
-            p1.line(hour_range_plt, hs_smooth,
-                    line_color="dodgerblue", line_width=2)
-            export_png(p1, filename=png_path)
-            p1.output_backend = "svg"
-            export_svgs(p1, filename=str(svg_path))
-
-            # 2. vanila
-            png_path = png_dir / ("hourly_seasonality_(vanilla)_" +
-                                  dt1.strftime("%Y%m%d%H") + "_" +
-                                  dt2.strftime("%Y%m%d%H") + ".png")
-            svg_path = svg_dir / ("hourly_seasonality_(vanilla)_" +
-                                  dt1.strftime("%Y%m%d%H") + "_" +
-                                  dt2.strftime("%Y%m%d%H") + ".svg")
-            p1 = figure(title="Hourly Seasonality(Raw)")
-            p1.xaxis.axis_label = "dates"
-            p1.toolbar.logo = None
-            p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
-            p1.line(hour_range_plt, hs_vanilla,
-                    line_color="dodgerblue", line_width=2)
-            export_png(p1, filename=png_path)
-            p1.output_backend = "svg"
-            export_svgs(p1, filename=str(svg_path))
-
-            # 3. smooth + vanila
-            png_path = png_dir / ("annual_seasonality_(both)_" +
-                                  dt1.strftime("%Y%m%d") + "_" +
-                                  dt2.strftime("%Y%m%d") + ".png")
-            svg_path = svg_dir / ("annual_seasonality_(both)_" +
-                                  dt1.strftime("%Y%m%d") + "_" +
-                                  dt2.strftime("%Y%m%d") + ".svg")
-            p1 = figure(title="Annual Seasonality(Smooth & Vanilla)")
-            p1.xaxis.axis_label = "dates"
-            p1.toolbar.logo = None
-            p1.toolbar_location = None
-            p1.xaxis.formatter = DatetimeTickFormatter(days="%m/%d %H:%M",
-                                                       months="%m/%d %H:%M",
-                                                       hours="%m/%d %H:%M",
-                                                       minutes="%m/%d %H:%M")
-            p1.line(hour_range_plt, hs_smooth, line_color="dodgerblue",
-                    line_width=2, legend_label="smooth")
-            p1.line(hour_range_plt, hs_vanilla, line_color="lightcoral",
-                    line_width=2, legend_label="vanilla")
-            export_png(p1, filename=png_path)
-            p1.output_backend = "svg"
-            export_svgs(p1, filename=str(svg_path))
 
     def plot_hourly_acf(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
                         target_year=2016, target_month=5, target_day=1, nlags=24*15):
