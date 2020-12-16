@@ -372,6 +372,9 @@ class BaseCNNGRUModel(LightningModule):
                 "hidCNN", 8, 512, log=True)
             self.hparams.hidden_size = self.trial.suggest_int(
                 "hidden_size", 8, 512, log=True)
+            print(self.hparams)
+            print("sample_size : ", sample_size)
+            print("output_size : ", output_size)
 
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 

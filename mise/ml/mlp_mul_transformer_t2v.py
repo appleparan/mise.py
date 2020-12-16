@@ -402,8 +402,11 @@ class BaseTransformerModel(LightningModule):
             self.hparams.d_feedforward = self.trial.suggest_int(
                 "d_feedforward", 128, 4096, log=True)
             self.hparams.num_layers = self.trial.suggest_int(
-                "num_layers", 3, 8)
+                "num_layers", 3, 12)
             print(self.hparams)
+            print("sample_size : ", sample_size)
+            print("output_size : ", output_size)
+
         self.d_model = self.hparams.nhead * self.hparams.head_dim
         self.loss = nn.MSELoss(reduction='mean')
 

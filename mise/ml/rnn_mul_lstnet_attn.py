@@ -493,6 +493,10 @@ class BaseLSTNetModel(LightningModule):
                 "hidden_size", 8, 256, log=True)
             self.hparams.hidCNN = self.trial.suggest_int(
                 "hidCNN", 8, 256, log=True)
+            print(self.hparams)
+            print("sample_size : ", sample_size)
+            print("output_size : ", output_size)
+
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 
         self.loss = nn.MSELoss(reduction='mean')

@@ -30,7 +30,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
-import optuna.visualization.matplotlib as optmpl
+import optuna.visualization as optv
 
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
@@ -60,11 +60,13 @@ class MetricsCallback(Callback):
 def ml_rnn_uni_attn(station_name="종로구"):
     print("Start Univariate Attention Model")
     targets = ["PM10", "PM25"]
+    # 24*14 = 336
+    #sample_size = 336
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 100
+    n_trials = 125
 
     # Hyper parameter
     epoch_size = 500
@@ -93,7 +95,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/RNNAttentionUnivariate/" +
+        output_dir = Path("/mnt/data/RNNAttentionUnivariate_" + str(sample_size) + "/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
@@ -160,11 +162,10 @@ def ml_rnn_uni_attn(station_name="종로구"):
             return metrics_callback.metrics[-1]["val_loss"].item()
 
         if n_trials > 1:
-            pruner = optuna.pruners.MedianPruner()
-
-            study = optuna.create_study(direction="minimize", pruner=pruner)
+            study = optuna.create_study(direction="minimize")
+            # timeout = 3600*36 = 36h
             study.optimize(lambda trial: objective(
-                trial), n_trials=n_trials, timeout=1800)
+                trial), n_trials=n_trials, timeout=3600*36)
 
             trial = study.best_trial
 
@@ -181,24 +182,27 @@ def ml_rnn_uni_attn(station_name="종로구"):
                 print(dict_hparams, file=f)
 
             # plot optmization results
-            ax_edf = optmpl.plot_edf(study)
-            fig = ax_edf.get_figure()
-            fig.set_size_inches(12, 8)
-            fig.savefig(output_dir / "edf.png", format='png')
-            fig.savefig(output_dir / "edf.svg", format='svg')
+            fig_edf = optv.plot_edf(study)
+            fig_edf.write_image(str(output_dir / "edf.png"))
+            fig_edf.write_image(str(output_dir / "edf.svg"))
 
-            ax_his = optmpl.plot_optimization_history(study)
-            fig = ax_his.get_figure()
-            fig.set_size_inches(12, 8)
-            fig.savefig(output_dir / "opt_history.png", format='png')
-            fig.savefig(output_dir / "opt_history.svg", format='svg')
+            fig_iv = optv.plot_intermediate_values(study)
+            fig_iv.write_image(str(output_dir / "intermediate_values.png"))
+            fig_iv.write_image(str(output_dir / "intermediate_values.svg"))
 
-            ax_pcoord = optmpl.plot_parallel_coordinate(
-                study, params=["hidden_size"])
-            fig = ax_pcoord.get_figure()
-            fig.set_size_inches(12, 8)
-            fig.savefig(output_dir / "parallel_coord.png", format='png')
-            fig.savefig(output_dir / "parallel_coord.svg", format='svg')
+            fig_his = optv.plot_optimization_history(study)
+            fig_his.write_image(str(output_dir / "opt_history.png"))
+            fig_his.write_image(str(output_dir / "opt_history.svg"))
+
+            fig_pcoord = optv.plot_parallel_coordinate(
+                study, params=['hidden_size'])
+            fig_pcoord.write_image(str(output_dir / "parallel_coord.png"))
+            fig_pcoord.write_image(str(output_dir / "parallel_coord.svg"))
+
+            fig_slice = optv.plot_slice(
+                study, params=['hidden_size'])
+            fig_slice.write_image(str(output_dir / "slice.png"))
+            fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
             hparams.hidden_size = trial.params['hidden_size']
@@ -470,7 +474,10 @@ class BaseAttentionModel(LightningModule):
 
         if self.trial:
             self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 4, 256)
+                "hidden_size", 4, 512, log=True)
+            print(self.hparams)
+            print("sample_size : ", sample_size)
+            print("output_size : ", output_size)
 
         self.encoder = EncoderRNN(
             self.input_size, self.hparams.hidden_size)
