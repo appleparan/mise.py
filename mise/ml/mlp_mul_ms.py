@@ -29,7 +29,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
-import optuna.visualization.matplotlib as optmpl
+import optuna.visualization as optv
 
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
@@ -63,13 +63,15 @@ class MetricsCallback(Callback):
 def ml_mlp_mul_ms(station_name="종로구"):
     print("Start Multivariate MLP Mean Seasonality Decomposition Model")
     targets = ["PM10", "PM25"]
+    # 24*14 = 336
+    #sample_size = 336
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 100
+    n_trials = 125
     #fast_dev_run = True
-    #n_trials = 1
+    #n_trials = 3
 
     # Hyper parameter
     epoch_size = 500
@@ -99,7 +101,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/MLPMSMultivariate/" +
+        output_dir = Path("/mnt/data/MLPMSMultivariate_" + str(sample_size) + "/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
@@ -119,10 +121,13 @@ def ml_mlp_mul_ms(station_name="종로구"):
             verbose=True,
             mode='auto')
 
+        # num_layer == number of hidden layer
         hparams = Namespace(
             num_layers=1,
+            layer_size=128,
             learning_rate=learning_rate,
             batch_size=batch_size)
+
         # The default logger in PyTorch Lightning writes to event files to be consumed by
         # TensorBoard. We don't use any logger here as it requires us to implement several abstract
         # methods. Instead we setup a simple callback, that saves metrics from each validation step.
@@ -136,8 +141,8 @@ def ml_mlp_mul_ms(station_name="종로구"):
             )
 
             hparams = Namespace(
-                num_layers=2,
-                layer0_size=16,
+                num_layers=1,
+                layer_size=128,
                 learning_rate=learning_rate,
                 batch_size=batch_size)
 
@@ -158,7 +163,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
             # most basic trainer, uses good defaults
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
-                              min_epochs=1, max_epochs=15,
+                              min_epochs=1, max_epochs=20,
                               early_stop_callback=PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss"),
                               default_root_dir=output_dir,
@@ -174,11 +179,10 @@ def ml_mlp_mul_ms(station_name="종로구"):
             return metrics_callback.metrics[-1]["val_loss"].item()
 
         if n_trials > 1:
-            pruner = optuna.pruners.MedianPruner()
-
-            study = optuna.create_study(direction="minimize", pruner=pruner)
+            study = optuna.create_study(direction="minimize")
+            # timeout = 3600*36 = 36h
             study.optimize(lambda trial: objective(
-                trial), n_trials=n_trials, timeout=1800)
+                trial), n_trials=n_trials, timeout=3600*36)
 
             trial = study.best_trial
 
@@ -187,42 +191,48 @@ def ml_mlp_mul_ms(station_name="종로구"):
             print("  Params: ")
             for key, value in trial.params.items():
                 print("    {}: {}".format(key, value))
+            print("sample_size : ", sample_size)
+            print("output_size : ", output_size)
 
-            # plot optmization results
-            ax_edf = optmpl.plot_edf(study)
-            fig = ax_edf.get_figure()
-            fig.set_size_inches(12, 8)
-            fig.savefig(output_dir / "edf.png", format='png')
-            fig.savefig(output_dir / "edf.svg", format='svg')
-
-            ax_his = optmpl.plot_optimization_history(study)
-            fig = ax_his.get_figure()
-            fig.set_size_inches(12, 8)
-            fig.savefig(output_dir / "opt_history.png", format='png')
-            fig.savefig(output_dir / "opt_history.svg", format='svg')
-
-            try:
-                ax_pcoord = optmpl.plot_parallel_coordinate(
-                    study, params=['num_layers'])
-                fig = ax_pcoord.get_figure()
-                fig.set_size_inches(12, 8)
-                fig.savefig(output_dir / "parallel_coord.png", format='png')
-                fig.savefig(output_dir / "parallel_coord.svg", format='svg')
-            except ZeroDivisionError:
-                pass
-
-            dict_hparams = vars(hparams)
+            dict_hparams = copy.copy(vars(hparams))
             dict_hparams["sample_size"] = sample_size
             dict_hparams["output_size"] = output_size
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
+
+            # plot optmization results
+            fig_cont1 = optv.plot_contour(
+                study, params=['num_layers', 'layer_size'])
+            fig_cont1.write_image(
+                str(output_dir / "contour_num_layers_layer_size.png"))
+            fig_cont1.write_image(
+                str(output_dir / "contour_num_layers_layer_size.svg"))
+
+            fig_edf = optv.plot_edf(study)
+            fig_edf.write_image(str(output_dir / "edf.png"))
+            fig_edf.write_image(str(output_dir / "edf.svg"))
+
+            fig_iv = optv.plot_intermediate_values(study)
+            fig_iv.write_image(str(output_dir / "intermediate_values.png"))
+            fig_iv.write_image(str(output_dir / "intermediate_values.svg"))
+
+            fig_his = optv.plot_optimization_history(study)
+            fig_his.write_image(str(output_dir / "opt_history.png"))
+            fig_his.write_image(str(output_dir / "opt_history.svg"))
+
+            fig_pcoord = optv.plot_parallel_coordinate(
+                study, params=['num_layers', 'layer_size'])
+            fig_pcoord.write_image(str(output_dir / "parallel_coord.png"))
+            fig_pcoord.write_image(str(output_dir / "parallel_coord.svg"))
+
+            fig_slice = optv.plot_slice(
+                study, params=['num_layers', 'layer_size'])
+            fig_slice.write_image(str(output_dir / "slice.png"))
+            fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
             hparams.num_layers = trial.params['num_layers']
-            for l in range(hparams.num_layers - 1):
-                layer_name = "layer" + str(l) + "_size"
-                dict_hparams[layer_name] = trial.params[layer_name]
-
-            with open(output_dir / 'hparams.json', 'w') as f:
-                print(dict_hparams, file=f)
+            hparams.layer_size = trial.params['layer_size']
 
         model = BaseMLPModel(hparams=hparams,
                              input_size=sample_size * len(train_features),
@@ -299,34 +309,37 @@ class BaseMLPModel(LightningModule):
         self.input_size = kwargs.get('input_size', self.sample_size * len(self.features))
 
         # select layer sizes
+        # num_layer == number of hidden layer
         self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
             # if trial, there is no element of layer name such as "layer0_size"
             self.hparams.num_layers = self.trial.suggest_int(
                 "num_layers", 2, 8)
-            for l in range(self.hparams.num_layers - 1):
-                layer_szname = "layer" + str(l) + "_size"
-                layer_size = self.trial.suggest_int(layer_szname, 8, 512)
-                self.hparams.update({layer_szname:  layer_size})
-                self.layer_sizes.insert(len(self.layer_sizes)-1, layer_size)
-        else:
-            # if normal training,
-            # there must be a element named with layer number such as "layer0_size"
-            for l in range(self.hparams.num_layers - 1):
-                layer_szname = "layer" + str(l) + "_size"
-                self.layer_sizes.insert(len(self.layer_sizes) - 1,
-                                        self.hparams[layer_szname])
+            self.hparams.layer_size = self.trial.suggest_int(
+                "layer_size", 8, 1024, log=True)
 
-        assert len(self.layer_sizes) == self.hparams.num_layers + 1
-        # construct Layers from dynamic size
-        # if n_layers == 1 -> (in, out)
+        for l in range(self.hparams.num_layers):
+            # insert another layer_size to end of list of layer_size
+            # initial self.layer_sizes = [input_size, output_size]
+            self.layer_sizes.insert(
+                len(self.layer_sizes)-1, self.hparams.layer_size)
+
+        # because of input_size and output_size,
+        # total length of layer_sizes is num_layers + 2
+        # num_layer == number of hidden layer
+        assert len(self.layer_sizes) == self.hparams.num_layers + 2
+
+        # construct Layers
+        # if n_layers == 0 -> (in, out)
         # if n_layers > 1 -> (in, tmp0), (tmp0, tmp2), ..., (tmpN, out)
         # layer size are pair from slef.layer_sizes
         self.linears = nn.ModuleList()
-        for i in range(self.hparams.num_layers):
+        for i in range(self.hparams.num_layers + 1):
             self.linears.append(
                 nn.Linear(self.layer_sizes[i], self.layer_sizes[i + 1]))
+        print("Linear Layers :")
         print(self.linears)
+
         self.dropout = nn.Dropout(p=0.2)
         self.loss = nn.MSELoss(reduction='mean')
 
