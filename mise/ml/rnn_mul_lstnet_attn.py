@@ -175,6 +175,8 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             print("  Params: ")
             for key, value in trial.params.items():
                 print("    {}: {}".format(key, value))
+            print("sample_size : ", sample_size)
+            print("output_size : ", output_size)
 
             dict_hparams = copy.copy(vars(hparams))
             dict_hparams["sample_size"] = sample_size
@@ -493,9 +495,6 @@ class BaseLSTNetModel(LightningModule):
                 "hidden_size", 8, 256, log=True)
             self.hparams.hidCNN = self.trial.suggest_int(
                 "hidCNN", 8, 256, log=True)
-            print(self.hparams)
-            print("sample_size : ", sample_size)
-            print("output_size : ", output_size)
 
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 

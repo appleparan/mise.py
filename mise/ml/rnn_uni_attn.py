@@ -174,6 +174,8 @@ def ml_rnn_uni_attn(station_name="종로구"):
             print("  Params: ")
             for key, value in trial.params.items():
                 print("    {}: {}".format(key, value))
+            print("sample_size : ", sample_size)
+            print("output_size : ", output_size)
 
             dict_hparams = copy.copy(vars(hparams))
             dict_hparams["sample_size"] = sample_size
@@ -475,9 +477,6 @@ class BaseAttentionModel(LightningModule):
         if self.trial:
             self.hparams.hidden_size = self.trial.suggest_int(
                 "hidden_size", 4, 512, log=True)
-            print(self.hparams)
-            print("sample_size : ", sample_size)
-            print("output_size : ", output_size)
 
         self.encoder = EncoderRNN(
             self.input_size, self.hparams.hidden_size)
