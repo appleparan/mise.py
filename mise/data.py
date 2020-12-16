@@ -1505,7 +1505,7 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         p3.toolbar.logo = None
         p3.toolbar_location = None
         p3.xaxis.axis_label = "hour"
-        p3.xaxis.formatter = DatetimeTickFormatter(hours="%H")
+        p3.xaxis.formatter = DatetimeTickFormatter(days="%H", hours="%H")
         p3.xaxis.ticker = bokeh.models.DatetimeTicker()
         p3.line(hour_range_plt, hs, line_color="dodgerblue", line_width=2)
         export_png(p3, filename=png_path)
