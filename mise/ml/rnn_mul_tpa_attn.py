@@ -61,11 +61,12 @@ class MetricsCallback(Callback):
 def ml_rnn_mul_tpa_attn(station_name="종로구"):
     print("Start Multivariate Temporal Pattern Attention(TPA) Model")
     targets = ["PM10", "PM25"]
-    sample_size = 48
+    # 24*14 = 336
+    sample_size = 336
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 64
+    n_trials = 125
 
     # Hyper parameter
     epoch_size = 500
@@ -94,7 +95,7 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/RNNTPAMultivariate/" +
+        output_dir = Path("/mnt/data/RNNTPAMultivariate_" + str(sample_size) + "/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
@@ -163,9 +164,9 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
-            # timeout = 3600*6 = 21600 = 6h
+            # timeout = 3600*36 = 36h
             study.optimize(lambda trial: objective(
-                trial), n_trials=n_trials, timeout=21600)
+                trial), n_trials=n_trials, timeout=3600*36)
 
             trial = study.best_trial
 
@@ -216,12 +217,12 @@ def ml_rnn_mul_tpa_attn(station_name="종로구"):
             fig_his.write_image(str(output_dir / "opt_history.svg"))
 
             fig_pcoord = optv.plot_parallel_coordinate(
-                study, params=['filter_size', 'hidCNN', 'hidden_size'])
+                study, params=['num_filters', 'filter_size', 'hidden_size'])
             fig_pcoord.write_image(str(output_dir / "parallel_coord.png"))
             fig_pcoord.write_image(str(output_dir / "parallel_coord.svg"))
 
             fig_slice = optv.plot_slice(
-                study, params=['filter_size', 'hidCNN', 'hidden_size'])
+                study, params=['num_filters', 'filter_size', 'hidden_size'])
             fig_slice.write_image(str(output_dir / "slice.png"))
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
