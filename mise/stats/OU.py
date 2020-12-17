@@ -16,6 +16,11 @@ from statsmodels.tsa.stattools import acf, pacf
 from statsmodels.tsa.tsatools import detrend
 import tqdm
 
+from sklearn.preprocessing import StandardScaler
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline, make_pipeline
+
 from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
 from bokeh.io import export_png, export_svgs
@@ -49,11 +54,11 @@ def stats_ou(station_name="종로구"):
     print("Data loading complete")
     targets = ["PM10", "PM25"]
     intT = {
-        "PM10": 39.883,
-        "PM25": 46.003
+        "PM10": 8.73062775,
+        "PM25": 8.636373132
     }
     output_size = 24
-    train_fdate = dt.datetime(2018, 1, 1, 0).astimezone(seoultz)
+    train_fdate = dt.datetime(2017, 12, 1, 0).astimezone(seoultz)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(seoultz)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(seoultz)
     test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(seoultz)
@@ -69,33 +74,32 @@ def stats_ou(station_name="종로구"):
         Path.mkdir(data_dir, parents=True, exist_ok=True)
         Path.mkdir(png_dir, parents=True, exist_ok=True)
         Path.mkdir(svg_dir, parents=True, exist_ok=True)
-        norm_values, norm_maxlog = boxcox(df_h[target])
-        norm_target = "norm_" + target
 
-        df_ta = df_h[[target]].copy()
-        df_ta[norm_target] = norm_values
+        numeric_pipeline_X = Pipeline(
+            [('seasonalitydecompositor', data.SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05))])
 
-        df_train = df_ta.loc[(df_ta.index.get_level_values(level='date') >= train_fdate) &
-                             (df_ta.index.get_level_values(level='date') <= train_tdate)]
-        df_test = df_ta.loc[(df_ta.index.get_level_values(level='date') >= test_fdate) &
-                            (df_ta.index.get_level_values(level='date') <= test_tdate)]
+        scaler = ColumnTransformer(
+            transformers=[
+                ('num', numeric_pipeline_X, [target])])
 
-        print("ACF analysis with " + target + "...")
-        # plot acf and pacf
-        nlags_acf = 24*10
-        _acf = acf(df_train[target], nlags=nlags_acf)
-        _pacf = pacf(df_train[target])
-        plot_acf(df_train[target], nlags_acf, _acf,
-                 _pacf, data_dir, png_dir, svg_dir)
+        df_ta = df_h[[target]].copy().droplevel('stationCode')
+        scaler.fit(df_ta)
+        df_ta_norm = pd.DataFrame(data=scaler.transform(df_ta),
+                                  index=df_ta.index, columns=df_ta.columns)
 
-        print("Simluate by Ornstein–Uhlenbeck process for " + target + "...")
+        df_train = df_ta_norm.loc[train_fdate:train_tdate, :]
+        df_test = df_ta_norm.loc[test_fdate:test_tdate, :]
+
+        print("Simulate by Ornstein–Uhlenbeck process for " + target + "...")
 
         def run_OU(_intT):
             df_obs = mw_df(df_ta, target, output_size,
                            test_fdate, test_tdate)
-            df_sim = sim_OU(df_train, df_test,
-                            norm_target, _intT[target], test_fdate, test_tdate,
-                               norm_maxlog, output_size)
+            dates = df_obs.index
+            df_sim = sim_OU(df_train, df_test, dates, target, \
+                            _intT[target], scaler, output_size)
+
+            assert df_obs.shape == df_sim.shape
 
             # join df
             plot_OU(df_sim, df_obs, target, data_dir, png_dir, svg_dir, test_fdate,
@@ -114,59 +118,42 @@ def mw_df(df_org, target, output_size, fdate, tdate):
     """
     moving window
     """
-    # get indices from df_sim
-    df = df_org[(df_org.index.get_level_values(level='date') >= fdate) &
-                (df_org.index.get_level_values(level='date') <= tdate)]
-    df.reset_index(level='stationCode', drop=True, inplace=True)
     cols = [str(i) for i in range(output_size)]
     df_obs = pd.DataFrame(columns=cols)
     _dict = {}
 
-    dates = [fdate + dt.timedelta(hours=x)
-             for x in range(len(df) - output_size + 1)]
-    values = np.zeros((len(dates), output_size), dtype=df[target].dtype)
-    assert len(dates) == len(df) - output_size + 1
+    df = df_org.loc[fdate:tdate, :]
+    cols = [str(t) for t in range(output_size)]
+    df_obs = pd.DataFrame(columns=cols)
+
+    values, indicies = [], []
 
     for i, (_index, _row) in enumerate(df.iterrows()):
         # findex ~ tindex = output_size
         findex = _index
         tindex = _index + dt.timedelta(hours=(output_size - 1))
-        if tindex > tdate:
+        if tindex > tdate - dt.timedelta(hours=output_size):
             break
-        _df = df[(df.index.get_level_values(level='date') >= findex) &
-                 (df.index.get_level_values(level='date') <= tindex)]
+        #print(findex, tindex)
+        _df = df.loc[findex:tindex, :]
 
-        # get observation value from original datafram and construct df_obs
-        value = _df[target].to_numpy()[:]
-        _date = _index
+        df_obs.loc[findex] = _df.to_numpy().reshape(-1)
 
-        assert dates[i] == _date
-        values[i, :] = value
-
-    df_obs = pd.DataFrame(data=values, index=dates, columns=cols)
     df_obs.index.name = 'date'
 
     return df_obs
 
 
-def sim_OU(_df_train, _df_test, target, intT, fdate, tdate, norm_maxlog, output_size):
+def sim_OU(df_train, df_test, dates, target, intT, scaler, output_size):
     # columns are offset to datetime
     cols = [str(i) for i in range(output_size)]
-    df_train = _df_train.reset_index(level='stationCode', drop=True)
-    df_test = _df_test.reset_index(level='stationCode', drop=True)
     df_sim = pd.DataFrame(columns=cols)
 
     # train -> initial data
-    detr_x = detrend(df_train[target], order=2)
-    endog = detr_x
+    endog = df_train[target]
     #endog = df_train[target].tolist()
     sz = len(endog)
-    duration = tdate - fdate
-    dates_hours = duration.days * 24 + duration.seconds // 3600
-    dates = [fdate + dt.timedelta(hours=x)
-             for x in range(dates_hours - output_size + 1)]
     values = np.zeros((len(dates), output_size), dtype=df_train[target].dtype)
-    assert len(dates) == dates_hours - output_size + 1
 
     for i, (index, row) in tqdm.tqdm(enumerate(df_test.iterrows()), total=len(dates)-1):
         if i > len(dates) - 1:
@@ -190,17 +177,19 @@ def sim_OU(_df_train, _df_test, target, intT, fdate, tdate, norm_maxlog, output_
             ys[t] = y + Theta * (mu - y) + sigma * dW[t]
             y = ys[t]
 
-        #out_raw, err_arr, conf_ints = model_fit.forecast(steps=output_size)
-        # recover box-cox transformation
-        value = [np.exp(np.log(norm_maxlog * o + 1.0) / norm_maxlog)
-                 for o in ys]
+        # inverse_transform
+        _dates = pd.date_range(
+            index, index + dt.timedelta(hours=(output_size - 1)), freq='1H')
+        value = scaler.named_transformers_['num'].inverse_transform(
+            pd.DataFrame(data=ys, index=_dates, columns=[target]))
 
         _date = index
         assert dates[i] == _date
-        values[i, :] = value
+        values[i, :] = value.squeeze()
 
     df_sim = pd.DataFrame(data=values, index=dates, columns=cols)
     df_sim.index.name = 'date'
+
     return df_sim
 
 
