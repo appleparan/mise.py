@@ -1,6 +1,6 @@
 import argparse
 
-from stats.arima import stats_arima
+from stats.ARIMA import stats_arima
 from stats.sarima import stats_sarima
 from stats.tbats import stats_tbats
 from stats.OU import stats_ou
