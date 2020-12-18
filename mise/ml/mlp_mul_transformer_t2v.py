@@ -68,7 +68,7 @@ def ml_mlp_mul_transformer_t2v(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 125
+    n_trials = 216
     #fast_dev_run = True
     #n_trials = 1
 
@@ -173,9 +173,9 @@ def ml_mlp_mul_transformer_t2v(station_name="종로구"):
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
-            # timeout = 3600*36 = 36h
+            # timeout = 3600*48 = 48h
             study.optimize(lambda trial: objective(
-                trial), n_trials=n_trials, timeout=3600*36)
+                trial), n_trials=n_trials, timeout=3600*48)
 
             trial = study.best_trial
 
