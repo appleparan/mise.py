@@ -69,6 +69,8 @@ def ml_mlp_mul_transformer_t2v(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 125
+    #fast_dev_run = True
+    #n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -416,7 +418,10 @@ class BaseTransformerModel(LightningModule):
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
 
-        # Time2Vec
+        # convert input vector to d_model
+        self.proj = nn.Linear(self.sample_size, self.d_model)
+
+        # use Time2Vec instead of positional encoding
         # embed sample_size -> d_model by column-wise
         self.t2v = Time2Vec(self.sample_size, self.d_model)
 
@@ -429,7 +434,7 @@ class BaseTransformerModel(LightningModule):
                                                               dim_features=len(self.features),
                                                               dim_feedforward=self.hparams.d_feedforward,
                                                               activation="gelu")
-        self.transformer_encoder = nn.TransformerEncoder(
+        self.encoder = nn.TransformerEncoder(
             self.encoder_layer, num_layers=self.hparams.num_layers)
 
         self.outW = nn.Linear(len(self.features) * self.d_model, self.output_size)
@@ -459,17 +464,21 @@ class BaseTransformerModel(LightningModule):
         sample_size = x.shape[1]
         feature_size = x.shape[2]
 
+        # section 3.1
         # to apply transformer by column-wise
         # x: (batch_size, sample_size, feature_size)
-        # x.permute(0,2,1): (batch_size, feature_size, sample_size)
+        # x.permute(0,2,1): (batch_size, feature_size, sample_size) d x m
         # x_t2v: (batch_size, feature_size, d_model)
         x_t2v = self.t2v(x.permute(0, 2, 1))
+        # u in paper
+        x_prj = self.proj(x.permute(0, 2, 1))
 
         # then apply x_t2v (same as Positional Encoding) to TransformerEncoder
-        # u:  (batch_size, feature_size, d_model)
-        u = self.encoder_layer(x_t2v)
+        # u: (batch_size, feature_size, d_model)
+        u = self.encoder(x_t2v + x_prj)
 
         # z: (batch_size, feature_size * d_model)
+        # section 3.3
         z = u.reshape(batch_size, feature_size * self.d_model)
 
         # yhat: (batch_size, output_size)
