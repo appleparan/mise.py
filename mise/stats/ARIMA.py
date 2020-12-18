@@ -150,6 +150,7 @@ def sim_arima(df_train, df_test, dates, target, order, scaler, output_size):
 
     # initial endog
     # train data -> initial endog
+    sz = len(df_train)
     index0 = df_test.index[0]
     endog = list(
         df_train.loc[index0-dt.timedelta(hours=len(df_train[target])):index0, target])
