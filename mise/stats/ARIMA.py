@@ -133,7 +133,7 @@ def mw_df(df_org, target, output_size, fdate, tdate):
         tindex = _index + dt.timedelta(hours=(output_size - 1))
         if tindex > tdate - dt.timedelta(hours=output_size):
             break
-        #print(findex, tindex)
+
         _df = df.loc[findex:tindex, :]
 
         df_obs.loc[findex] = _df.to_numpy().reshape(-1)
@@ -150,10 +150,9 @@ def sim_arima(df_train, df_test, dates, target, order, scaler, output_size):
 
     # initial endog
     # train data -> initial endog
-    sz = df_train[target]
-
     index0 = df_test.index[0]
-    endog = list(df_train.loc[index0-sz*index0.freq:index0, target])
+    endog = list(
+        df_train.loc[index0-dt.timedelta(hours=len(df_train[target])):index0, target])
 
     values = np.zeros((len(dates), output_size), dtype=df_train[target].dtype)
 

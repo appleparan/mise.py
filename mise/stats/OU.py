@@ -134,7 +134,7 @@ def mw_df(df_org, target, output_size, fdate, tdate):
         tindex = _index + dt.timedelta(hours=(output_size - 1))
         if tindex > tdate - dt.timedelta(hours=output_size):
             break
-        #print(findex, tindex)
+
         _df = df.loc[findex:tindex, :]
 
         df_obs.loc[findex] = _df.to_numpy().reshape(-1)
