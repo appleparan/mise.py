@@ -220,19 +220,18 @@ def plot_OU(df_sim, df_obs, target, data_dir, png_dir, svg_dir, _test_fdate, _te
         obs = _obs[str(t)].to_numpy()
         sim = _sim[str(t)].to_numpy()
 
-        scatter_fname = "scatter_OU_" + target + "_" + str(t).zfill(2) + "h"
+        scatter_fname = "scatter_" + str(t).zfill(2) + "h"
         plot_scatter(obs, sim, data_dir / Path(str(t).zfill(2)),
                      png_dir / Path(str(t).zfill(2)),
                      svg_dir / Path(str(t).zfill(2)), scatter_fname)
         # plot line
-        line_fname = "line_OU_" + target + "_" + str(t).zfill(2) + "h"
+        line_fname = "line_" + str(t).zfill(2) + "h"
         plot_dates = plot_line(obs, sim, test_fdate, test_tdate, target,
                                data_dir / Path(str(t).zfill(2)),
                                png_dir / Path(str(t).zfill(2)),
                                svg_dir / Path(str(t).zfill(2)), line_fname)
 
-        csv_fname = "data_OU_" + \
-            target + "_" + str(t).zfill(2) + "h.csv"
+        csv_fname = "data_" + str(t).zfill(2) + "h.csv"
         df_obs_sim = pd.DataFrame({'obs': obs, 'sim': sim}, index=plot_dates)
         df_obs_sim.to_csv(data_dir / Path(str(t).zfill(2)) / csv_fname)
 
@@ -241,7 +240,7 @@ def plot_OU(df_sim, df_obs, target, data_dir, png_dir, svg_dir, _test_fdate, _te
 
     output_dir = dir_prefix
     # plot corr for all times
-    corr_fname = "corr_OU_" + target
+    corr_fname = "corr_time"
 
     plot_corr(times, corrs, data_dir, png_dir, svg_dir, corr_fname)
 
