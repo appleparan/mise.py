@@ -792,7 +792,7 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         # inverse_transform : (ndarray) -> StandardScaler -> (ndarray) -> (DataFrame) -> SeasonaltyDecompositor -> (ndarray)
 
         _inv_transYs = tuple(map(lambda b: np.squeeze(
-            self._scaler_Y.inverse_transform(b)), dfs))
+            self._scaler_Y.named_transformers_['num'].inverse_transform(b)), dfs))
 
         return _inv_transYs
 
