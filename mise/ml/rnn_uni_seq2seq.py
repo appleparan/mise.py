@@ -128,7 +128,8 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
             # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
             # filenames match. Therefore, the filenames for each trial must be made unique.
             checkpoint_callback = pl.callbacks.ModelCheckpoint(
-                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss"
+                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss",
+                period=10
             )
 
             model = BaseSeq2SeqModel(trial=trial,
@@ -220,6 +221,11 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
                                  test_fdate=test_fdate, test_tdate=test_tdate,
                                  output_dir=output_dir)
 
+        checkpoint_callback = pl.callbacks.ModelCheckpoint(
+            os.path.join(model_dir, "train_{}".format(trial.number)), monitor="val_loss",
+            period=10
+        )
+
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                           precision=32,
@@ -228,7 +234,8 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
                           default_root_dir=output_dir,
                           fast_dev_run=fast_dev_run,
                           logger=model.logger,
-                          row_log_interval=10)
+                          row_log_interval=10,
+                          checkpoint_callback=checkpoint_callback)
 
         trainer.fit(model)
 

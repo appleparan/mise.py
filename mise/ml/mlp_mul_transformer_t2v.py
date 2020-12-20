@@ -39,7 +39,7 @@ from bokeh.io import export_png, export_svgs
 
 import matplotlib.pyplot as plt
 
-from data import load_imputed, MultivariateRNNDataset
+from data import load_imputed, MultivariateRNNDataset, MultivariateRNNMeanSeasonalityDataset
 from constants import SEOUL_STATIONS, SEOULTZ
 import utils
 
@@ -64,13 +64,13 @@ def ml_mlp_mul_transformer_t2v(station_name="종로구"):
     print("Start Multivariate Transformer + Time2Vec Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
-    sample_size = 336
+    sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 216
-    #fast_dev_run = True
-    #n_trials = 1
+    # fast_dev_run = True
+    # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -138,7 +138,8 @@ def ml_mlp_mul_transformer_t2v(station_name="종로구"):
             # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
             # filenames match. Therefore, the filenames for each trial must be made unique.
             checkpoint_callback = pl.callbacks.ModelCheckpoint(
-                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss"
+                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss",
+                period=10
             )
 
             model = BaseTransformerModel(trial=trial,
@@ -254,6 +255,11 @@ def ml_mlp_mul_transformer_t2v(station_name="종로구"):
                                  test_fdate=test_fdate, test_tdate=test_tdate,
                                  output_dir=output_dir)
 
+        checkpoint_callback = pl.callbacks.ModelCheckpoint(
+            os.path.join(model_dir, "train_{}".format(trial.number)), monitor="val_loss",
+            period=10
+        )
+
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                           precision=32,
@@ -262,7 +268,8 @@ def ml_mlp_mul_transformer_t2v(station_name="종로구"):
                           default_root_dir=output_dir,
                           fast_dev_run=fast_dev_run,
                           logger=model.logger,
-                          row_log_interval=10)
+                          row_log_interval=10,
+                          checkpoint_callback=checkpoint_callback)
 
         trainer.fit(model)
 
@@ -490,7 +497,10 @@ class BaseTransformerModel(LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        x, x_1d, _y0, _y, _y_raw, dates = batch
+        # without seasonality
+        x, _x1d, _y0, _y, _y_raw, y_dates = batch
+        # with seasonality
+        #x, _y0, _y, _y_raw, x_dates, y_dates = batch
 
         _y_hat = self(x)
         _loss = self.loss(_y, _y_hat)
@@ -528,7 +538,10 @@ class BaseTransformerModel(LightningModule):
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
-        x, x_1d, _y0, _y, _y_raw, dates = batch
+        # without seasonality
+        x, _x1d, _y0, _y, _y_raw, y_dates = batch
+        # with seasonality
+        #x, _y0, _y, _y_raw, x_dates, y_dates = batch
 
         _y_hat = self(x)
         _loss = self.loss(_y, _y_hat)
@@ -566,7 +579,10 @@ class BaseTransformerModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, _x1d, _y0, _y, _y_raw, dates = batch
+        # without seasonality
+        x, _x1d, _y0, _y, _y_raw, y_dates = batch
+        # with seasonality
+        #x, _y0, _y, _y_raw, x_dates, y_dates = batch
 
         _y_hat = self(x)
         _loss = self.loss(_y, _y_hat)
@@ -574,7 +590,7 @@ class BaseTransformerModel(LightningModule):
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, y_dates))
 
         _mae = mean_absolute_error(y_raw, y_hat_inv)
         _mse = mean_squared_error(y_raw, y_hat_inv)
@@ -584,7 +600,7 @@ class BaseTransformerModel(LightningModule):
             'loss': _loss,
             'obs': y_raw,
             'sim': y_hat_inv,
-            'dates': dates,
+            'dates': y_dates,
             'metric': {
                 'MSE': _mse,
                 'MAE': _mae,
@@ -687,13 +703,18 @@ class BaseTransformerModel(LightningModule):
             output_size=self.output_size,
             train_valid_ratio=0.8)
 
-                # first mkdir of seasonality
+        # first mkdir of seasonality
         Path.mkdir(self.png_dir / "seasonality", parents=True, exist_ok=True)
         Path.mkdir(self.svg_dir / "seasonality", parents=True, exist_ok=True)
         Path.mkdir(self.data_dir / "seasonality", parents=True, exist_ok=True)
 
         # fit & transform (seasonality)
+        # without seasonality
         train_valid_set.preprocess()
+        # with seasonality
+        # train_valid_set.preprocess(
+        #     self.data_dir / "seasonality", self.png_dir / "seasonality", self.svg_dir / "seasonality")
+
 
         # save train/valid set
         train_valid_set.to_csv(
@@ -769,9 +790,10 @@ class BaseTransformerModel(LightningModule):
             - y0: torch scalar Tensor
             - dates: pandas DateTimeIndex of shape (batch_size, output_size):
         """
-
+        # without seasonality
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
+        # MutlivariateRNNDataset
         xs, xs_1d, ys0, ys, ys_raw, y_dates = zip(*batch)
 
         return torch.as_tensor(xs), \
@@ -780,6 +802,16 @@ class BaseTransformerModel(LightningModule):
             torch.as_tensor(ys), \
             torch.as_tensor(ys_raw), \
             y_dates
+
+        # with seasonality
+        # MutlivariateRNNMeanSeasonalityDataset
+        # xs, ys0, ys, ys_raw, x_dates, y_dates = zip(*batch)
+
+        # return torch.as_tensor(xs), \
+        #     torch.as_tensor(ys0), \
+        #     torch.as_tensor(ys), \
+        #     torch.as_tensor(ys_raw), \
+        #     x_dates, y_dates
 
 
 def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
