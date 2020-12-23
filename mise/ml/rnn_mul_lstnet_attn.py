@@ -61,7 +61,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
     print("Start Multivariate LSTNet (Attention) Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
-    sample_size = 336
+    sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
@@ -179,12 +179,6 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             print("sample_size : ", sample_size)
             print("output_size : ", output_size)
 
-            dict_hparams = copy.copy(vars(hparams))
-            dict_hparams["sample_size"] = sample_size
-            dict_hparams["output_size"] = output_size
-            with open(output_dir / 'hparams.json', 'w') as f:
-                print(dict_hparams, file=f)
-
             # plot optmization results
             fig_cont1 = optv.plot_contour(
                 study, params=['filter_size', 'hidCNN'])
@@ -233,6 +227,12 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
             hparams.hidCNN = trial.params['hidCNN']
             hparams.hidden_size = trial.params['hidden_size']
             hparams.filter_size = trial.params['filter_size']
+
+            dict_hparams = copy.copy(vars(hparams))
+            dict_hparams["sample_size"] = sample_size
+            dict_hparams["output_size"] = output_size
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
 
         model = BaseLSTNetModel(hparams=hparams,
                                 sample_size=sample_size,

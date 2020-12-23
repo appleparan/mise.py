@@ -192,12 +192,6 @@ def ml_mlp_uni_ms(station_name="종로구"):
             print("sample_size : ", sample_size)
             print("output_size : ", output_size)
 
-            dict_hparams = copy.copy(vars(hparams))
-            dict_hparams["sample_size"] = sample_size
-            dict_hparams["output_size"] = output_size
-            with open(output_dir / 'hparams.json', 'w') as f:
-                print(dict_hparams, file=f)
-
             # plot optmization results
             fig_cont1 = optv.plot_contour(
                 study, params=['num_layers', 'layer_size'])
@@ -231,6 +225,12 @@ def ml_mlp_uni_ms(station_name="종로구"):
             # set hparams with optmized value
             hparams.num_layers = trial.params['num_layers']
             hparams.layer_size = trial.params['layer_size']
+
+            dict_hparams = copy.copy(vars(hparams))
+            dict_hparams["sample_size"] = sample_size
+            dict_hparams["output_size"] = output_size
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
 
         model = BaseMLPModel(hparams=hparams,
                              input_size=sample_size,

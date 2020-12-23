@@ -178,12 +178,6 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
             print("sample_size : ", sample_size)
             print("output_size : ", output_size)
 
-            dict_hparams = copy.copy(vars(hparams))
-            dict_hparams["sample_size"] = sample_size
-            dict_hparams["output_size"] = output_size
-            with open(output_dir / 'hparams.json', 'w') as f:
-                print(dict_hparams, file=f)
-
             # plot optmization results
             fig_edf = optv.plot_edf(study)
             fig_edf.write_image(str(output_dir / "edf.png"))
@@ -209,6 +203,12 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
 
             # set hparams with optmized value
             hparams.hidden_size = trial.params['hidden_size']
+
+            dict_hparams = copy.copy(vars(hparams))
+            dict_hparams["sample_size"] = sample_size
+            dict_hparams["output_size"] = output_size
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
 
         model = BaseSeq2SeqModel(hparams=hparams,
                                  input_size=1,

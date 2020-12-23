@@ -177,11 +177,6 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
             print("sample_size : ", sample_size)
             print("output_size : ", output_size)
 
-            dict_hparams = copy.copy(vars(hparams))
-            dict_hparams["sample_size"] = sample_size
-            dict_hparams["output_size"] = output_size
-            with open(output_dir / 'hparams.json', 'w') as f:
-                print(dict_hparams, file=f)
 
             # plot optmization results
             fig_cont1 = optv.plot_contour(
@@ -227,6 +222,12 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
             hparams.hidCNN = trial.params['hidCNN']
             hparams.filter_size = trial.params['filter_size']
             hparams.hidden_size = trial.params['hidden_size']
+
+            dict_hparams = copy.copy(vars(hparams))
+            dict_hparams["sample_size"] = sample_size
+            dict_hparams["output_size"] = output_size
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
 
         model = BaseCNNGRUModel(hparams=hparams,
                                 sample_size=sample_size,

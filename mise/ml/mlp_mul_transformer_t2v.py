@@ -188,12 +188,6 @@ def ml_mlp_mul_transformer_t2v(station_name="종로구"):
             print("sample_size : ", sample_size)
             print("output_size : ", output_size)
 
-            dict_hparams = copy.copy(vars(hparams))
-            dict_hparams["sample_size"] = sample_size
-            dict_hparams["output_size"] = output_size
-            with open(output_dir / 'hparams.json', 'w') as f:
-                print(dict_hparams, file=f)
-
             # plot optmization results
             fig_cont1 = optv.plot_contour(
                 study, params=['nhead', 'head_dim'])
@@ -243,6 +237,12 @@ def ml_mlp_mul_transformer_t2v(station_name="종로구"):
             hparams.head_dim = trial.params['head_dim']
             hparams.d_feedforward = trial.params['d_feedforward']
             hparams.num_layers = trial.params['num_layers']
+
+            dict_hparams = copy.copy(vars(hparams))
+            dict_hparams["sample_size"] = sample_size
+            dict_hparams["output_size"] = output_size
+            with open(output_dir / 'hparams.json', 'w') as f:
+                print(dict_hparams, file=f)
 
         model = BaseTransformerModel(hparams=hparams,
                                  sample_size=sample_size,
