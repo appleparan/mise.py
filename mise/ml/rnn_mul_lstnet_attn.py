@@ -240,7 +240,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
                                 target=target,
                                 features=train_features,
                                 train_fdate=train_fdate, train_tdate=train_tdate,
-                                # test_fdate=test_fdate, test_tdate=test_tdate,
+                                test_fdate=test_fdate, test_tdate=test_tdate,
                                 output_dir=output_dir)
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
