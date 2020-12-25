@@ -499,9 +499,9 @@ class BaseLSTNetModel(LightningModule):
             self.hparams.filter_size = self.trial.suggest_int(
                 "filter_size", 1, 7, step=2)
             self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 8, 256, log=True)
+                "hidden_size", 8, 1024)
             self.hparams.hidCNN = self.trial.suggest_int(
-                "hidCNN", 8, 256, log=True)
+                "hidCNN", 8, 1024)
 
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 

@@ -321,9 +321,9 @@ class BaseMLPModel(LightningModule):
         if self.trial:
             # if trial, there is no element of layer name such as "layer0_size"
             self.hparams.num_layers = self.trial.suggest_int(
-                "num_layers", 2, 8)
+                "num_layers", 2, 16)
             self.hparams.layer_size = self.trial.suggest_int(
-                "layer_size", 8, 1024, log=True)
+                "layer_size", 8, 1024)
 
         for l in range(self.hparams.num_layers):
             # insert another layer_size to end of list of layer_size

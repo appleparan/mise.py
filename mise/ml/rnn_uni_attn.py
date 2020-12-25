@@ -483,7 +483,7 @@ class BaseAttentionModel(LightningModule):
 
         if self.trial:
             self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 4, 512, log=True)
+                "hidden_size", 8, 1024)
 
         self.encoder = EncoderRNN(
             self.input_size, self.hparams.hidden_size)
