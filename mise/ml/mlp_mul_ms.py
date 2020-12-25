@@ -249,7 +249,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
                              output_dir=output_dir)
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            os.path.join(model_dir, "train_{}".format(trial.number)), monitor="val_loss",
+            os.path.join(model_dir, "train"), monitor="val_loss",
             period=10
         )
 

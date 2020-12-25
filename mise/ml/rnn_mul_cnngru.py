@@ -60,7 +60,7 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
     print("Start Multivariate CNN-GRU Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
-    sample_size = 336
+    sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
@@ -240,7 +240,7 @@ def ml_rnn_mul_cnngru(station_name="종로구"):
                                 output_dir=output_dir)
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            os.path.join(model_dir, "train_{}".format(trial.number)), monitor="val_loss",
+            os.path.join(model_dir, "train"), monitor="val_loss",
             period=10
         )
 
