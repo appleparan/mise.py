@@ -66,8 +66,8 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 216
-    #fast_dev_run = True
-    #n_trials = 1
+    # fast_dev_run = True
+    # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -389,14 +389,13 @@ class DecoderRNN(nn.Module):
         self.output_size = output_size
         self.attention = attention
 
-        # no embedding -> GRU input size is 1
-        self.gru = nn.GRU(hidden_size + 1, hidden_size, batch_first=True)
-        self.out = nn.Linear(hidden_size, 1)
+        self.proj = nn.Linear(hidden_size + hidden_size, hidden_size)
+        self.out = nn.Linear(hidden_size, output_size)
 
-    def forward(self, x, hidden, encoder_outputs):
+    def forward(self, inp, hidden, encoder_outputs):
         """
         Args:
-            x: x is a decoder input for single step, so shape must be (batch_size, 1)
+            inp: inp is a decoder input, shape is (batch_size, hidden_size)
             hidden: previous hidden state of the decoder, and doesn't affect by batch_first
                 (num_layers * num_directions, batch, hidden_size)
             encoder_outputs: outputs of encoder for context (batch_size, sample_size, num_directions*hidden_size)
@@ -412,33 +411,28 @@ class DecoderRNN(nn.Module):
 
         """
         # context = [batch_size, hidden_size]
-        # attention_weights = [batch size, sample_size]
+        # a(attention_weights) = [batch size, sample_size]
         # context is always composed of new hidden state and same encoder_outputs over sequences
         context, a = self.attention(hidden, encoder_outputs)
 
-        # every output needs ATTENTION!, so concat precomputed context vector
-        # x: [batch_size, 1]
-        # context: [batch_size, hidden_size]
-        # attention_vector: [batch_size, hidden_size + 1]
-        attention_vector = torch.cat((x, context), dim=1)
+        # every input needs ATTENTION!, so concat precomputed context vector with input
+        # inp: (batch_size, hidden_size)
+        # context: (batch_size, hidden_size)
+        # hidden :
+        # attention_vector: [batch_size, hidden_size + hidden_size]
+        attention_vector = torch.cat((context, hidden.squeeze(0)), dim=1)
 
-        # apply rnn(GRU) to attention_vector
-        # GRU input must be [batch_size, seq_len, hidden_size], because batch_first=True
-        # seq_len for Decoder is just 1
-        # attention_vector.unsqueeze(1) : [batch_size, 1, hidden_size + 1]
-        # hidden : [num_layers * num_directions, batch_size, hidden_size]
-        output, hidden = self.gru(attention_vector.unsqueeze(1), hidden)
+        # combine attention to input,
+        # attention_vector: [batch_size, hidden_size]
 
-        # decoders's seq_len is 1
-        # so output and hidden must be same
-        #assert output.size() == hidden.size()
+        # final output is not decoder of seq2seq
+        # concatenation of context vector and last window hidden state
+        # then linear projection operation
+        # section 3.5 in LSTNet Paper
+        output = self.proj(attention_vector)
 
-        # prediction: [batch size, 1]
-        prediction = self.out(torch.sigmoid(output)).squeeze(2)
+        prediction = self.out(torch.softmax(output, dim=1))
 
-        # prediction: [batch size, 1]
-        # current hidden state is a input of next step's hidden state
-        # hidden : [num_layers * num_directions, batch_size, hidden_size]
         return prediction, hidden
 
 class BaseLSTNetModel(LightningModule):
@@ -525,6 +519,7 @@ class BaseLSTNetModel(LightningModule):
                         0)
         self.conv = nn.Conv2d(1, self.hparams.hidCNN,
                               self.kernel_shape, padding=padding_size, padding_mode='replicate')
+        self.dropout = nn.Dropout(p = 0.1)
 
         self.encoder = EncoderRNN(
             self.hparams.hidCNN, self.hparams.hidden_size)
@@ -532,7 +527,8 @@ class BaseLSTNetModel(LightningModule):
             self.hparams.hidden_size)
         self.decoder = DecoderRNN(
             self.hparams.hidden_size, self.output_size, self.attention)
-        self.ar = nn.Linear(self.sample_size, 1)
+        self.input = nn.Linear(1, self.hparams.hidden_size)
+        self.ar = nn.Linear(self.sample_size, self.output_size)
 
     def forward(self, _x, _x1d, y0, y):
         """
@@ -548,38 +544,36 @@ class BaseLSTNetModel(LightningModule):
         batch_size = _x.shape[0]
         sample_size = _x.shape[1]
         feature_size = _x.shape[2]
-        x_cnn = self.conv(_x.unsqueeze(1))
+        c = self.conv(_x.unsqueeze(1))
+        x_cnn = self.dropout(F.relu(c))
 
         # compute hidden representation of data
         # last hidden state of the encoder is the context
-        # encoder_outputs : [batch_size, sample_size, hidden_size]
-        # encoder_hidden : [num_layers * num_direction, batch_size, hidden_size]
+        # encoder_outputs : (batch_size, sample_size, hidden_size)
+        # encoder_hidden : (num_layers * num_direction, batch_size, hidden_size)
         encoder_outputs, encoder_hidden = self.encoder(np.squeeze(x_cnn))
 
-        # first input to the decoder is the first output of y
-        _input = y0
-        # set input of decoder as last hidden state of encoder
-        # batch_first doesn't affect to hidden's size
+        # first decoder input which size is hidden_size
+        # inp : (batch_size, 1)
+        inp = self.input(y0)
+        # pass Encoder hidden state to Decoder hidden state
+        # batch_first doesn't affect to hidden_size
+        # hidden : (num_layers * num_direction, batch_size, hidden_size)
         hidden = encoder_hidden
 
         # placeholder for multi-horization
         # x  : [batch_size, sample_size, 1]
         # y0 : [batch_size, 1]
         # y  : [batch_size, output_size]
-        outputs = torch.zeros(batch_size, self.output_size).to(device)
 
-        for t in range(self.output_size):
-            output1, hidden = self.decoder(_input, hidden, encoder_outputs)
+        output1, hidden = self.decoder(inp, hidden, encoder_outputs)
 
-            # | ---- input (sample_size) --- | predicted results (output_size) |
-            # don't create variable for container, because the variable prevents autograd
-            output2 = self.ar(torch.cat((_x1d, outputs), dim=1)[:, -sample_size:])
+        output2 = self.ar(_x1d)
 
-            outputs[:, t] = (output1 + output2).squeeze(1)
+        # Sum Autoregressive and Recurrent Layer output
+        output = output1 + output2
 
-            _input = output1 + output2
-
-        return outputs
+        return output
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
