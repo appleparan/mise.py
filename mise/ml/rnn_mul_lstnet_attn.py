@@ -96,7 +96,7 @@ def ml_rnn_mul_lstnet_attn(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/RNNLSTNetMultivariate_" + str(sample_size) + "/" +
+        output_dir = Path("/mnt/data/RNNLSTNetAttnMultivariate_" + str(sample_size) + "/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
@@ -511,14 +511,10 @@ class BaseLSTNetModel(LightningModule):
         self.train_logs = {}
         self.valid_logs = {}
 
-        # padding_size is determined by kernel_size to keep same height and width between input and output
-        if self.hparams.filter_size % 2 == 0:
-            raise ValueError(
-                "filter_size should be odd number: ", self.filter_size)
-        padding_size = (int((self.hparams.filter_size - 1)/2),
-                        0)
-        self.conv = nn.Conv2d(1, self.hparams.hidCNN,
-                              self.kernel_shape, padding=padding_size, padding_mode='replicate')
+        padding_size = int(self.hparams.filter_size - 1)
+        self.pad = nn.ZeroPad2d((0, 0, padding_size, 0))
+
+        self.conv = nn.Conv2d(1, self.hparams.hidCNN, self.kernel_shape)
         self.dropout = nn.Dropout(p = 0.1)
 
         self.encoder = EncoderRNN(
@@ -544,14 +540,20 @@ class BaseLSTNetModel(LightningModule):
         batch_size = _x.shape[0]
         sample_size = _x.shape[1]
         feature_size = _x.shape[2]
-        c = self.conv(_x.unsqueeze(1))
-        x_cnn = self.dropout(F.relu(c))
+        # _x.unsqueeze(1) : (batch_size, 1, sample_size, feature_size), NxC_inxH_inxW_in
+        # x: (batch_size, 1, sample_size + pad_size, feature_size), NxC_inxH_inxW_in
+        x = self.pad(_x.unsqueeze(1))
+        c = self.conv(x)
+        # c: (batch_size, hid_CNN, sample_size, 1), NxC_outxH_outxW_out
+        c = self.dropout(F.relu(c))
+        # x_cnn: (batch_size, hid_CNN, sample_size)
+        x_cnn = c.squeeze(3)
 
         # compute hidden representation of data
         # last hidden state of the encoder is the context
         # encoder_outputs : (batch_size, sample_size, hidden_size)
         # encoder_hidden : (num_layers * num_direction, batch_size, hidden_size)
-        encoder_outputs, encoder_hidden = self.encoder(np.squeeze(x_cnn))
+        encoder_outputs, encoder_hidden = self.encoder(x_cnn)
 
         # first decoder input which size is hidden_size
         # inp : (batch_size, 1)
