@@ -19,8 +19,10 @@ from ml.mlp_mul import ml_mlp_mul
 from ml.mlp_mul_ms import ml_mlp_mul_ms
 from ml.rnn_mul_cnngru import ml_rnn_mul_cnngru
 from ml.rnn_mul_lstnet_attn import ml_rnn_mul_lstnet_attn
+from ml.rnn_mul_lstnet_skip import ml_rnn_mul_lstnet_skip
 from ml.rnn_mul_tpa_attn import ml_rnn_mul_tpa_attn
 from ml.rnn_mul_tpa_attn_general import ml_rnn_mul_tpa_attn_general
+from ml.mlp_mul_transformer import ml_mlp_mul_transformer
 from ml.mlp_mul_transformer_t2v import ml_mlp_mul_transformer_t2v
 
 """
