@@ -63,15 +63,17 @@ class MetricsCallback(Callback):
 def ml_mlp_mul_ms(station_name="종로구"):
     print("Start Multivariate MLP Mean Seasonality Decomposition Model")
     targets = ["PM10", "PM25"]
+    # targets = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+    #                   "temp", "u", "v", "pres", "humid", "prep", "snow"]
     # 24*14 = 336
     #sample_size = 336
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
-    fast_dev_run = False
-    n_trials = 216
-    #fast_dev_run = True
-    #n_trials = 3
+    # fast_dev_run = False
+    # n_trials = 216
+    fast_dev_run = True
+    n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -89,8 +91,8 @@ def ml_mlp_mul_ms(station_name="종로구"):
 
     train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                       "temp", "u", "v", "pres", "humid", "prep", "snow"]
-    train_features_aerosol = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",]
-    train_features_weather = ["temp", "u", "v", "pres", "humid", "prep", "snow"]
+    train_features_periodic = ["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp"]
+    train_features_nonperiodic = ["u", "v", "pres", "humid", "prep", "snow"]
 
     for target in targets:
         print("Training " + target + "...")
@@ -155,8 +157,8 @@ def ml_mlp_mul_ms(station_name="종로구"):
                                  station_name=station_name,
                                  target=target,
                                  features=train_features,
-                                 features_aerosol=train_features_aerosol,
-                                 features_weather=train_features_weather,
+                                 features_periodic=train_features_periodic,
+                                 features_nonperiodic=train_features_nonperiodic,
                                  train_fdate=train_fdate, train_tdate=train_tdate,
                                  test_fdate=test_fdate, test_tdate=test_tdate,
                                  output_dir=output_dir)
@@ -242,8 +244,8 @@ def ml_mlp_mul_ms(station_name="종로구"):
                              station_name=station_name,
                              target=target,
                              features=train_features,
-                             features_aerosol=train_features_aerosol,
-                             features_weather=train_features_weather,
+                             features_periodic=train_features_periodic,
+                             features_nonperiodic=train_features_nonperiodic,
                              train_fdate=train_fdate, train_tdate=train_tdate,
                              test_fdate=test_fdate, test_tdate=test_tdate,
                              output_dir=output_dir)
@@ -282,9 +284,9 @@ class BaseMLPModel(LightningModule):
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                                         "temp", "u", "v", "pres", "humid", "prep", "snow"])
-        self.features_aerosol = kwargs.get('features_aerosol',
+        self.features_periodic = kwargs.get('features_periodic',
                                             ["SO2", "CO", "O3", "NO2", "PM10", "PM25"])
-        self.features_weather = kwargs.get('features_weather',
+        self.features_nonperiodic = kwargs.get('features_nonperiodic',
                                             ["temp", "u", "v", "pres", "humid", "prep", "snow"])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
@@ -563,8 +565,8 @@ class BaseMLPModel(LightningModule):
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
             features=self.features,
-            features_1=self.features_weather,
-            features_2=self.features_aerosol,
+            features_1=self.features_periodic,
+            features_2=self.features_nonperiodic,
             fdate=self.train_fdate,
             tdate=self.train_tdate,
             sample_size=self.sample_size,
@@ -586,8 +588,8 @@ class BaseMLPModel(LightningModule):
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
             features=self.features,
-            features_1=self.features_weather,
-            features_2=self.features_aerosol,
+            features_1=self.features_periodic,
+            features_2=self.features_nonperiodic,
             fdate=self.test_fdate,
             tdate=self.test_tdate,
             sample_size=self.sample_size,
