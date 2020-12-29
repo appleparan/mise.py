@@ -61,10 +61,10 @@ class MetricsCallback(Callback):
         self.metrics.append(trainer.callback_metrics)
 
 def ml_mlp_mul_transformer(station_name="종로구"):
-    print("Start Multivariate Transformer + Time2Vec Model")
+    print("Start Multivariate Transformer + Seasonality Embedding Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
-    sample_size = 24*7
+    sample_size = 24*2
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
@@ -89,8 +89,10 @@ def ml_mlp_mul_transformer(station_name="종로구"):
 
     train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                       "temp", "u", "v", "pres", "humid", "prep", "snow"]
-    train_features_aerosol = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",]
-    train_features_weather = ["temp", "u", "v", "pres", "humid", "prep", "snow"]
+    train_features_periodic = ["SO2", "CO",
+                               "O3", "NO2", "PM10", "PM25", "temp",
+                               "u", "v", "pres", "humid"]
+    train_features_nonperiodic = ["prep", "snow"]
 
     for target in targets:
         print("Training " + target + "...")
@@ -101,7 +103,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
                                index_col=[0],
                                parse_dates=[0])
 
-        output_dir = Path("/mnt/data/MLPTransformerT2VMultivariate_" + str(sample_size) + "/" +
+        output_dir = Path("/mnt/data/MLPTransformerSEMultivariate_" + str(sample_size) + "/" +
                           station_name + "/" + target + "/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
@@ -148,8 +150,8 @@ def ml_mlp_mul_transformer(station_name="종로구"):
                                      output_size=output_size,
                                      target=target,
                                      features=train_features,
-                                     features_aerosol=train_features_aerosol,
-                                     features_weather=train_features_weather,
+                                     features_periodic=train_features_periodic,
+                                     features_nonperiodic=train_features_nonperiodic,
                                      train_fdate=train_fdate, train_tdate=train_tdate,
                                      test_fdate=test_fdate, test_tdate=test_tdate,
                                      output_dir=output_dir)
@@ -249,8 +251,8 @@ def ml_mlp_mul_transformer(station_name="종로구"):
                                  output_size=output_size,
                                  target=target,
                                  features=train_features,
-                                 features_aerosol=train_features_aerosol,
-                                 features_weather=train_features_weather,
+                                 features_periodic=train_features_periodic,
+                                 features_nonperiodic=train_features_nonperiodic,
                                  train_fdate=train_fdate, train_tdate=train_tdate,
                                  test_fdate=test_fdate, test_tdate=test_tdate,
                                  output_dir=output_dir)
@@ -355,7 +357,7 @@ class TransformerEncoderBatchNormLayer(nn.TransformerEncoderLayer):
 
 class BaseTransformerModel(LightningModule):
     """
-    Temporal Pattern Attention Seasonality Embedding model
+    Transforemr + Seasonality Embedding model
     """
     def __init__(self, **kwargs):
         super().__init__()
@@ -373,10 +375,10 @@ class BaseTransformerModel(LightningModule):
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                                                 "temp", "u", "v", "pres", "humid", "prep", "snow"])
-        self.features_aerosol = kwargs.get('features_aerosol',
+        self.features_periodic = kwargs.get('features_periodic',
                                             ["SO2", "CO", "O3", "NO2", "PM10", "PM25"])
-        self.features_weather = kwargs.get('features_weather',
-                                            ["temp", "u", "v", "pres", "humid", "prep", "snow"])
+        self.features_nonperiodic = kwargs.get('features_nonperiodic',
+                                               ["temp", "u", "v", "pres", "humid", "prep", "snow"])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
@@ -388,7 +390,7 @@ class BaseTransformerModel(LightningModule):
             2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
-            'output_dir', Path('/mnt/data/MLPTransformerT2VMultivariate/'))
+            'output_dir', Path('/mnt/data/MLPTransformerSEMultivariate/'))
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.png_dir = kwargs.get(
@@ -409,7 +411,7 @@ class BaseTransformerModel(LightningModule):
             self.hparams.head_dim = self.trial.suggest_int(
                 "head_dim", 8, 128)
             self.hparams.nhead = self.trial.suggest_int(
-                "nhead", 1, 16)
+                "nhead", 1, 12)
             self.hparams.d_feedforward = self.trial.suggest_int(
                 "d_feedforward", 128, 4096)
             self.hparams.num_layers = self.trial.suggest_int(
@@ -446,12 +448,21 @@ class BaseTransformerModel(LightningModule):
 
         self.outW = nn.Linear(len(self.features) * self.d_model, self.output_size)
         self.ar = nn.Linear(self.sample_size, self.output_size)
+
+        self.outX_sa = nn.Linear(self.sample_size, self.output_size)
+        self.outX_sw = nn.Linear(self.sample_size, self.output_size)
+        self.outX_sh = nn.Linear(self.sample_size, self.output_size)
+        self.outY_sa = nn.Linear(self.output_size, self.output_size)
+        self.outY_sw = nn.Linear(self.output_size, self.output_size)
+        self.outY_sh = nn.Linear(self.output_size, self.output_size)
+
         self.out = nn.Linear(self.output_size, self.output_size)
 
         self.train_logs = {}
         self.valid_logs = {}
 
-    def forward(self, x, x1d):
+    def forward(self, x, x1d, x_sa, x_sw, x_sh,
+                    y_sa, y_sw, y_sh):
         """
         Args:
             x  : 2D input
@@ -490,7 +501,11 @@ class BaseTransformerModel(LightningModule):
         z = u.reshape(batch_size, feature_size * self.d_model)
 
         # yhat: (batch_size, output_size)
-        yhat = self.out(self.outW(z) + self.ar(x1d))
+        # AR and seasonality is considered as Linear
+        # z is nonlinear
+        yhat = self.outW(z) + self.ar(x1d) + \
+               self.outX_sa(x_sa) + self.outX_sw(x_sw) + self.outX_sh(x_sh) + \
+               self.outY_sa(y_sa) + self.outY_sw(y_sw) + self.outY_sh(y_sh)
 
         return yhat
 
@@ -499,11 +514,13 @@ class BaseTransformerModel(LightningModule):
 
     def training_step(self, batch, batch_idx):
         # without seasonality
-        x, _x1d, _y0, _y, _y_raw, y_dates = batch
+        # x, _x1d, _y0, _y, _y_raw, y_dates = batch
         # with seasonality
-        #x, _y0, _y, _y_raw, x_dates, y_dates = batch
+        x, _x1d, _xs_sa, _xs_sw, _xs_sh, \
+            _y, _y_raw, _ys_sa, _ys_sw, _ys_sh, y_dates = batch
 
-        _y_hat = self(x, _x1d)
+        _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
+                      _ys_sa, _ys_sw, _ys_sh)
         _loss = self.loss(_y, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
@@ -540,11 +557,13 @@ class BaseTransformerModel(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         # without seasonality
-        x, _x1d, _y0, _y, _y_raw, y_dates = batch
+        # x, _x1d, _y0, _y, _y_raw, y_dates = batch
         # with seasonality
-        #x, _y0, _y, _y_raw, x_dates, y_dates = batch
+        x, _x1d, _xs_sa, _xs_sw, _xs_sh, \
+            _y, _y_raw, _ys_sa, _ys_sw, _ys_sh, y_dates = batch
 
-        _y_hat = self(x, _x1d)
+        _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
+                      _ys_sa, _ys_sw, _ys_sh)
         _loss = self.loss(_y, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
@@ -581,11 +600,13 @@ class BaseTransformerModel(LightningModule):
 
     def test_step(self, batch, batch_idx):
         # without seasonality
-        x, _x1d, _y0, _y, _y_raw, y_dates = batch
+        # x, _x1d, _y0, _y, _y_raw, y_dates = batch
         # with seasonality
-        #x, _y0, _y, _y_raw, x_dates, y_dates = batch
+        x, _x1d, _xs_sa, _xs_sw, _xs_sh, \
+            _y, _y_raw, _ys_sa, _ys_sw, _ys_sh, y_dates = batch
 
-        _y_hat = self(x, _x1d)
+        _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
+                      _ys_sa, _ys_sw, _ys_sh)
         _loss = self.loss(_y, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
@@ -693,11 +714,13 @@ class BaseTransformerModel(LightningModule):
         * TODO : Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
         """
         # create custom dataset
-        train_valid_set = MultivariateRNNDataset(
+        train_valid_set = MultivariateRNNMeanSeasonalityDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
             features=self.features,
+            features_1=self.features_nonperiodic,
+            features_2=self.features_periodic,
             fdate=self.train_fdate,
             tdate=self.train_tdate,
             sample_size=self.sample_size,
@@ -711,11 +734,14 @@ class BaseTransformerModel(LightningModule):
 
         # fit & transform (seasonality)
         # without seasonality
-        train_valid_set.preprocess()
+        # train_valid_set.preprocess()
         # with seasonality
-        # train_valid_set.preprocess(
-        #     self.data_dir / "seasonality", self.png_dir / "seasonality", self.svg_dir / "seasonality")
-
+        train_valid_set.preprocess(
+            self.data_dir / "seasonality",
+            self.png_dir / "seasonality",
+            self.svg_dir / "seasonality")
+        # save seasonality index-wise
+        train_valid_set.broadcast_seasonality()
 
         # save train/valid set
         train_valid_set.to_csv(
@@ -728,11 +754,13 @@ class BaseTransformerModel(LightningModule):
         train_set, valid_set = torch.utils.data.random_split(
             train_valid_set, [train_len, valid_len])
 
-        test_set = MultivariateRNNDataset(
+        test_set = MultivariateRNNMeanSeasonalityDataset(
             station_name=self.station_name,
             target=self.target,
             filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
             features=self.features,
+            features_1=self.features_nonperiodic,
+            features_2=self.features_periodic,
             fdate=self.test_fdate,
             tdate=self.test_tdate,
             sample_size=self.sample_size,
@@ -742,6 +770,8 @@ class BaseTransformerModel(LightningModule):
         test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
 
         test_set.transform()
+        # save seasonality index-wise
+        test_set.broadcast_seasonality()
 
         # assign to use in dataloaders
         self.train_dataset = train_set
@@ -795,24 +825,31 @@ class BaseTransformerModel(LightningModule):
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
         # MutlivariateRNNDataset
-        xs, xs_1d, ys0, ys, ys_raw, y_dates = zip(*batch)
-
-        return torch.as_tensor(xs), \
-            torch.as_tensor(xs_1d), \
-            torch.as_tensor(ys0), \
-            torch.as_tensor(ys), \
-            torch.as_tensor(ys_raw), \
-            y_dates
-
-        # with seasonality
-        # MutlivariateRNNMeanSeasonalityDataset
-        # xs, ys0, ys, ys_raw, x_dates, y_dates = zip(*batch)
+        # xs, xs_1d, ys0, ys, ys_raw, y_dates = zip(*batch)
 
         # return torch.as_tensor(xs), \
+        #     torch.as_tensor(xs_1d), \
         #     torch.as_tensor(ys0), \
         #     torch.as_tensor(ys), \
         #     torch.as_tensor(ys_raw), \
-        #     x_dates, y_dates
+        #     y_dates
+
+        # with seasonality
+        # MutlivariateRNNMeanSeasonalityDataset
+        xs, xs_1d, xs_sa, xs_sw, xs_sh, \
+            ys, ys_raw, ys_sa, ys_sw, ys_sh, y_dates = zip(*batch)
+
+        return torch.as_tensor(xs), \
+            torch.as_tensor(xs_1d), \
+            torch.as_tensor(xs_sa), \
+            torch.as_tensor(xs_sw), \
+            torch.as_tensor(xs_sh), \
+            torch.as_tensor(ys), \
+            torch.as_tensor(ys_raw), \
+            torch.as_tensor(ys_sa), \
+            torch.as_tensor(ys_sw), \
+            torch.as_tensor(ys_sh), \
+            y_dates
 
 
 def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):

@@ -679,19 +679,20 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         self.features_2 = kwargs.get('features_2',
                                    ["SO2", "CO", "O3", "NO2", "PM10", "PM25"])
         self.features_sea_embed = kwargs.get('features_sea_embed',
-                                        ["PM10", "PM25"])
+                                        [self.target])
 
         self._df_raw = self._df.copy()
         # 2D, in Univariate -> (row x 1)
         self._xs = self._df[self.features]
         self._xs_raw = self._xs.copy()
+        self._xs_sea = pd.DataFrame(index=self._xs.index)
         # 1D
         self._ys = self._df[self.target]
         self._ys.name = self.target
         # convert to DataFrame to apply ColumnTransformer easily
         self._ys = self._ys.to_frame()
         self._ys_raw = self._ys.copy()
-        # self._xs must not be available when creating instance so no kwargs for scaler
+        self._ys_sea = pd.DataFrame(index=self._ys.index)
 
         # mix ColumnTransformer & Pipeline
         # https://scikit-learn.org/stable/auto_examples/compose/plot_column_transformer_mixed_types.html
@@ -725,9 +726,6 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         self._scaler_X = kwargs.get('scaler_X', preprocessor_X)
         self._scaler_Y = kwargs.get('scaler_Y', preprocessor_Y)
 
-        self.embed_sea_annual = None
-        self.embed_sea_hourly = None
-
     def __getitem__(self, i: int):
         """
         get X, Y for given index `di`
@@ -740,18 +738,30 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
             Tensor: output without transform
         """
         x = self._xs.iloc[i:i+self.sample_size, :]
+        # want 1D array of target column, so use ys instead
+        x_1d = self._ys.iloc[i:(i+self.sample_size)]
+        x_sa = self._xs_sea['annual'].iloc[i:(i+self.sample_size)]
+        x_sw = self._xs_sea['weekly'].iloc[i:(i+self.sample_size)]
+        x_sh = self._xs_sea['annual'].iloc[i:(i+self.sample_size)]
         # save initial input as target variable input at last step (single step)
-        y0 = self._ys.iloc[i+self.sample_size-1]
         y = self._ys.iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+        y_sa = self._ys_sea['annual'].iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+        y_sw = self._ys_sea['weekly'].iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+        y_sh = self._ys_sea['annual'].iloc[(i+self.sample_size):(i+self.sample_size+self.output_size)]
         y_raw = self._ys_raw.iloc[(i+self.sample_size)
                                  :(i+self.sample_size+self.output_size), :]
 
         # To embed dates, x and y is DataFrame
         return np.squeeze(x.to_numpy()).astype('float32'), \
-            y0.astype('float32'), \
+            np.squeeze(x_1d).to_numpy().astype('float32'), \
+            np.squeeze(x_sa).to_numpy().astype('float32'), \
+            np.squeeze(x_sw).to_numpy().astype('float32'), \
+            np.squeeze(x_sh).to_numpy().astype('float32'), \
             np.squeeze(y.to_numpy()).astype('float32'), \
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
-            self._dates[i:(i+self.sample_size)], \
+            np.squeeze(y_sa).to_numpy().astype('float32'), \
+            np.squeeze(y_sw).to_numpy().astype('float32'), \
+            np.squeeze(y_sh).to_numpy().astype('float32'), \
             self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
     def preprocess(self, data_dir, png_dir, svg_dir):
@@ -796,23 +806,38 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
 
         return _inv_transYs
 
-    def get_seasonality(self, scaler, cols):
+    def broadcast_seasonality(self):
         """
-            build seasonalities by given DataFrame's DateTimeIndex
+            Build seasonality DataFrame by DateTimeIndex
         """
+        p = self._scaler_X.named_transformers_['num_sea']
 
-        # test
-        p = scaler.named_transformers_['num_sea']
-
-        # get total seasonality
+        # extract seasonality from seasonalitydecompositor
         _sea_annual = p.get_params()['seasonalitydecompositor__sea_annual']
         _sea_weekly = p.get_params()['seasonalitydecompositor__sea_weekly']
         _sea_hourly = p.get_params()['seasonalitydecompositor__sea_hourly']
 
-        # filter by columns
-        sea_annual = {k: v for k, v in _sea_annual.items() if k in cols}
-        sea_weekly = {k: v for k, v in _sea_weekly.items() if k in cols}
-        sea_hourly = {k: v for k, v in _sea_hourly.items() if k in cols}
+        # filter target
+        sea_annual = _sea_annual[self.target]
+        sea_weekly = _sea_weekly[self.target]
+        sea_hourly = _sea_hourly[self.target]
+
+        def key_md(idx): return ''.join((str(idx.month).zfill(2),
+                                         str(idx.day).zfill(2)))
+        def key_w(idx): return str(idx.dayofweek)
+        def key_h(idx): return str(idx.hour).zfill(2)
+
+        def get_sea_annual(idx): return sea_annual[key_md(idx)]
+        def get_sea_weekly(idx): return sea_weekly[key_w(idx)]
+        def get_sea_hourly(idx): return sea_hourly[key_h(idx)]
+
+        self._xs_sea['annual'] = self._xs_sea.index.map(get_sea_annual)
+        self._xs_sea['weekly'] = self._xs_sea.index.map(get_sea_weekly)
+        self._xs_sea['hourly'] = self._xs_sea.index.map(get_sea_hourly)
+
+        self._ys_sea['annual'] = self._ys_sea.index.map(get_sea_annual)
+        self._ys_sea['weekly'] = self._ys_sea.index.map(get_sea_weekly)
+        self._ys_sea['hourly'] = self._ys_sea.index.map(get_sea_hourly)
 
         return sea_annual, sea_weekly, sea_hourly
 
