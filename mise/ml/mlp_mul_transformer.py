@@ -446,16 +446,17 @@ class BaseTransformerModel(LightningModule):
         self.encoder = nn.TransformerEncoder(
             self.encoder_layer, num_layers=self.hparams.num_layers)
 
-        self.outW = nn.Linear(len(self.features) * self.d_model, self.output_size)
-        self.ar = nn.Linear(self.sample_size, self.output_size)
+        self.outW = nn.Linear(len(self.features) * self.d_model, self.sample_size)
+        self.ar = nn.Linear(self.sample_size, self.sample_size)
 
-        self.outX_sa = nn.Linear(self.sample_size, self.output_size)
-        self.outX_sw = nn.Linear(self.sample_size, self.output_size)
-        self.outX_sh = nn.Linear(self.sample_size, self.output_size)
+        self.outX_sa = nn.Linear(self.sample_size, self.sample_size)
+        self.outX_sw = nn.Linear(self.sample_size, self.sample_size)
+        self.outX_sh = nn.Linear(self.sample_size, self.sample_size)
         self.outY_sa = nn.Linear(self.output_size, self.output_size)
         self.outY_sw = nn.Linear(self.output_size, self.output_size)
         self.outY_sh = nn.Linear(self.output_size, self.output_size)
 
+        self.outX = nn.Linear(self.sample_size, self.output_size)
         self.out = nn.Linear(self.output_size, self.output_size)
 
         self.train_logs = {}
@@ -503,8 +504,8 @@ class BaseTransformerModel(LightningModule):
         # yhat: (batch_size, output_size)
         # AR and seasonality is considered as Linear
         # z is nonlinear
-        yhat = self.outW(z) + self.ar(x1d) + \
-               self.outX_sa(x_sa) + self.outX_sw(x_sw) + self.outX_sh(x_sh) + \
+        yhat = self.outX(self.outW(z) + self.ar(x1d) + \
+               self.outX_sa(x_sa) + self.outX_sw(x_sw) + self.outX_sh(x_sh)) + \
                self.outY_sa(y_sa) + self.outY_sw(y_sw) + self.outY_sh(y_sh)
 
         return yhat
