@@ -457,6 +457,8 @@ class BaseTransformerModel(LightningModule):
         self.outY_sh = nn.Linear(self.output_size, self.output_size)
 
         self.outX = nn.Linear(self.sample_size, self.output_size)
+        # self.outSX = nn.Linear(self.sample_size, self.output_size)
+        # self.outSY = nn.Linear(self.output_size, self.output_size)
         self.out = nn.Linear(self.output_size, self.output_size)
 
         self.train_logs = {}
@@ -504,9 +506,9 @@ class BaseTransformerModel(LightningModule):
         # yhat: (batch_size, output_size)
         # AR and seasonality is considered as Linear
         # z is nonlinear
-        yhat = self.outX(self.outW(z) + self.ar(x1d) + \
-               self.outX_sa(x_sa) + self.outX_sw(x_sw) + self.outX_sh(x_sh)) + \
+        yhat = self.outX(self.outW(z) + self.ar(x1d)) + \
                self.outY_sa(y_sa) + self.outY_sw(y_sw) + self.outY_sh(y_sh)
+        #              self.outSX(self.outX_sa(x_sa) + self.outX_sw(x_sw) + self.outX_sh(x_sh)) + \
 
         return yhat
 
@@ -522,7 +524,7 @@ class BaseTransformerModel(LightningModule):
 
         _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
                       _ys_sa, _ys_sw, _ys_sh)
-        _loss = self.loss(_y, _y_hat)
+        _loss = self.loss(_y_raw, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
@@ -565,7 +567,7 @@ class BaseTransformerModel(LightningModule):
 
         _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
                       _ys_sa, _ys_sw, _ys_sh)
-        _loss = self.loss(_y, _y_hat)
+        _loss = self.loss(_y_raw, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
@@ -608,12 +610,13 @@ class BaseTransformerModel(LightningModule):
 
         _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
                       _ys_sa, _ys_sw, _ys_sh)
-        _loss = self.loss(_y, _y_hat)
+        _loss = self.loss(_y_raw, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, y_dates))
+        #y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, y_dates))
+        y_hat_inv = y_hat
 
         _mae = mean_absolute_error(y_raw, y_hat_inv)
         _mse = mean_squared_error(y_raw, y_hat_inv)
