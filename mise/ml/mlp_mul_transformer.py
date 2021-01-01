@@ -418,7 +418,8 @@ class BaseTransformerModel(LightningModule):
                 "num_layers", 3, 12)
 
         self.d_model = self.hparams.nhead * self.hparams.head_dim
-        self.loss = nn.MSELoss(reduction='mean')
+        #self.loss = nn.MSELoss()
+        self.loss = nn.L1Loss()
 
         self._train_set = None
         self._valid_set = None
