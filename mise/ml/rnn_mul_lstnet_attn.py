@@ -499,7 +499,8 @@ class BaseLSTNetModel(LightningModule):
 
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 
-        self.loss = nn.MSELoss(reduction='mean')
+        #self.loss = nn.MSELoss()
+        self.loss = nn.L1Loss()
 
         self._train_set = None
         self._valid_set = None
@@ -584,7 +585,7 @@ class BaseLSTNetModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d, _y0, _y)
-        _loss = self.loss(_y, _y_hat)
+        _loss = self.loss(_y_raw, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
@@ -622,7 +623,7 @@ class BaseLSTNetModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d, _y0, _y)
-        _loss = self.loss(_y, _y_hat)
+        _loss = self.loss(_y_raw, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
@@ -660,12 +661,13 @@ class BaseLSTNetModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d, _y0, _y)
-        _loss = self.loss(_y, _y_hat)
+        _loss = self.loss(_y_raw, _y_hat)
 
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+        #y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+        y_hat_inv = y_hat
 
         _mae = mean_absolute_error(y_raw, y_hat_inv)
         _mse = mean_squared_error(y_raw, y_hat_inv)
