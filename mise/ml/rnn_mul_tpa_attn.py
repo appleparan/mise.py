@@ -599,9 +599,11 @@ class BaseTPAAttnModel(LightningModule):
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(y, y_hat)
-        _mse = mean_squared_error(y, y_hat)
-        _r2 = r2_score(y, y_hat)
+        y_raw = _y_raw.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y_raw, y_hat)
+        _mse = mean_squared_error(y_raw, y_hat)
+        _r2 = r2_score(y_raw, y_hat)
 
         return {
             'loss': _loss,
@@ -636,9 +638,11 @@ class BaseTPAAttnModel(LightningModule):
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(y, y_hat)
-        _mse = mean_squared_error(y, y_hat)
-        _r2 = r2_score(y, y_hat)
+        y_raw = _y_raw.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y_raw, y_hat)
+        _mse = mean_squared_error(y_raw, y_hat)
+        _r2 = r2_score(y_raw, y_hat)
 
         return {
             'loss': _loss,
@@ -1068,3 +1072,28 @@ def swish(_input, beta=1.0):
         output: Activated tensor
     """
     return _input * beta * torch.sigmoid(_input)
+
+
+class LogCoshLoss(nn.Module):
+    __constants__ = ['reduction']
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Implement numerically stable log-cosh which is used in Keras
+
+        log(cosh(x)) = logaddexp(x, -x) - log(2)
+                = abs(x) + log1p(exp(-2 * abs(x))) - log(2)
+
+        Reference:
+            * https://stackoverflow.com/a/57786270
+        """
+        # not to compute log(0), add 1e-24 (small value)
+        def _log_cosh(x):
+            return torch.abs(x) + \
+                torch.log1p(torch.exp(-2 * torch.abs(x))) + \
+                torch.log(torch.full_like(x, 2, dtype=x.dtype))
+
+        return torch.mean(_log_cosh(input - target))
