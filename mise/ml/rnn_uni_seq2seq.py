@@ -4,6 +4,7 @@ import datetime as dt
 from math import sqrt
 import os
 from pathlib import Path
+import shutil
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -242,6 +243,8 @@ def ml_rnn_uni_seq2seq(station_name="종로구"):
         # run test set
         trainer.test()
 
+        shutil.rmtree(model_dir)
+
 
 class EncoderRNN(nn.Module):
 
@@ -346,7 +349,8 @@ class BaseSeq2SeqModel(LightningModule):
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
-        self.loss = nn.MSELoss(reduction='mean')
+        #self.loss = nn.MSELoss()
+        self.loss = nn.L1Loss()
 
         self._train_set = None
         self._valid_set = None
@@ -562,14 +566,24 @@ class BaseSeq2SeqModel(LightningModule):
         # dataframe that index is starting date
         values, indicies = [], []
         for _d, _y in zip(dates, ys):
-            values.append(_y.cpu().detach().numpy())
+            if isinstance(_y, torch.Tensor):
+                values.append(_y.cpu().detach().numpy())
+            elif isinstance(_y, np.ndarray):
+                values.append(_y)
+            else:
+                raise TypeError("Wrong type: _y")
             # just append single key date
             indicies.append(_d[0])
         _df_obs = pd.DataFrame(data=values, index=indicies, columns=cols)
 
         values, indicies = [], []
         for _d, _y_hat in zip(dates, y_hats):
-            values.append(_y_hat.cpu().detach().numpy())
+            if isinstance(_y_hat, torch.Tensor):
+                values.append(_y_hat.cpu().detach().numpy())
+            elif isinstance(_y_hat, np.ndarray):
+                values.append(_y_hat)
+            else:
+                raise TypeError("Wrong type: _y_hat")
             # just append single key date
             indicies.append(_d[0])
         _df_sim = pd.DataFrame(data=values, index=indicies, columns=cols)
