@@ -4,6 +4,7 @@ import datetime as dt
 from math import sqrt
 import os
 from pathlib import Path
+import shutil
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -66,8 +67,8 @@ def ml_mlp_mul(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 216
-    #fast_dev_run = True
-    #n_trials = 3
+    # fast_dev_run = True
+    # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -257,6 +258,8 @@ def ml_mlp_mul(station_name="종로구"):
         # run test set
         trainer.test()
 
+        shutil.rmtree(model_dir)
+
 
 class BaseMLPModel(LightningModule):
     def __init__(self, *args, **kwargs):
@@ -333,7 +336,8 @@ class BaseMLPModel(LightningModule):
         print(self.linears)
 
         self.dropout = nn.Dropout(p=0.2)
-        self.loss = nn.MSELoss(reduction='mean')
+        #self.loss = nn.MSELoss()
+        self.loss = nn.L1Loss()
 
         self._train_set = None
         self._valid_set = None
@@ -361,15 +365,17 @@ class BaseMLPModel(LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr|self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        x, y, dates = batch
-        y_hat = self(x)
-        _loss = self.loss(y_hat, y)
+        x, _y, _y_raw, dates = batch
+        _y_hat = self(x)
+        _loss = self.loss(_y, _y_hat)
 
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+        y_raw = _y_raw.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y_raw, y_hat)
+        _mse = mean_squared_error(y_raw, y_hat)
+        _r2 = r2_score(y_raw, y_hat)
 
         return {
             'loss': _loss,
@@ -400,15 +406,17 @@ class BaseMLPModel(LightningModule):
         return torch.optim.Adam(self.parameters())
 
     def validation_step(self, batch, batch_idx):
-        x, y, dates = batch
-        y_hat = self(x)
+        x, _y, _y_raw, dates = batch
+        _y_hat = self(x)
+        _loss = self.loss(_y, _y_hat)
 
-        _loss = self.loss(y, y_hat)
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+        y_raw = _y_raw.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y_raw, y_hat)
+        _mse = mean_squared_error(y_raw, y_hat)
+        _r2 = r2_score(y_raw, y_hat)
 
         return {
             'loss': _loss,
@@ -436,15 +444,17 @@ class BaseMLPModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, y, dates = batch
-        y_hat = self(x)
+        x, _y, _y_raw, dates = batch
+        _y_hat = self(x)
+        _loss = self.loss(_y, _y_hat)
 
-        _loss = self.loss(y, y_hat)
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+        y_raw = _y_raw.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y_raw, y_hat)
+        _mse = mean_squared_error(y_raw, y_hat)
+        _r2 = r2_score(y_raw, y_hat)
 
         return {
             'loss': _loss,
@@ -513,14 +523,24 @@ class BaseMLPModel(LightningModule):
         # dataframe that index is starting date
         values, indicies = [], []
         for _d, _y in zip(dates, ys):
-            values.append(_y.cpu().detach().numpy())
+            if isinstance(_y, torch.Tensor):
+                values.append(_y.cpu().detach().numpy())
+            elif isinstance(_y, np.ndarray):
+                values.append(_y)
+            else:
+                raise TypeError("Wrong type: _y")
             # just append single key date
             indicies.append(_d[0])
         _df_obs = pd.DataFrame(data=values, index=indicies, columns=cols)
 
         values, indicies = [], []
         for _d, _y_hat in zip(dates, y_hats):
-            values.append(_y_hat.cpu().detach().numpy())
+            if isinstance(_y_hat, torch.Tensor):
+                values.append(_y_hat.cpu().detach().numpy())
+            elif isinstance(_y_hat, np.ndarray):
+                values.append(_y_hat)
+            else:
+                raise TypeError("Wrong type: _y_hat")
             # just append single key date
             indicies.append(_d[0])
         _df_sim = pd.DataFrame(data=values, index=indicies, columns=cols)
@@ -539,6 +559,10 @@ class BaseMLPModel(LightningModule):
             sample_size=self.sample_size,
             output_size=self.output_size,
             train_valid_ratio=0.8)
+
+        # fit & transform (seasonality)
+        train_valid_set.preprocess()
+
         test_set = data.MultivariateDataset(
             station_name=self.station_name,
             target=self.target,
@@ -547,7 +571,12 @@ class BaseMLPModel(LightningModule):
             fdate=self.test_fdate,
             tdate=self.test_tdate,
             sample_size=self.sample_size,
-            output_size=self.output_size)
+            output_size=self.output_size,
+            scaler_X=train_valid_set.scaler_X,
+            scaler_Y=train_valid_set.scaler_Y)
+
+        # preprocess
+        test_set.transform()
 
         # save train/valid set
         train_valid_set.to_csv(
@@ -555,37 +584,39 @@ class BaseMLPModel(LightningModule):
         test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
 
         # split train/valid/test set
-        train_len = int(len(train_valid_set) * train_valid_set.train_valid_ratio)
+        train_len = int(len(train_valid_set) *
+                        train_valid_set.train_valid_ratio)
         valid_len = len(train_valid_set) - train_len
-        train_set, valid_set = torch.utils.data.random_split(train_valid_set, [train_len, valid_len])
+        train_set, valid_set = torch.utils.data.random_split(
+            train_valid_set, [train_len, valid_len])
 
-        # assign to use in dataloaders
+        # assign LightningModule's variable to use in dataloaders
         self.train_dataset = train_set
         self.val_dataset = valid_set
         self.test_dataset = test_set
 
         self.train_sampler = RandomSampler(self.train_dataset)
-        self.val_sampler = SequentialSampler(self.val_dataset)
+        self.valid_sampler = SequentialSampler(self.val_dataset)
         self.test_sampler = SequentialSampler(self.test_dataset)
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
-            batch_size=self.hparams.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            collate_fn=self.collate_fn)
+                          batch_size=self.hparams.batch_size,
+                          shuffle=True,
+                          num_workers=self.num_workers,
+                          collate_fn=self.collate_fn)
 
     def val_dataloader(self):
         return DataLoader(self.val_dataset,
-            batch_size=self.hparams.batch_size,
-            num_workers=self.num_workers,
-            collate_fn=self.collate_fn)
+                          batch_size=self.hparams.batch_size,
+                          num_workers=self.num_workers,
+                          collate_fn=self.collate_fn)
 
     def test_dataloader(self):
         return DataLoader(self.test_dataset,
-            batch_size=self.hparams.batch_size,
-            num_workers=self.num_workers,
-            collate_fn=self.collate_fn)
+                          batch_size=self.hparams.batch_size,
+                          num_workers=self.num_workers,
+                          collate_fn=self.collate_fn)
 
     def collate_fn(self, batch):
         """Creates mini-batch tensors from from list of tuples (x, y, dates)
@@ -605,11 +636,12 @@ class BaseMLPModel(LightningModule):
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, ys, dates = zip(*batch)
+        xs, ys, ys_raw, dates = zip(*batch)
 
         #return torch.as_tensor(xs.reshape(1, -1)), \
         return torch.as_tensor(xs), \
             torch.as_tensor(ys), \
+            torch.as_tensor(ys_raw), \
             dates
 
 

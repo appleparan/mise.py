@@ -4,6 +4,7 @@ import datetime as dt
 from math import sqrt
 import os
 from pathlib import Path
+import shutil
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -70,10 +71,10 @@ def ml_mlp_mul_ms(station_name="종로구"):
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
-    # fast_dev_run = False
-    # n_trials = 216
-    fast_dev_run = True
-    n_trials = 1
+    fast_dev_run = False
+    n_trials = 216
+    # fast_dev_run = True
+    # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -271,6 +272,8 @@ def ml_mlp_mul_ms(station_name="종로구"):
         # run test set
         trainer.test()
 
+        shutil.rmtree(model_dir)
+
 
 class BaseMLPModel(LightningModule):
     def __init__(self, *args, **kwargs):
@@ -350,7 +353,8 @@ class BaseMLPModel(LightningModule):
         print(self.linears)
 
         self.dropout = nn.Dropout(p=0.2)
-        self.loss = nn.MSELoss(reduction='mean')
+        #self.loss = nn.MSELoss()
+        self.loss = nn.L1Loss()
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
@@ -380,9 +384,11 @@ class BaseMLPModel(LightningModule):
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(y, y_hat)
-        _mse = mean_squared_error(y, y_hat)
-        _r2 = r2_score(y, y_hat)
+        y_raw = _y_raw.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y_raw, y_hat)
+        _mse = mean_squared_error(y_raw, y_hat)
+        _r2 = r2_score(y_raw, y_hat)
 
         return {
             'loss': _loss,
@@ -419,9 +425,11 @@ class BaseMLPModel(LightningModule):
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(y, y_hat)
-        _mse = mean_squared_error(y, y_hat)
-        _r2 = r2_score(y, y_hat)
+        y_raw = _y_raw.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y_raw, y_hat)
+        _mse = mean_squared_error(y_raw, y_hat)
+        _r2 = r2_score(y_raw, y_hat)
 
         return {
             'loss': _loss,
@@ -457,7 +465,8 @@ class BaseMLPModel(LightningModule):
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+        #y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+        y_hat_inv = y_raw
 
         _mae = mean_absolute_error(y_raw, y_hat_inv)
         _mse = mean_squared_error(y_raw, y_hat_inv)

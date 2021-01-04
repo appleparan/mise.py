@@ -4,6 +4,7 @@ import datetime as dt
 from math import sqrt
 import os
 from pathlib import Path
+import shutil
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -277,6 +278,8 @@ def ml_mlp_mul_transformer(station_name="종로구"):
 
         # run test set
         trainer.test()
+
+        shutil.rmtree(model_dir)
 
 
 class EmbeddingLayer(nn.Module):
