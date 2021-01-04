@@ -4,6 +4,7 @@ import datetime as dt
 from math import sqrt
 import os
 from pathlib import Path
+import shutil
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -71,8 +72,8 @@ def ml_mlp_uni_ms(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 216
-    #fast_dev_run = True
-    #n_trials = 3
+    # fast_dev_run = True
+    # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -264,6 +265,8 @@ def ml_mlp_uni_ms(station_name="종로구"):
         # run test set
         trainer.test()
 
+        shutil.rmtree(model_dir)
+
 
 class BaseMLPModel(LightningModule):
     def __init__(self, *args, **kwargs):
@@ -339,7 +342,9 @@ class BaseMLPModel(LightningModule):
         print(self.linears)
 
         self.dropout = nn.Dropout(p=0.2)
-        self.loss = nn.MSELoss(reduction='mean')
+
+        #self.loss = nn.MSELoss()
+        self.loss = nn.L1Loss()
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
@@ -363,15 +368,16 @@ class BaseMLPModel(LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr | self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        x, y, y_raw, dates = batch
-        y_hat = self(x)
+        x, _y, _y_raw, dates = batch
+        _y_hat = self(x)
+        _loss = self.loss(_y_hat, _y)
 
-        _loss = self.loss(y_hat, y)
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
@@ -402,15 +408,16 @@ class BaseMLPModel(LightningModule):
         return torch.optim.Adam(self.parameters())
 
     def validation_step(self, batch, batch_idx):
-        x, y, y_raw, dates = batch
-        y_hat = self(x)
-        _loss = self.loss(y_hat, y)
+        x, _y, _y_raw, dates = batch
+        _y_hat = self(x)
+        _loss = self.loss(_y_hat, _y)
 
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
@@ -440,14 +447,14 @@ class BaseMLPModel(LightningModule):
     def test_step(self, batch, batch_idx):
         x, _y, _y_raw, dates = batch
         _y_hat = self(x)
-
         _loss = self.loss(_y, _y_hat)
 
-        # transformed y would be smoothed, so inverse_transform can't recover raw value
+        # transformed y might be smoothed
         y = _y.detach().cpu().clone().numpy()
-        y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
-        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+        #y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+        y_hat_inv = y_raw
 
         _mae = mean_absolute_error(y_raw, y_hat_inv)
         _mse = mean_squared_error(y_raw, y_hat_inv)
@@ -852,3 +859,28 @@ def swish(_input, beta=1.0):
         output: Activated tensor
     """
     return _input * beta * torch.sigmoid(_input)
+
+
+class LogCoshLoss(nn.Module):
+    __constants__ = ['reduction']
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Implement numerically stable log-cosh which is used in Keras
+
+        log(cosh(x)) = logaddexp(x, -x) - log(2)
+                = abs(x) + log1p(exp(-2 * abs(x))) - log(2)
+
+        Reference:
+            * https://stackoverflow.com/a/57786270
+        """
+        # not to compute log(0), add 1e-24 (small value)
+        def _log_cosh(x):
+            return torch.abs(x) + \
+                torch.log1p(torch.exp(-2 * torch.abs(x))) + \
+                torch.log(torch.full_like(x, 2, dtype=x.dtype))
+
+        return torch.mean(_log_cosh(input - target))

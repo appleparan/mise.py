@@ -4,6 +4,7 @@ import datetime as dt
 from math import sqrt
 import os
 from pathlib import Path
+import shutil
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -66,8 +67,8 @@ def ml_mlp_uni(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 216
-    #fast_dev_run = True
-    #n_trials = 3
+    # fast_dev_run = True
+    # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -258,6 +259,9 @@ def ml_mlp_uni(station_name="종로구"):
         # run test set
         trainer.test()
 
+        shutil.rmtree(model_dir)
+
+
 class BaseMLPModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
@@ -336,7 +340,8 @@ class BaseMLPModel(LightningModule):
 
         self.dropout = nn.Dropout(p=0.2)
 
-        self.loss = nn.MSELoss(reduction='mean')
+        #self.loss = nn.MSELoss()
+        self.loss = nn.L1Loss()
 
         self._train_set = None
         self._valid_set = None
@@ -364,15 +369,16 @@ class BaseMLPModel(LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr|self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        x, y, dates = batch
-        y_hat = self(x)
-        _loss = self.loss(y_hat, y)
+        x, _y, dates = batch
+        _y_hat = self(x)
+        _loss = self.loss(_y, _y_hat)
 
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
@@ -403,15 +409,16 @@ class BaseMLPModel(LightningModule):
         return torch.optim.Adam(self.parameters())
 
     def validation_step(self, batch, batch_idx):
-        x, y, dates = batch
-        y_hat = self(x)
+        x, _y, dates = batch
+        _y_hat = self(x)
+        _loss = self.loss(_y, _y_hat)
 
-        _loss = self.loss(y, y_hat)
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
@@ -439,15 +446,16 @@ class BaseMLPModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, y, dates = batch
-        y_hat = self(x)
+        x, _y, dates = batch
+        _y_hat = self(x)
+        _loss = self.loss(_y, _y_hat)
 
-        _loss = self.loss(y, y_hat)
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
@@ -516,14 +524,24 @@ class BaseMLPModel(LightningModule):
         # dataframe that index is starting date
         values, indicies = [], []
         for _d, _y in zip(dates, ys):
-            values.append(_y.cpu().detach().numpy())
+            if isinstance(_y, torch.Tensor):
+                values.append(_y.cpu().detach().numpy())
+            elif isinstance(_y, np.ndarray):
+                values.append(_y)
+            else:
+                raise TypeError("Wrong type: _y")
             # just append single key date
             indicies.append(_d[0])
         _df_obs = pd.DataFrame(data=values, index=indicies, columns=cols)
 
         values, indicies = [], []
         for _d, _y_hat in zip(dates, y_hats):
-            values.append(_y_hat.cpu().detach().numpy())
+            if isinstance(_y_hat, torch.Tensor):
+                values.append(_y_hat.cpu().detach().numpy())
+            elif isinstance(_y_hat, np.ndarray):
+                values.append(_y_hat)
+            else:
+                raise TypeError("Wrong type: _y_hat")
             # just append single key date
             indicies.append(_d[0])
         _df_sim = pd.DataFrame(data=values, index=indicies, columns=cols)
@@ -568,7 +586,7 @@ class BaseMLPModel(LightningModule):
         self.test_dataset = test_set
 
         self.train_sampler = RandomSampler(self.train_dataset)
-        self.val_sampler = SequentialSampler(self.val_dataset)
+        self.valid_sampler = SequentialSampler(self.val_dataset)
         self.test_sampler = SequentialSampler(self.test_dataset)
 
     def train_dataloader(self):
@@ -816,3 +834,28 @@ def swish(_input, beta=1.0):
         output: Activated tensor
     """
     return _input * beta * torch.sigmoid(_input)
+
+
+class LogCoshLoss(nn.Module):
+    __constants__ = ['reduction']
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Implement numerically stable log-cosh which is used in Keras
+
+        log(cosh(x)) = logaddexp(x, -x) - log(2)
+                = abs(x) + log1p(exp(-2 * abs(x))) - log(2)
+
+        Reference:
+            * https://stackoverflow.com/a/57786270
+        """
+        # not to compute log(0), add 1e-24 (small value)
+        def _log_cosh(x):
+            return torch.abs(x) + \
+                torch.log1p(torch.exp(-2 * torch.abs(x))) + \
+                torch.log(torch.full_like(x, 2, dtype=x.dtype))
+
+        return torch.mean(_log_cosh(input - target))
