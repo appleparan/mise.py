@@ -367,7 +367,7 @@ class BaseMLPModel(LightningModule):
     def training_step(self, batch, batch_idx):
         x, _y, _y_raw, dates = batch
         _y_hat = self(x)
-        _loss = self.loss(_y, _y_hat)
+        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
@@ -408,7 +408,7 @@ class BaseMLPModel(LightningModule):
     def validation_step(self, batch, batch_idx):
         x, _y, _y_raw, dates = batch
         _y_hat = self(x)
-        _loss = self.loss(_y, _y_hat)
+        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
@@ -446,7 +446,7 @@ class BaseMLPModel(LightningModule):
     def test_step(self, batch, batch_idx):
         x, _y, _y_raw, dates = batch
         _y_hat = self(x)
-        _loss = self.loss(_y, _y_hat)
+        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
@@ -458,7 +458,7 @@ class BaseMLPModel(LightningModule):
 
         return {
             'loss': _loss,
-            'obs': y,
+            'obs': y_raw,
             'sim': y_hat,
             'dates': dates,
             'metric': {
