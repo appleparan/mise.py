@@ -28,7 +28,7 @@ import statsmodels.api as sm
 import statsmodels.graphics.tsaplots as tpl
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline, make_pipeline
@@ -404,13 +404,13 @@ class MultivariateDataset(BaseDataset):
         # pipeline for regression data
 
         numeric_pipeline_X_1 = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
 
         numeric_pipeline_X_2 = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
 
         numeric_pipeline_Y = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -530,17 +530,17 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         # pipeline for regression data
 
         numeric_pipeline_X_1 = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
 
         numeric_pipeline_X_2 = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -654,10 +654,10 @@ class MultivariateRNNDataset(BaseDataset):
 
          # pipeline for regression data
         numeric_pipeline_X = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
 
         numeric_pipeline_Y = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -789,17 +789,17 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
 
         # pipeline for regression data
         numeric_pipeline_X_std = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
 
         numeric_pipeline_X_sea = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -3992,6 +3992,63 @@ class SeasonalityDecompositor_H(TransformerMixin, BaseEstimator):
             print(dict_corr_dist, file=f)
 
 class StandardScalerWrapper(StandardScaler):
+    """Convert type as Series, not ndarray
+    """
+    def __init__(self, scaler):
+        self.scaler = scaler
+
+    def __getattr__(self, attr):
+        return getattr(self.scaler, attr)
+
+    # how to improve code?
+    # 1. remove duplicated structure
+    # 2. implement genarator? without knowledge of parent class
+    def partial_fit(self, X, y=None):
+        if isinstance(X, pd.DataFrame):
+            #self.scaler.partial_fit(X.iloc[:, 0].to_numpy().reshape(-1, 1),
+            #    y=X.iloc[:, 0].to_numpy().reshape(-1, 1))
+            self.scaler.partial_fit(X, y=X)
+            return self
+        elif isinstance(X, np.ndarray):
+            self.scaler.partial_fit(X, y=X)
+            return self
+        else:
+            raise TypeError("Type should be Pandas DataFrame or Numpy Array")
+
+    def fit(self, X, y=None):
+        if isinstance(X, pd.DataFrame):
+            #self.scaler.fit(X.iloc[:, 0].to_numpy().reshape(-1, 1),
+            #    y=X.iloc[:, 0].to_numpy().reshape(-1, 1))
+            #return self
+            self.scaler.fit(X, y=X)
+            return self
+        elif isinstance(X, np.ndarray):
+            self.scaler.fit(X, y=X)
+            return self
+        else:
+            raise TypeError("Type should be Pandas DataFrame or Numpy Array")
+
+    def transform(self, X):
+        if isinstance(X, pd.DataFrame):
+            return self.scaler.transform(X)
+        elif isinstance(X, np.ndarray):
+            return self.scaler.transform(X)
+        else:
+            raise TypeError("Type should be Pandas Series or Numpy Array")
+
+    def inverse_transform(self, X):
+        if isinstance(X, pd.DataFrame):
+            #return self.scaler.inverse_transform(X.iloc[:, 0].to_numpy().reshape(-1, 1))
+            _invX = self.scaler.inverse_transform(X)
+            return pd.DataFrame(data=_invX,
+                index=X.index,
+                columns=X.columns)
+        elif isinstance(X, np.ndarray):
+            return self.scaler.inverse_transform(X)
+        else:
+            raise TypeError("Type should be Pandas DataFrame or Numpy Array")
+
+class MinMaxScalerWrapper(MinMaxScaler):
     """Convert type as Series, not ndarray
     """
     def __init__(self, scaler):
