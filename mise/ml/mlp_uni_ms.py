@@ -447,14 +447,13 @@ class BaseMLPModel(LightningModule):
     def test_step(self, batch, batch_idx):
         x, _y, _y_raw, dates = batch
         _y_hat = self(x)
-        _loss = self.loss(_y, _y_hat)
+        _loss = self.loss(_y_hat, _y)
 
         # transformed y might be smoothed
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        #y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
-        y_hat_inv = y_raw
+        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
 
         _mae = mean_absolute_error(y_raw, y_hat_inv)
         _mse = mean_squared_error(y_raw, y_hat_inv)

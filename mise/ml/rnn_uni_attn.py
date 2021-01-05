@@ -533,15 +533,17 @@ class BaseAttentionModel(LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 
     def training_step(self, batch, batch_idx):
-        x, y0, y, dates = batch
-        y_hat = self(x, y0, y)
-        _loss = self.loss(y_hat, y)
+        x, _y0, _y, dates = batch
 
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        _y_hat = self(x, _y0, _y)
+        _loss = self.loss(_y_hat, _y)
+
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
@@ -569,15 +571,17 @@ class BaseAttentionModel(LightningModule):
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
-        x, y0, y, dates = batch
-        y_hat = self(x, y0, y)
+        x, _y0, _y, dates = batch
 
-        _loss = self.loss(y, y_hat)
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        _y_hat = self(x, _y0, _y)
+        _loss = self.loss(_y_hat, _y)
+
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
@@ -605,15 +609,17 @@ class BaseAttentionModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, y0, y, dates = batch
-        y_hat = self(x, y0, y)
+        x, _y0, _y, dates = batch
 
-        _loss = self.loss(y, y_hat)
-        _y = y.detach().cpu().clone().numpy()
-        _y_hat = y_hat.detach().cpu().clone().numpy()
-        _mae = mean_absolute_error(_y, _y_hat)
-        _mse = mean_squared_error(_y, _y_hat)
-        _r2 = r2_score(_y, _y_hat)
+        _y_hat = self(x, _y0, _y)
+        _loss = self.loss(_y_hat, _y)
+
+        y = _y.detach().cpu().clone().numpy()
+        y_hat = _y_hat.detach().cpu().clone().numpy()
+
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
 
         return {
             'loss': _loss,
