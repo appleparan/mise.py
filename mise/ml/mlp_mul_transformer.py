@@ -421,9 +421,10 @@ class BaseTransformerModel(LightningModule):
                 "num_layers", 3, 12)
 
         self.d_model = self.hparams.nhead * self.hparams.head_dim
-        #self.loss = nn.MSELoss()
-        self.loss = nn.L1Loss()
+        self.loss = nn.MSELoss()
+        #self.loss = nn.L1Loss()
         #self.loss = LogCoshLoss()
+        #self.loss = RMSELoss()
 
         self._train_set = None
         self._valid_set = None
@@ -462,9 +463,9 @@ class BaseTransformerModel(LightningModule):
         self.outY_sh = nn.Linear(self.output_size, self.output_size)
 
         self.outX = nn.Linear(self.sample_size, self.output_size)
-        # self.outSX = nn.Linear(self.sample_size, self.output_size)
-        # self.outSY = nn.Linear(self.output_size, self.output_size)
+        self.outSX = nn.Linear(self.sample_size, self.output_size)
         self.out = nn.Linear(self.output_size, self.output_size)
+        self.act = nn.ReLU()
 
         self.train_logs = {}
         self.valid_logs = {}
@@ -512,10 +513,10 @@ class BaseTransformerModel(LightningModule):
         # AR and seasonality is considered as Linear
         # z is nonlinear
         yhat = self.outX(self.outW(z) + self.ar(x1d)) + \
+               self.outSX(self.outX_sa(x_sa) + self.outX_sw(x_sw) + self.outX_sh(x_sh)) + \
                self.outY_sa(y_sa) + self.outY_sw(y_sw) + self.outY_sh(y_sh)
-        # self.outSX(self.outX_sa(x_sa) + self.outX_sw(x_sw) + self.outX_sh(x_sh)) + \
 
-        return yhat
+        return torch.round(self.act(yhat))
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
@@ -529,7 +530,7 @@ class BaseTransformerModel(LightningModule):
 
         _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
                       _ys_sa, _ys_sw, _ys_sh)
-        _loss = self.loss(_y_raw, _y_hat)
+        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
@@ -573,7 +574,7 @@ class BaseTransformerModel(LightningModule):
 
         _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
                       _ys_sa, _ys_sw, _ys_sh)
-        _loss = self.loss(_y_raw, _y_hat)
+        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
@@ -617,7 +618,7 @@ class BaseTransformerModel(LightningModule):
 
         _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
                       _ys_sa, _ys_sw, _ys_sh)
-        _loss = self.loss(_y_raw, _y_hat)
+        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
@@ -1084,3 +1085,24 @@ class LogCoshLoss(nn.Module):
                 torch.log(torch.full_like(x, 2, dtype=x.dtype))
 
         return torch.mean(_log_cosh(input - target))
+
+
+class RMSELoss(nn.Module):
+    def __init__(self, eps=1e-16):
+        super().__init__()
+        self.mse = nn.MSELoss()
+        self.eps = eps
+
+    def forward(self, yhat, y):
+        loss = torch.sqrt(self.mse(yhat, y) + self.eps)
+        return loss
+
+class RMSLELoss(nn.Module):
+    def __init__(self, eps=1e-16):
+        super().__init__()
+        self.mse = nn.MSELoss()
+        self.eps = eps
+
+    def forward(self, yhat, y):
+        loss = torch.sqrt(self.mse(torch.log(yhat + 1), torch.log(y + 1)) + self.eps)
+        return loss
