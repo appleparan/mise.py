@@ -523,6 +523,7 @@ class BaseTPAAttnModel(LightningModule):
 
         #self.loss = nn.MSELoss()
         self.loss = nn.L1Loss()
+        #self.loss = RMSELoss()
 
         self._train_set = None
         self._valid_set = None
@@ -550,6 +551,7 @@ class BaseTPAAttnModel(LightningModule):
         self.decoder = DecoderRNN(
             self.hparams.hidden_size, self.hparams.num_filters, self.output_size, self.attention)
         self.output = nn.Linear(self.hparams.hidden_size, self.output_size)
+        self.act = nn.ReLU()
 
     def forward(self, _x):
         """
@@ -587,7 +589,7 @@ class BaseTPAAttnModel(LightningModule):
         _outputs, _hidden = self.decoder(hidden, x_cnn)
 
         # equation (15) in TPA paper
-        outputs = self.output(_outputs)
+        outputs = self.act(self.output(_outputs))
 
         return outputs
 
@@ -681,17 +683,15 @@ class BaseTPAAttnModel(LightningModule):
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        #y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
-        y_hat_inv = y_hat
 
-        _mae = mean_absolute_error(y_raw, y_hat_inv)
-        _mse = mean_squared_error(y_raw, y_hat_inv)
-        _r2 = r2_score(y_raw, y_hat_inv)
+        _mae = mean_absolute_error(y_raw, y_hat)
+        _mse = mean_squared_error(y_raw, y_hat)
+        _r2 = r2_score(y_raw, y_hat)
 
         return {
             'loss': _loss,
             'obs': y_raw,
-            'sim': y_hat_inv,
+            'sim': y_hat,
             'dates': dates,
             'metric': {
                 'MSE': _mse,
@@ -1100,3 +1100,14 @@ class LogCoshLoss(nn.Module):
                 torch.log(torch.full_like(x, 2, dtype=x.dtype))
 
         return torch.mean(_log_cosh(input - target))
+
+
+class RMSELoss(nn.Module):
+    def __init__(self, eps=1e-16):
+        super().__init__()
+        self.mse = nn.MSELoss()
+        self.eps = eps
+
+    def forward(self, yhat, y):
+        loss = torch.sqrt(self.mse(yhat, y) + self.eps)
+        return loss

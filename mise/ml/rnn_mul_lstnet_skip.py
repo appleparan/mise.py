@@ -384,6 +384,7 @@ class BaseLSTNetModel(LightningModule):
         self.proj1 = nn.Linear(self.hparams.hidden_size + self.p * self.hparams.hidSkip,
                                self.output_size)
         self.proj2 = nn.Linear(self.output_size, self.output_size)
+        self.act = nn.ReLU()
 
     def forward(self, _x, _x1d):
         """
@@ -439,7 +440,7 @@ class BaseLSTNetModel(LightningModule):
         output2 = self.ar(_x1d)
 
         # Sum Autoregressive and Recurrent Layer output
-        output = self.proj1(output1) + self.proj2(output2)
+        output = self.act(self.proj1(output1) + self.proj2(output2))
 
         return output
 
@@ -450,7 +451,7 @@ class BaseLSTNetModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d)
-        _loss = self.loss(_y_raw, _y_hat)
+        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
@@ -489,7 +490,7 @@ class BaseLSTNetModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d)
-        _loss = self.loss(_y_raw, _y_hat)
+        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
@@ -528,22 +529,20 @@ class BaseLSTNetModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d)
-        _loss = self.loss(_y_raw, _y_hat)
+        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        #y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
-        y_hat_inv = y_hat
 
-        _mae = mean_absolute_error(y_raw, y_hat_inv)
-        _mse = mean_squared_error(y_raw, y_hat_inv)
-        _r2 = r2_score(y_raw, y_hat_inv)
+        _mae = mean_absolute_error(y_raw, y_hat)
+        _mse = mean_squared_error(y_raw, y_hat)
+        _r2 = r2_score(y_raw, y_hat)
 
         return {
             'loss': _loss,
             'obs': y_raw,
-            'sim': y_hat_inv,
+            'sim': y_hat,
             'dates': dates,
             'metric': {
                 'MSE': _mse,
