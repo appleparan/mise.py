@@ -22,13 +22,15 @@ from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
 from bokeh.io import export_png, export_svgs
 
+import seaborn as sns
+
 from torch.utils.data.dataset import Dataset
 
 import statsmodels.api as sm
 import statsmodels.graphics.tsaplots as tpl
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, PowerTransformer
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline, make_pipeline
@@ -404,13 +406,13 @@ class MultivariateDataset(BaseDataset):
         # pipeline for regression data
 
         numeric_pipeline_X_1 = Pipeline(
-            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         numeric_pipeline_X_2 = Pipeline(
-            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         numeric_pipeline_Y = Pipeline(
-            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -452,6 +454,9 @@ class MultivariateDataset(BaseDataset):
     def preprocess(self):
         """Fit and transform for input data
         """
+        # plot pdf
+
+
         # compute seasonality
         self._scaler_X.fit(self._xs)
         self._scaler_Y.fit(self._ys, y=self._ys)
@@ -530,17 +535,17 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         # pipeline for regression data
 
         numeric_pipeline_X_1 = Pipeline(
-            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         numeric_pipeline_X_2 = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
+             ('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
+             ('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -654,10 +659,10 @@ class MultivariateRNNDataset(BaseDataset):
 
          # pipeline for regression data
         numeric_pipeline_X = Pipeline(
-            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         numeric_pipeline_Y = Pipeline(
-            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -787,19 +792,18 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         # mix ColumnTransformer & Pipeline
         # https://scikit-learn.org/stable/auto_examples/compose/plot_column_transformer_mixed_types.html
 
-        # pipeline for regression data
         numeric_pipeline_X_std = Pipeline(
-            [('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
+            [('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
 
         numeric_pipeline_X_sea = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
+             ('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('minmaxscalerwrapper', MinMaxScalerWrapper(scaler=MinMaxScaler()))])
+             ('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -857,14 +861,53 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
     def preprocess(self, data_dir, png_dir, svg_dir):
         """Compute seasonality and transform by seasonality
         """
+        # plot correlation matrix
+
         # compute seasonality
         self._scaler_X.fit(self._xs)
-        self._scaler_Y.fit(self._ys, y=self._ys)
+        self._scaler_Y.fit(self._ys)
 
         # plot
         self.plot_seasonality(data_dir, png_dir, svg_dir)
 
         self.transform()
+
+    def plot_pdf(self, png_dir, svg_dir, suffix):
+        fig = plt.figure()
+        plt.title(self.target + ' raw X input')
+        sns.distplot(self._xs_raw[self.target], hist = False, kde = True,
+                 kde_kws = {'linewidth': 3},
+                 label = self.target)
+        plt.savefig(png_dir / (self.target + '_raw_X_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_raw_X_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' raw Y input')
+        sns.distplot(self._ys_raw[self.target], hist = False, kde = True,
+                 kde_kws = {'linewidth': 3},
+                 label = self.target)
+        plt.savefig(png_dir / (self.target + '_raw_Y_' + suffix  + '.png'))
+        plt.savefig(svg_dir / (self.target + '_raw_Y_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' transformed X input')
+        sns.distplot(self._xs[self.target], hist = False, kde = True,
+                 kde_kws = {'linewidth': 3},
+                 label = self.target)
+        plt.savefig(png_dir / (self.target + '_tf_X_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_tf_X_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' transformed Y input')
+        sns.distplot(self._ys[self.target], hist=False, kde=True,
+                 kde_kws = {'linewidth': 3},
+                 label = self.target)
+        plt.savefig(png_dir / (self.target + '_tf_Y_' + suffix  + '.png'))
+        plt.savefig(svg_dir / (self.target + '_tf_Y_' + suffix + '.svg'))
+        plt.close(fig)
 
     def transform(self):
         self._xs = pd.DataFrame(data=self._scaler_X.transform(self._xs),
@@ -954,6 +997,115 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
     @property
     def ys_raw(self):
         return self._ys_raw
+
+
+class MultivariateGeneralDataset(Dataset):
+    def __init__(self, df,
+                 sample_size, output_size,
+                 **kwargs):
+        super().__init__()
+        self.target = kwargs.get('target', 'PM10')
+        self.features = kwargs.get('features', ['PM10'])
+        self.normalize = kwargs.get('normalize', False)
+
+        # date when prediction starts, if I need to predict 2018/1/1 1:00 AM, I need more data with size 'sample_size'
+        self.fdate = kwargs.get('fdate', dt.datetime(
+            2009, 1, 1, 1).astimezone(SEOULTZ))
+        # date where prediction starts
+        self.tdate = kwargs.get('tdate', dt.datetime(
+            2017, 12, 31, 23).astimezone(SEOULTZ))
+
+        #self._df = df
+        self._df = df[self.fdate:self.tdate]
+        self._dates = self._df.index.to_pydatetime()
+        self._xs = self._df[self.features]
+        self._ys = self._df[[self.target]]
+        self._scaler = preprocessing.StandardScaler().fit(self._xs)
+
+        self.sample_size = sample_size
+        self.output_size = output_size
+
+        self._train_valid_ratio = kwargs.get('train_valid_ratio', 0.8)
+
+    def __getitem__(self, i: int):
+        """
+        get X, Y for given index `di`
+
+        Args:
+            di(datetime): datetime where output starts
+
+        Returns:
+            Tensor: transformed input (might be normalized)
+            Tensor: output without transform
+        """
+        x = self._xs.iloc[i:i+self.sample_size]
+        x_1d = self._ys.iloc[i:(i+self.sample_size)]
+        # save initial input as target variable input at last step (single step)
+        y0 = self._ys.iloc[i+self.sample_size-1]
+        y = self._ys.iloc[(i+self.sample_size)
+                           :(i+self.sample_size+self.output_size)]
+
+        # return X, Y, Y_dates
+        if self.normalize == True:
+            x_ = self._scaler.transform(x.to_numpy())
+        else:
+            x_ = x.to_numpy()
+
+        return np.squeeze(x_).astype('float32'), \
+            np.squeeze(x_1d).to_numpy().astype('float32'), \
+            y0.astype('float32'), \
+            np.squeeze(y).astype('float32'), \
+            self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
+
+    def __len__(self):
+        """
+        hours of train and test dates
+
+        __len__(df) == fdate - tdate - output_size - sample_size
+
+        Returns:
+            int: total hours
+        """
+
+        return self._ys.shape[0] - self.output_size - self.sample_size
+
+    def to_csv(self, fpath):
+        self._df.to_csv(fpath)
+
+        # getter only
+    @property
+    def xs(self):
+        return self._xs
+
+    # getter only
+    @property
+    def ys(self):
+        return self._ys
+
+    @property
+    def scaler(self):
+        return self._scaler
+
+    @scaler.setter
+    def scaler(self, scaler):
+        self._scaler = scaler.fit(self._xs)
+
+    @property
+    def df(self):
+        return self._df
+
+    @df.setter
+    def df(self, df):
+        self._df = df
+
+    @property
+    def train_valid_ratio(self):
+        return self._train_valid_ratio
+
+    @train_valid_ratio.setter
+    def train_valid_ratio(self, value):
+        self._train_valid_ratio = value
+
 
 class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
     """Decompose Seasonality
@@ -3991,10 +4143,11 @@ class SeasonalityDecompositor_H(TransformerMixin, BaseEstimator):
         with open(data_dir / 'intscale.json', 'w') as f:
             print(dict_corr_dist, file=f)
 
-class StandardScalerWrapper(StandardScaler):
+
+class StandardScalerWrapper(TransformerMixin, BaseEstimator):
     """Convert type as Series, not ndarray
     """
-    def __init__(self, scaler):
+    def __init__(self, scaler=StandardScaler()):
         self.scaler = scaler
 
     def __getattr__(self, attr):
@@ -4005,8 +4158,6 @@ class StandardScalerWrapper(StandardScaler):
     # 2. implement genarator? without knowledge of parent class
     def partial_fit(self, X, y=None):
         if isinstance(X, pd.DataFrame):
-            #self.scaler.partial_fit(X.iloc[:, 0].to_numpy().reshape(-1, 1),
-            #    y=X.iloc[:, 0].to_numpy().reshape(-1, 1))
             self.scaler.partial_fit(X, y=X)
             return self
         elif isinstance(X, np.ndarray):
@@ -4017,9 +4168,6 @@ class StandardScalerWrapper(StandardScaler):
 
     def fit(self, X, y=None):
         if isinstance(X, pd.DataFrame):
-            #self.scaler.fit(X.iloc[:, 0].to_numpy().reshape(-1, 1),
-            #    y=X.iloc[:, 0].to_numpy().reshape(-1, 1))
-            #return self
             self.scaler.fit(X, y=X)
             return self
         elif isinstance(X, np.ndarray):
@@ -4048,10 +4196,11 @@ class StandardScalerWrapper(StandardScaler):
         else:
             raise TypeError("Type should be Pandas DataFrame or Numpy Array")
 
-class MinMaxScalerWrapper(MinMaxScaler):
+
+class PowerTransformerWrapper(TransformerMixin, BaseEstimator):
     """Convert type as Series, not ndarray
     """
-    def __init__(self, scaler):
+    def __init__(self, scaler=PowerTransformer()):
         self.scaler = scaler
 
     def __getattr__(self, attr):
@@ -4062,8 +4211,6 @@ class MinMaxScalerWrapper(MinMaxScaler):
     # 2. implement genarator? without knowledge of parent class
     def partial_fit(self, X, y=None):
         if isinstance(X, pd.DataFrame):
-            #self.scaler.partial_fit(X.iloc[:, 0].to_numpy().reshape(-1, 1),
-            #    y=X.iloc[:, 0].to_numpy().reshape(-1, 1))
             self.scaler.partial_fit(X, y=X)
             return self
         elif isinstance(X, np.ndarray):
@@ -4074,13 +4221,12 @@ class MinMaxScalerWrapper(MinMaxScaler):
 
     def fit(self, X, y=None):
         if isinstance(X, pd.DataFrame):
-            #self.scaler.fit(X.iloc[:, 0].to_numpy().reshape(-1, 1),
-            #    y=X.iloc[:, 0].to_numpy().reshape(-1, 1))
-            #return self
-            self.scaler.fit(X, y=X)
+            print(self.scaler.get_params())
+            self.scaler.fit(X, y=y)
             return self
         elif isinstance(X, np.ndarray):
-            self.scaler.fit(X, y=X)
+            print(self.scaler.get_params())
+            self.scaler.fit(X, y=y)
             return self
         else:
             raise TypeError("Type should be Pandas DataFrame or Numpy Array")
@@ -4091,11 +4237,10 @@ class MinMaxScalerWrapper(MinMaxScaler):
         elif isinstance(X, np.ndarray):
             return self.scaler.transform(X)
         else:
-            raise TypeError("Type should be Pandas Series or Numpy Array")
+            raise TypeError("Type should be Pandas DataFrame or Numpy Array")
 
     def inverse_transform(self, X):
         if isinstance(X, pd.DataFrame):
-            #return self.scaler.inverse_transform(X.iloc[:, 0].to_numpy().reshape(-1, 1))
             _invX = self.scaler.inverse_transform(X)
             return pd.DataFrame(data=_invX,
                 index=X.index,
@@ -4104,110 +4249,3 @@ class MinMaxScalerWrapper(MinMaxScaler):
             return self.scaler.inverse_transform(X)
         else:
             raise TypeError("Type should be Pandas DataFrame or Numpy Array")
-
-class MultivariateGeneralDataset(Dataset):
-    def __init__(self, df,
-                 sample_size, output_size,
-                 **kwargs):
-        super().__init__()
-        self.target = kwargs.get('target', 'PM10')
-        self.features = kwargs.get('features', ['PM10'])
-        self.normalize = kwargs.get('normalize', False)
-
-        # date when prediction starts, if I need to predict 2018/1/1 1:00 AM, I need more data with size 'sample_size'
-        self.fdate = kwargs.get('fdate', dt.datetime(
-            2009, 1, 1, 1).astimezone(SEOULTZ))
-        # date where prediction starts
-        self.tdate = kwargs.get('tdate', dt.datetime(
-            2017, 12, 31, 23).astimezone(SEOULTZ))
-
-        #self._df = df
-        self._df = df[self.fdate:self.tdate]
-        self._dates = self._df.index.to_pydatetime()
-        self._xs = self._df[self.features]
-        self._ys = self._df[[self.target]]
-        self._scaler = preprocessing.StandardScaler().fit(self._xs)
-
-        self.sample_size = sample_size
-        self.output_size = output_size
-
-        self._train_valid_ratio = kwargs.get('train_valid_ratio', 0.8)
-
-    def __getitem__(self, i: int):
-        """
-        get X, Y for given index `di`
-
-        Args:
-            di(datetime): datetime where output starts
-
-        Returns:
-            Tensor: transformed input (might be normalized)
-            Tensor: output without transform
-        """
-        x = self._xs.iloc[i:i+self.sample_size]
-        x_1d = self._ys.iloc[i:(i+self.sample_size)]
-        # save initial input as target variable input at last step (single step)
-        y0 = self._ys.iloc[i+self.sample_size-1]
-        y = self._ys.iloc[(i+self.sample_size)
-                           :(i+self.sample_size+self.output_size)]
-
-        # return X, Y, Y_dates
-        if self.normalize == True:
-            x_ = self._scaler.transform(x.to_numpy())
-        else:
-            x_ = x.to_numpy()
-
-        return np.squeeze(x_).astype('float32'), \
-            np.squeeze(x_1d).to_numpy().astype('float32'), \
-            y0.astype('float32'), \
-            np.squeeze(y).astype('float32'), \
-            self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
-
-    def __len__(self):
-        """
-        hours of train and test dates
-
-        __len__(df) == fdate - tdate - output_size - sample_size
-
-        Returns:
-            int: total hours
-        """
-
-        return self._ys.shape[0] - self.output_size - self.sample_size
-
-    def to_csv(self, fpath):
-        self._df.to_csv(fpath)
-
-        # getter only
-    @property
-    def xs(self):
-        return self._xs
-
-    # getter only
-    @property
-    def ys(self):
-        return self._ys
-
-    @property
-    def scaler(self):
-        return self._scaler
-
-    @scaler.setter
-    def scaler(self, scaler):
-        self._scaler = scaler.fit(self._xs)
-
-    @property
-    def df(self):
-        return self._df
-
-    @df.setter
-    def df(self, df):
-        self._df = df
-
-    @property
-    def train_valid_ratio(self):
-        return self._train_valid_ratio
-
-    @train_valid_ratio.setter
-    def train_valid_ratio(self, value):
-        self._train_valid_ratio = value
