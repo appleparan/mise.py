@@ -454,14 +454,48 @@ class MultivariateDataset(BaseDataset):
     def preprocess(self):
         """Fit and transform for input data
         """
-        # plot pdf
-
-
         # compute seasonality
         self._scaler_X.fit(self._xs)
         self._scaler_Y.fit(self._ys, y=self._ys)
 
         self.transform()
+
+    def plot_pdf(self, png_dir, svg_dir, suffix):
+        fig = plt.figure()
+        plt.title(self.target + ' raw X input')
+        sns.distplot(self._xs_raw[self.target], hist=False, kde=True,
+                     kde_kws={'linewidth': 3},
+                     label=self.target)
+        plt.savefig(png_dir / (self.target + '_raw_X_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_raw_X_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' raw Y input')
+        sns.distplot(self._ys_raw[self.target], hist=False, kde=True,
+                     kde_kws={'linewidth': 3},
+                     label=self.target)
+        plt.savefig(png_dir / (self.target + '_raw_Y_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_raw_Y_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' transformed X input')
+        sns.distplot(self._xs[self.target], hist=False, kde=True,
+                     kde_kws={'linewidth': 3},
+                     label=self.target)
+        plt.savefig(png_dir / (self.target + '_tf_X_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_tf_X_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' transformed Y input')
+        sns.distplot(self._ys[self.target], hist=False, kde=True,
+                     kde_kws={'linewidth': 3},
+                     label=self.target)
+        plt.savefig(png_dir / (self.target + '_tf_Y_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_tf_Y_' + suffix + '.svg'))
+        plt.close(fig)
 
     def transform(self):
         self._xs = pd.DataFrame(data=self._scaler_X.transform(self._xs),
@@ -540,12 +574,12 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         numeric_pipeline_X_2 = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
+             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
+             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -593,6 +627,43 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         self.plot_seasonality(data_dir, png_dir, svg_dir)
 
         self.transform()
+
+    def plot_pdf(self, png_dir, svg_dir, suffix):
+        fig = plt.figure()
+        plt.title(self.target + ' raw X input')
+        sns.distplot(self._xs_raw[self.target], hist=False, kde=True,
+                     kde_kws={'linewidth': 3},
+                     label=self.target)
+        plt.savefig(png_dir / (self.target + '_raw_X_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_raw_X_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' raw Y input')
+        sns.distplot(self._ys_raw[self.target], hist=False, kde=True,
+                     kde_kws={'linewidth': 3},
+                     label=self.target)
+        plt.savefig(png_dir / (self.target + '_raw_Y_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_raw_Y_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' transformed X input')
+        sns.distplot(self._xs[self.target], hist=False, kde=True,
+                     kde_kws={'linewidth': 3},
+                     label=self.target)
+        plt.savefig(png_dir / (self.target + '_tf_X_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_tf_X_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' transformed Y input')
+        sns.distplot(self._ys[self.target], hist=False, kde=True,
+                     kde_kws={'linewidth': 3},
+                     label=self.target)
+        plt.savefig(png_dir / (self.target + '_tf_Y_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_tf_Y_' + suffix + '.svg'))
+        plt.close(fig)
 
     def transform(self):
         self._xs = pd.DataFrame(data=self._scaler_X.transform(self._xs),
@@ -714,6 +785,43 @@ class MultivariateRNNDataset(BaseDataset):
 
         self.transform()
 
+    def plot_pdf(self, png_dir, svg_dir, suffix):
+        fig = plt.figure()
+        plt.title(self.target + ' raw X input')
+        sns.distplot(self._xs_raw[self.target], hist = False, kde = True,
+                 kde_kws = {'linewidth': 3},
+                 label = self.target)
+        plt.savefig(png_dir / (self.target + '_raw_X_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_raw_X_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' raw Y input')
+        sns.distplot(self._ys_raw[self.target], hist = False, kde = True,
+                 kde_kws = {'linewidth': 3},
+                 label = self.target)
+        plt.savefig(png_dir / (self.target + '_raw_Y_' + suffix  + '.png'))
+        plt.savefig(svg_dir / (self.target + '_raw_Y_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' transformed X input')
+        sns.distplot(self._xs[self.target], hist = False, kde = True,
+                 kde_kws = {'linewidth': 3},
+                 label = self.target)
+        plt.savefig(png_dir / (self.target + '_tf_X_' + suffix + '.png'))
+        plt.savefig(svg_dir / (self.target + '_tf_X_' + suffix + '.svg'))
+        plt.close(fig)
+
+        fig = plt.figure()
+        plt.title(self.target + ' transformed Y input')
+        sns.distplot(self._ys[self.target], hist=False, kde=True,
+                 kde_kws = {'linewidth': 3},
+                 label = self.target)
+        plt.savefig(png_dir / (self.target + '_tf_Y_' + suffix  + '.png'))
+        plt.savefig(svg_dir / (self.target + '_tf_Y_' + suffix + '.svg'))
+        plt.close(fig)
+
     def transform(self):
         self._xs = pd.DataFrame(data=self._scaler_X.transform(self._xs),
                                 index=self._xs.index, columns=self._xs.columns)
@@ -792,18 +900,32 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         # mix ColumnTransformer & Pipeline
         # https://scikit-learn.org/stable/auto_examples/compose/plot_column_transformer_mixed_types.html
 
+        # numeric_pipeline_X_std = Pipeline(
+        #     [('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
+
+        # numeric_pipeline_X_sea = Pipeline(
+        #     [('seasonalitydecompositor',
+        #         SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
+        #      ('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
+
+        # numeric_pipeline_Y = Pipeline(
+        #     [('seasonalitydecompositor',
+        #         SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
+        #      ('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
+
         numeric_pipeline_X_std = Pipeline(
-            [('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
+            [('standardtransformer', StandardScalerWrapper(scaler=StandardScaler()))])
 
         numeric_pipeline_X_sea = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
+             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler()))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
+             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler()))])
+
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -997,7 +1119,6 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
     @property
     def ys_raw(self):
         return self._ys_raw
-
 
 class MultivariateGeneralDataset(Dataset):
     def __init__(self, df,
