@@ -606,15 +606,15 @@ class BaseTPAAttnModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x)
-        _loss = self.loss(_y_hat, _y_raw)
+        _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
 
-        _mae = mean_absolute_error(y_raw, y_hat)
-        _mse = mean_squared_error(y_raw, y_hat)
-        _r2 = r2_score(y_raw, y_hat)
+        _mae = mean_absolute_error(y_hat, y)
+        _mse = mean_squared_error(y_hat, y)
+        _r2 = r2_score(y_hat, y)
 
         return {
             'loss': _loss,
@@ -645,15 +645,15 @@ class BaseTPAAttnModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x)
-        _loss = self.loss(_y_hat, _y_raw)
+        _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
 
-        _mae = mean_absolute_error(y_raw, y_hat)
-        _mse = mean_squared_error(y_raw, y_hat)
-        _r2 = r2_score(y_raw, y_hat)
+        _mae = mean_absolute_error(y_hat, y)
+        _mse = mean_squared_error(y_hat, y)
+        _r2 = r2_score(y_hat, y)
 
         return {
             'loss': _loss,
@@ -684,20 +684,21 @@ class BaseTPAAttnModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x)
-        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
+        y_hat2 = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+        _loss = self.loss(torch.as_tensor(y_hat2), _y_raw)
 
-        _mae = mean_absolute_error(y_raw, y_hat)
-        _mse = mean_squared_error(y_raw, y_hat)
-        _r2 = r2_score(y_raw, y_hat)
+        _mae = mean_absolute_error(y_hat2, y_raw)
+        _mse = mean_squared_error(y_hat2, y_raw)
+        _r2 = r2_score(y_hat2, y_raw)
 
         return {
             'loss': _loss,
             'obs': y_raw,
-            'sim': np.round(y_hat),
+            'sim': y_hat2,
             'dates': dates,
             'metric': {
                 'MSE': _mse,
@@ -781,7 +782,9 @@ class BaseTPAAttnModel(LightningModule):
 
             # just append single key date
             indicies.append(_d[0])
-        _df_sim = pd.DataFrame(data=values, index=indicies, columns=cols)
+        # round decimal
+        _df_sim = pd.DataFrame(data=np.around(
+            values), index=indicies, columns=cols)
 
         return _df_obs, _df_sim
 

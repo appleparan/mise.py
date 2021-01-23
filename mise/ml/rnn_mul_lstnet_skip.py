@@ -28,6 +28,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import Callback, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import sklearn.metrics
 
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
@@ -451,15 +452,15 @@ class BaseLSTNetModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d)
-        _loss = self.loss(_y_hat, _y_raw)
+        _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
 
-        _mae = mean_absolute_error(y_raw, y_hat)
-        _mse = mean_squared_error(y_raw, y_hat)
-        _r2 = r2_score(y_raw, y_hat)
+        _mae = mean_absolute_error(y_hat, y)
+        _mse = mean_squared_error(y_hat, y)
+        _r2 = r2_score(y_hat, y)
 
         return {
             'loss': _loss,
@@ -490,15 +491,15 @@ class BaseLSTNetModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d)
-        _loss = self.loss(_y_hat, _y_raw)
+        _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
 
-        _mae = mean_absolute_error(y_raw, y_hat)
-        _mse = mean_squared_error(y_raw, y_hat)
-        _r2 = r2_score(y_raw, y_hat)
+        _mae = mean_absolute_error(y_hat, y)
+        _mse = mean_squared_error(y_hat, y)
+        _r2 = r2_score(y_hat, y)
 
         return {
             'loss': _loss,
@@ -529,20 +530,21 @@ class BaseLSTNetModel(LightningModule):
         x, _x1d, _y0, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d)
-        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
+        y_hat2 = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+        _loss = self.loss(torch.as_tensor(y_hat2), _y_raw)
 
-        _mae = mean_absolute_error(y_raw, y_hat)
-        _mse = mean_squared_error(y_raw, y_hat)
-        _r2 = r2_score(y_raw, y_hat)
+        _mae = mean_absolute_error(y_hat2, y_raw)
+        _mse = mean_squared_error(y_hat2, y_raw)
+        _r2 = r2_score(y_hat2, y_raw)
 
         return {
             'loss': _loss,
             'obs': y_raw,
-            'sim': y_hat,
+            'sim': y_hat2,
             'dates': dates,
             'metric': {
                 'MSE': _mse,
@@ -580,8 +582,9 @@ class BaseLSTNetModel(LightningModule):
                   self.data_dir, self.png_dir, self.svg_dir)
         plot_scatter(self.output_size, df_obs, df_sim,
                      self.data_dir, self.png_dir, self.svg_dir)
-        plot_corr(self.output_size, df_obs, df_sim,
-                  self.data_dir, self.png_dir, self.svg_dir)
+        for metric in ['MAPE', 'PCORR', 'SCORR', 'R2', 'FB', 'NMSE', 'MG', 'VG', 'FAC2']:
+            plot_metrics(metric, self.output_size, df_obs, df_sim,
+                         self.data_dir, self.png_dir, self.svg_dir)
         plot_rmse(self.output_size, df_obs, df_sim,
                   self.data_dir, self.png_dir, self.svg_dir)
         plot_logs(self.train_logs, self.valid_logs, self.target,
@@ -626,7 +629,9 @@ class BaseLSTNetModel(LightningModule):
 
             # just append single key date
             indicies.append(_d[0])
-        _df_sim = pd.DataFrame(data=values, index=indicies, columns=cols)
+        # round decimal
+        _df_sim = pd.DataFrame(data=np.around(
+            values), index=indicies, columns=cols)
 
         return _df_obs, _df_sim
 
@@ -855,36 +860,130 @@ def plot_scatter(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
         df_scatter.to_csv(csv_path)
 
 
-def plot_corr(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
+def plot_metrics(metric, output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
+    """
+    Reference:
+        * Chang, Joseph C., and Steven R. Hanna.
+            "Air quality model performance evaluation." Meteorology and Atmospheric Physics 87.1-3 (2004): 167-196.
+    """
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-    png_path = png_dir / ("corr_time.png")
-    svg_path = svg_dir / ("corr_time.svg")
-    csv_path = data_dir / ("corr_time.csv")
+    png_path = png_dir / (metric.lower() + "_time.png")
+    svg_path = svg_dir / (metric.lower() + "_time.svg")
+    csv_path = data_dir / (metric.lower() + "_time.csv")
 
-    times = list(range(output_size + 1))
-    corrs = [1.0]
+    times = list(range(1, output_size + 1))
+    metric_vals = []
+
     for t in range(output_size):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 
-        corrs.append(np.corrcoef(obs, sim)[0, 1])
+        # Best case
+        # MG, VG, R, and FAC2=1.0;
+        # FB and NMSE = 0.0.
+        if metric == 'MAPE':
+            metric_vals.append(
+                sklearn.metrics.mean_absolute_percentage_error(obs, sim))
+        elif metric == 'PCORR':
+            pcorr, p_val = sp.stats.pearsonr(obs, sim)
+            metric_vals.append(pcorr)
+        elif metric == 'SCORR':
+            scorr, p_val = sp.stats.spearmanr(obs, sim)
+            metric_vals.append(scorr)
+        elif metric == 'R2':
+            metric_vals.append(
+                sklearn.metrics.r2_score(obs, sim))
+        elif metric == 'FB':
+            # fractional bias
+            avg_o = np.mean(obs)
+            avg_s = np.mean(sim)
+            metric_vals.append(
+                2.0 * ((avg_o - avg_s) / (avg_o + avg_s + np.finfo(float).eps)))
+        elif metric == 'NMSE':
+            # normalized mean square error
+            metric_vals.append(
+                np.square(np.mean(obs - sim)) / (np.mean(obs) * np.mean(sim) + np.finfo(float).eps))
+        elif metric == 'MG':
+            # geometric mean bias
+            metric_vals.append(
+                np.exp(np.mean(np.log(obs + 1.0)) - np.mean(np.log(sim + 1.0))))
+        elif metric == 'VG':
+            # geometric variance
+            metric_vals.append(
+                np.exp(np.mean(np.square(np.log(obs + 1.0) - np.log(sim + 1.0)))))
+        elif metric == 'FAC2':
+            # the fraction of predictions within a factor of two of observations
+            frac = sim / obs
+            metric_vals.append(
+                ((0.5 <= frac) & (frac <= 2.0)).sum())
 
-    p = figure(title="Correlation of OBS & Model")
+    title = ''
+    if metric == 'MAPE':
+        # Best MAPE => 1.0
+        title = 'MAPE'
+        ylabel = 'MAPE'
+    elif metric == 'R2':
+        # Best R2 => 1.0
+        metric_vals.insert(0, 1.0)
+        times = list(range(len(metric_vals)))
+        title = 'R2'
+        ylabel = 'R2'
+    elif metric == 'PCORR':
+        # Best R2 => 1.0
+        metric_vals.insert(0, 1.0)
+        times = list(range(len(metric_vals)))
+        title = 'Pearson correlation coefficient (p=' + str(p_val) + ')'
+        ylabel = 'corr'
+    elif metric == 'SCORR':
+        # Best R2 => 1.0
+        metric_vals.insert(0, 1.0)
+        times = list(range(len(metric_vals)))
+        title = 'Spearman\'s rank-order correlation coefficient (p=' + str(
+            p_val) + ')'
+        ylabel = 'corr'
+    elif metric == 'FB':
+        # Best FB => 0.0
+        title = 'Fractional Bias'
+        ylabel = 'FB'
+    elif metric == 'NMSE':
+        # Best NMSE => 0.0
+        title = 'Normalized Mean Square Error'
+        ylabel = 'NMSE'
+    elif metric == 'MG':
+        # Best MG => 1.0
+        title = 'Geometric Mean Bias'
+        ylabel = 'MG'
+    elif metric == 'VG':
+        # Best VG => 1.0
+        title = 'Geometric Mean Variance'
+        ylabel = 'VG'
+    elif metric == 'FAC2':
+        # Best FAC2 => 1.0
+        title = 'The Fraction of predictions within a factor of two of observations'
+        ylabel = 'FAC2'
+
+    p = figure(title=title)
     p.toolbar.logo = None
     p.toolbar_location = None
-    p.xaxis.axis_label = "lags"
-    p.yaxis.axis_label = "corr"
-    p.yaxis.bounds = (0.0, 1.0)
-    p.y_range = Range1d(0.0, 1.0)
-    p.line(times, corrs)
+    p.xaxis.axis_label = "time"
+    if ylabel:
+        p.yaxis.axis_label = ylabel
+    if metric == 'MAPE':
+        p.yaxis.bounds = (0.0, 1.0)
+        p.y_range = Range1d(0.0, 1.0)
+    elif metric == 'R2' or metric == 'PCORR' or metric == 'SCORR':
+        ymin = min(0.0, min(metric_vals))
+        p.yaxis.bounds = (ymin, 1.0)
+        p.y_range = Range1d(ymin, 1.0)
+    p.line(times, metric_vals)
     export_png(p, filename=png_path)
     p.output_backend = "svg"
     export_svgs(p, filename=str(svg_path))
 
-    df_corrs = pd.DataFrame({'time': times, 'corr': corrs})
+    df_corrs = pd.DataFrame({'time': times, metric.lower(): metric_vals})
     df_corrs.set_index('time', inplace=True)
     df_corrs.to_csv(csv_path)
 
