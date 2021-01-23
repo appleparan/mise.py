@@ -79,7 +79,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     batch_size = 256
     learning_rate = 1e-3
 
-    train_fdate = dt.datetime(2012, 1, 1, 0).astimezone(SEOULTZ)
+    train_fdate = dt.datetime(2008, 1, 5, 0).astimezone(SEOULTZ)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     #test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
@@ -465,7 +465,7 @@ class BaseTransformerModel(LightningModule):
         self.outY_sh = nn.Linear(self.output_size, self.output_size)
         self.outSX = nn.Linear(self.sample_size, self.output_size)
 
-        self.ar = nn.Linear(self.sample_size, self.output_size)
+        self.ar = nn.Linear(self.sample_size, self.sample_size)
 
         self.act = nn.ReLU()
 
@@ -514,9 +514,11 @@ class BaseTransformerModel(LightningModule):
         # yhat: (batch_size, output_size)
         # AR and seasonality is considered as Linear
         # z is nonlinear
-        yhat = self.outX(self.outW(z)) + \
+        # outX : linear transform: mapping to inverse_transform for StandardScaler
+        # outSX : add weight to seasonality
+        # Y seasonality is just added, because it has directly related to yhat (linear relationship)
+        yhat = self.outX(self.outW(z) + self.ar(x1d)) + \
                self.outSX(self.outX_sa(x_sa) + self.outX_sw(x_sw) + self.outX_sh(x_sh)) + \
-               self.ar(x1d) + \
                self.outY_sa(y_sa) + self.outY_sw(y_sw) + self.outY_sh(y_sh)
 
         return self.act(yhat)

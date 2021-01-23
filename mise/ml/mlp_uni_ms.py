@@ -80,7 +80,7 @@ def ml_mlp_uni_ms(station_name="종로구"):
     batch_size = 256
     learning_rate = 1e-3
 
-    train_fdate = dt.datetime(2012, 1, 1, 0).astimezone(SEOULTZ)
+    train_fdate = dt.datetime(2008, 1, 5, 0).astimezone(SEOULTZ)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
