@@ -345,8 +345,8 @@ class BaseLSTNetModel(LightningModule):
 
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 
-        #self.loss = nn.MSELoss()
-        self.loss = nn.L1Loss()
+        self.loss = nn.MSELoss()
+        #self.loss = nn.L1Loss()
 
         self._train_set = None
         self._valid_set = None
