@@ -4,6 +4,7 @@ import datetime as dt
 from math import sqrt
 import os
 from pathlib import Path
+import random
 import shutil
 
 import matplotlib.pyplot as plt
@@ -511,15 +512,17 @@ class BaseTransformerModel(LightningModule):
         # section 3.3
         z = u.reshape(batch_size, feature_size * self.d_model)
 
+        # nonlinear part
         # yhat: (batch_size, output_size)
-        # AR and seasonality is considered as Linear
         # z is nonlinear
         # outX : linear transform: mapping to inverse_transform for StandardScaler
         # outSX : add weight to seasonality
+        _yhat = self.outX(self.outW(z)) + \
+               self.outSX(self.outX_sa(x_sa) + self.outX_sw(x_sw) + self.outX_sh(x_sh)) 
+
+        # linear part
         # Y seasonality is just added, because it has directly related to yhat (linear relationship)
-        yhat = self.outX(self.outW(z) + self.ar(x1d)) + \
-               self.outSX(self.outX_sa(x_sa) + self.outX_sw(x_sw) + self.outX_sh(x_sh)) + \
-               self.outY_sa(y_sa) + self.outY_sw(y_sw) + self.outY_sh(y_sh)
+        yhat = _yhat + self.outY_sa(y_sa) + self.outY_sw(y_sw) + self.outY_sh(y_sh)
 
         return self.act(yhat)
 
@@ -585,9 +588,9 @@ class BaseTransformerModel(LightningModule):
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
 
-        _mae = mean_absolute_error(y_raw, y_hat)
-        _mse = mean_squared_error(y_raw, y_hat)
-        _r2 = r2_score(y_raw, y_hat)
+        _mae = mean_absolute_error(y_hat, y_raw)
+        _mse = mean_squared_error(y_hat, y_raw)
+        _r2 = r2_score(y_hat, y_raw)
 
         return {
             'loss': _loss,
@@ -629,9 +632,9 @@ class BaseTransformerModel(LightningModule):
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
 
-        _mae = mean_absolute_error(y_raw, y_hat)
-        _mse = mean_squared_error(y_raw, y_hat)
-        _r2 = r2_score(y_raw, y_hat)
+        _mae = mean_absolute_error(y_hat, y_raw)
+        _mse = mean_squared_error(y_hat, y_raw)
+        _r2 = r2_score(y_hat, y_raw)
 
         return {
             'loss': _loss,
@@ -719,7 +722,9 @@ class BaseTransformerModel(LightningModule):
 
             # just append single key date
             indicies.append(_d[0])
-        _df_sim = pd.DataFrame(data=values, index=indicies, columns=cols)
+        # round decimal
+        _df_sim = pd.DataFrame(data=np.around(
+            values), index=indicies, columns=cols)
 
         return _df_obs, _df_sim
 
