@@ -535,7 +535,7 @@ class BaseLSTNetModel(LightningModule):
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_hat2 = np.array(self.test_dataset.inverse_transform(y_hat, dates))
-        _loss = self.loss(torch.as_tensor(y_hat2), _y_raw)
+        _loss = self.loss(torch.as_tensor(y_hat2).to(device), _y_raw)
 
         _mae = mean_absolute_error(y_hat2, y_raw)
         _mse = mean_squared_error(y_hat2, y_raw)
