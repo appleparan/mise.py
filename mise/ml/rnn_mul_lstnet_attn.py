@@ -8,6 +8,7 @@ import shutil
 
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy as sp
 import pandas as pd
 from pytz import timezone
 import tqdm
