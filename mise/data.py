@@ -4,6 +4,7 @@ import hashlib
 import inspect
 from pathlib import Path
 import random
+import string
 from typing import TypeVar, Iterable, Tuple, Union
 
 import numpy as np
@@ -24,9 +25,17 @@ from bokeh.io import export_png, export_svgs
 
 import seaborn as sns
 
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import matplotlib.patches as mpatches
+import matplotlib.gridspec as gridspec
+import matplotlib.colors as mcolors
+
 from torch.utils.data.dataset import Dataset
 
 import statsmodels.api as sm
+import statsmodels.tsa.stattools as tsast
 import statsmodels.graphics.tsaplots as tpl
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
@@ -37,6 +46,8 @@ from sklearn.pipeline import Pipeline, make_pipeline
 
 from constants import SEOUL_STATIONS, SEOULTZ
 import utils
+
+# plt.rcParams["font.family"] = "Arial"
 
 def load(filepath="/input/input.csv", datecol=[1]):
     # date column in raw data : 1
@@ -150,13 +161,13 @@ class BaseDataset(Dataset):
         """
         hours of train and test dates
 
-        __len__(df) == fdate - tdate - output_size - sample_size
+        __len__(df) == fdate - tdate + output_size
 
         Returns:
             int: total hours
         """
         duration = self.tdate - self.fdate - \
-            dt.timedelta(hours=(self.output_size + self.sample_size))
+            dt.timedelta(hours=(self.output_size) - 2)
         return duration.days * 24 + duration.seconds // 3600
 
     # getter only
@@ -990,7 +1001,7 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         self._scaler_Y.fit(self._ys)
 
         # plot
-        self.plot_seasonality(data_dir, png_dir, svg_dir)
+        #self.plot_seasonality(data_dir, png_dir, svg_dir)
 
         self.transform()
 
@@ -1098,7 +1109,15 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
 
     def plot_seasonality(self, data_dir, png_dir, svg_dir):
         p = self._scaler_Y.named_transformers_['num']
-        p['seasonalitydecompositor'].plot(self._xs, self.target,
+        p['seasonalitydecompositor'].plot(self._xs_raw, self.target,
+                                          self.fdate, self.tdate, data_dir, png_dir, svg_dir)
+
+    def plot_fused_seasonality(self, data_dir, png_dir, svg_dir):
+        Path.mkdir(png_dir, parents=True, exist_ok=True)
+        Path.mkdir(svg_dir, parents=True, exist_ok=True)
+        Path.mkdir(data_dir, parents=True, exist_ok=True)
+        p = self._scaler_Y.named_transformers_['num']
+        p['seasonalitydecompositor'].plot_fused(self._xs_raw, self.target,
                                           self.fdate, self.tdate, data_dir, png_dir, svg_dir)
 
     def to_csv(self, fpath):
@@ -1119,6 +1138,11 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
     @property
     def ys_raw(self):
         return self._ys_raw
+
+    @property
+    def ys(self):
+        return self._ys
+
 
 class MultivariateGeneralDataset(Dataset):
     def __init__(self, df,
@@ -1537,7 +1561,7 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         ys_acf, confint, qstat, pvalues = sm.tsa.acf(
             ys, qstat=True, alpha=0.05, nlags=nlags)
 
-        intscale = sum(ys_acf[0:self.confint_idx(ys_acf, confint)])
+        intscale = sum(ys_acf[0:self.confint_idx(ys_acf, confint)+1])
         print("Raw Conf Int  : ", self.confint_idx(ys_acf, confint))
         print("Raw Int Scale : ", intscale)
         #print("Raw qstat : ", qstat)
@@ -1709,7 +1733,7 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         yr_acf, confint, qstat, pvalues = sm.tsa.acf(yr, qstat=True, alpha=0.05, nlags=nlags)
 
         # I need "hours" as unit, so multiply 24
-        intscale = sum(yr_acf[0:self.confint_idx(yr_acf, confint)]) * 24
+        intscale = sum(yr_acf[0:self.confint_idx(yr_acf, confint)+1]) * 24
         print("Annual Conf Int  : ", self.confint_idx(yr_acf, confint))
         print("Annual Int Scale : ", intscale)
         print("Annual qstat : ", qstat)
@@ -1816,7 +1840,7 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         wr_acf, confint, qstat, pvalues = sm.tsa.acf(wr, qstat=True, alpha=0.05, nlags=nlags)
 
         # I need "hours" as unit, so multiply 24
-        intscale = sum(wr_acf[0:self.confint_idx(wr_acf, confint)]) * 24
+        intscale = sum(wr_acf[0:self.confint_idx(wr_acf, confint)+1]) * 24
         print("Weekly Conf Int  : ", self.confint_idx(wr_acf, confint))
         print("Weekly Int Scale : ", intscale)
         print("Weekly qstat : ", qstat)
@@ -1911,7 +1935,7 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         hr = df[(df.index >= fdate) & (df.index <= tdate)][target].to_numpy()
         hr_acf, confint, qstat, pvalues = sm.tsa.acf(hr, qstat=True, alpha=0.05, nlags=nlags)
 
-        intscale = sum(hr_acf[0:self.confint_idx(hr_acf, confint)])
+        intscale = sum(hr_acf[0:self.confint_idx(hr_acf, confint)+1])
         print("Hourly Conf Int  : ", self.confint_idx(hr_acf, confint))
         print("Hourly Int Scale : ", intscale)
         #print("Hourly qstat : ", qstat)
@@ -2057,6 +2081,268 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
 
         with open(data_dir / 'intscale.json', 'w') as f:
             print(dict_corr_dist, file=f)
+
+    def plot_fused(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
+                   sample_size=48, output_size=24,
+                   target_year=2016, target_week=10, target_month=5, target_day=1,
+                   nlags=15, smoothing=True):
+        """
+        Plot acf and seasonality for paper
+
+        1. Seasonality Plot : Annual (+Smoothed) & Weekly & Hourly
+        2. ACF Plot : Raw & Residuals (15 days)
+        """
+        df = df[(df.index > fdate) & (df.index < tdate)]
+        # daily averaged
+        df_d = df.resample('D').mean()
+
+        df_resid_annual, df_resid_weekly, df_resid_weekly_pop, df_resid_hourly = \
+            self.compute_seasonality(df.loc[:, target], return_resid=True)
+        df_resid_annual.rename(columns={'resid': target}, inplace=True)
+        df_resid_weekly.rename(columns={'resid': target}, inplace=True)
+        df_resid_weekly_pop.rename(columns={'resid': target}, inplace=True)
+        df_resid_hourly.rename(columns={'resid': target}, inplace=True)
+
+        df_resid_annual.to_csv(data_dir / ("resid_annual.csv"))
+        df_resid_weekly.to_csv(data_dir / ("resid_weekly.csv"))
+        df_resid_hourly.to_csv(data_dir / ("resid_hourly.csv"))
+
+        # RAW data
+        raws = df[(df.index >= fdate) & (df.index <= tdate)][target].to_numpy()
+        df_resid_raw = pd.DataFrame.from_dict({'date': df.index, target: df[target]})
+        df_resid_raw_d = pd.DataFrame.from_dict({'date': df_d.index, target: df_d[target]})
+        df_resid_raw.to_csv(data_dir / ("resid_raw.csv"))
+        df_resid_raw_d.to_csv(data_dir / ("resid_raw_d.csv"))
+
+        # ANNUAL
+        dt1 = dt.datetime(year=target_year, month=1, day=1, hour=0)
+        dt2 = dt.datetime(year=target_year, month=12, day=31, hour=23)
+        yx = pd.date_range(
+            start=dt1, end=dt2, freq='D', tz=SEOULTZ).tolist()
+        yx_plt = pd.DatetimeIndex([i.replace(tzinfo=None) for i in pd.date_range(
+            start=dt1, end=dt2, freq='D', tz=SEOULTZ)])
+
+        ys = [self.sea_annual[target][self.ydt2key(y)] for y in yx]
+        yr = df_resid_annual[(df_resid_annual.index >= fdate) & (
+            df_resid_annual.index <= tdate)][target].to_numpy()
+        if self.smoothing:
+            _sea_annual_nonsmooth, _, _ = \
+                utils.periodic_mean(df_d, target, 'y', smoothing=False)
+            # if smoothing, predecomposed seasonality is already smoothed, so redecompose
+            ys_vanilla = [
+                _sea_annual_nonsmooth[self.ydt2key(y)] for y in yx]
+            ys_smooth = [self.sea_annual[target]
+                         [self.ydt2key(y)] for y in yx]
+
+        df_sea_year = pd.DataFrame.from_dict(
+            {'date': yx, 'ys': ys})
+        if self.smoothing:
+            df_sea_year = pd.DataFrame.from_dict(
+                {'date': yx, 'ys_vanilla': ys_vanilla, 'ys_smooth': ys_smooth})
+        df_sea_year.to_csv(data_dir / ("sea_annual.csv"))
+
+        # WEEKLY
+        # Set datetime range
+        target_dt_str = str(target_year) + ' ' + str(target_week)
+        ## ISO 8601 starts weekday from Monday (1)
+        dt1 = dt.datetime.strptime(target_dt_str + ' 1', "%Y %W %w")
+        ## ISO 8601 ends weekday to Sunday (0)
+        dt2 = dt.datetime.strptime(target_dt_str + ' 0', "%Y %W %w")
+        ## set dt2 time as Sunday 23:59
+        dt2 = dt2.replace(hour=23, minute=59)
+
+        wx = pd.date_range(
+            start=dt1, end=dt2, freq='D', tz=SEOULTZ).tolist()
+        wx_plt = pd.DatetimeIndex([i.replace(tzinfo=None) for i in pd.date_range(
+            start=dt1, end=dt2, freq='D', tz=SEOULTZ)])
+
+        # Compute Weekly seasonality
+        ws = [self.sea_weekly[target][self.wdt2key(w)] for w in wx]
+        wr = df_resid_weekly[(df_resid_weekly.index >= fdate) & (df_resid_weekly.index <= tdate)][target].to_numpy()
+        df_sea_week = pd.DataFrame.from_dict(
+            {'date': wx, 'ws': ws})
+        df_sea_week.set_index('date', inplace=True)
+        df_sea_week.to_csv(data_dir / ("sea_weekly.csv"))
+
+        # HOURLY
+        dt1 = dt.datetime(year=target_year, month=target_month, day=target_day,
+            hour=0)
+        dt2 = dt.datetime(year=target_year, month=target_month, day=target_day,
+            hour=23)
+        hx = pd.date_range(start=dt1, end=dt2, freq="1H", tz=SEOULTZ).tolist()
+        hx_plt = pd.DatetimeIndex([i.replace(tzinfo=None) for i in pd.date_range(
+            start=dt1, end=dt2, freq='1H', tz=SEOULTZ)]).tolist()
+
+        # Compute Hourly seasonality
+        hs = [self.sea_hourly[target][self.hdt2key(h)] for h in hx]
+        hr = df_resid_hourly[(df_resid_hourly.index >= fdate) & (df_resid_hourly.index <= tdate)][target].to_numpy()
+
+        df_sea_hour = pd.DataFrame.from_dict(
+            {'date': hx, 'hs': hs})
+        df_sea_hour.set_index('date', inplace=True)
+        df_sea_hour.to_csv(data_dir / ("sea_hourly.csv"))
+
+        # ingradient
+        # raws
+        # ys, yr or ys_vanila, ys_smooth, yr
+        # ws, wr
+        # hs, hr
+
+        # set 95% confidance intervals and compute correlation distance(integral length scale)
+        def compute_cd(_acfs, _confint):
+            # find index where acf value are in confidance interval
+            _confint_idx = self.confint_idx(_acfs, _confint)
+            if _confint_idx == None:
+                return 0
+            else:
+                return sum(_acfs[0:_confint_idx+1])
+
+        raw_acf, raw_confint = tsast.acf(raws, alpha=0.05, nlags=nlags)
+        raw_cd = compute_cd(raw_acf, raw_confint) * 24
+        df_acf_raw = pd.DataFrame.from_dict(
+            {'lags': list(range(nlags+1)), 'acf': raw_acf,
+            'confint0': raw_confint[:, 0], 'confint1': raw_confint[:, 1]})
+        df_acf_raw.to_csv(data_dir / ("acf_raw.csv"))
+        yr_acf, yr_confint = tsast.acf(df_resid_annual[target], alpha=0.05, nlags=nlags)
+        y_cd = compute_cd(yr_acf, yr_confint) * 24
+        df_acf_yr = pd.DataFrame.from_dict(
+            {'lags': list(range(nlags+1)), 'acf': yr_acf,
+            'confint0': yr_confint[:, 0], 'confint1': yr_confint[:, 1]})
+        df_acf_yr.to_csv(data_dir / ("acf_annual.csv"))
+        wr_acf, wr_confint = tsast.acf(df_resid_weekly[target], alpha=0.05, nlags=nlags)
+        w_cd = compute_cd(wr_acf, wr_confint) * 24
+        df_acf_wr = pd.DataFrame.from_dict(
+            {'lags': list(range(nlags+1)), 'acf': wr_acf,
+            'confint0': wr_confint[:, 0], 'confint1': wr_confint[:, 1]})
+        df_acf_wr.to_csv(data_dir / ("acf_weekly.csv"))
+        hr_acf, hr_confint = tsast.acf(df_resid_hourly[target], alpha=0.05, nlags=nlags*24)
+        h_cd = compute_cd(hr_acf, hr_confint)
+        df_acf_hr = pd.DataFrame.from_dict(
+            {'lags': list(range((nlags)*24+1)), 'acf': hr_acf,
+            'confint0': hr_confint[:, 0], 'confint1': hr_confint[:, 1]})
+        df_acf_hr.to_csv(data_dir / ("acf_hourly.csv"))
+
+        print("Int scale (raw, annual, weekly, hourly) : ", raw_cd, y_cd, w_cd, h_cd)
+
+        sns.color_palette("tab10")
+
+        # Plot seasonality (Annual, Weekly, Hourly)
+        nrows, ncols = 1, 3
+        # rough figure size
+        wspace, hspace = 0.2, 0.2
+        # inch/1pt (=1.0inch / 72pt) * 10pt/row * 8row (6 row + margins)
+        ax_size = min(7.22 / ncols, 9.45 / nrows)
+        fig_size_w = ax_size*ncols
+        fig_size_h = ax_size*nrows
+
+        multipanel_labels = np.array(list(string.ascii_uppercase)[:ncols]).reshape(ncols)
+
+        fig, axs = plt.subplots(nrows, ncols,
+                                figsize=(ax_size*ncols, ax_size*nrows),
+                                dpi=600)
+        fig.tight_layout(pad=0.15)
+        fig.subplots_adjust(left=0.2, bottom=0.2)
+
+        # ax[0] == annual seasoanlity
+        if smoothing == True:
+            sns.lineplot(x='date', y='value', hue='variable',
+                         data=pd.melt(df_sea_year, ['date']), ax=axs[0])
+
+            # add legend
+            leg_handles, leg_labels = axs[0].get_legend_handles_labels()
+            dic = {'ys_vanilla': 'vanilla', 'ys_smooth': 'smooth'}
+            leg_labels = [dic.get(l, l) for l in leg_labels]
+            # remove legend title
+            axs[0].legend(leg_handles[1:], leg_labels[1:],
+                    fancybox=True,
+                    fontsize='x-small')
+        else:
+            sns.lineplot(x='date', y='ys',
+                    data=df_sea_year, ax = axs[0], legend=False)
+
+        # ax[1] == weekly seasoanlity
+        sns.lineplot(data=df_sea_week, ax = axs[1], legend=False)
+        # ax[2] == hourly seasoanlity
+        sns.lineplot(data=df_sea_hour, ax=axs[2], legend=False)
+
+        # mpl.rcParams['timezone'] = SEOULTZ
+
+        axs[0].xaxis.set_major_locator(mdates.MonthLocator(bymonth=[1,4,7,10], tz=SEOULTZ))
+        axs[0].xaxis.set_minor_locator(mdates.MonthLocator(bymonth=range(1,13), tz=SEOULTZ))
+        axs[0].xaxis.set_major_formatter(mdates.DateFormatter('%m', tz=SEOULTZ))
+        axs[0].set_xlabel('a year', fontsize='small')
+        axs[0].set_ylabel(target, fontsize='small')
+        axs[1].xaxis.set_major_locator(mdates.HourLocator(byhour=0, tz=SEOULTZ))
+        axs[1].xaxis.set_major_formatter(mdates.DateFormatter('%a', tz=SEOULTZ))
+        axs[1].set_xlabel('a week', fontsize='small')
+        axs[2].xaxis.set_major_locator(mdates.HourLocator(byhour=[0, 4, 8, 12, 16, 20], tz=SEOULTZ))
+        axs[2].xaxis.set_minor_locator(mdates.HourLocator(tz=SEOULTZ))
+        axs[2].xaxis.set_major_formatter(mdates.DateFormatter('%H', tz=SEOULTZ))
+        axs[2].set_xlabel('a day', fontsize='small')
+
+        for i in range(ncols):
+            #axs[i].set_ylabel(target, fontsize='small')
+            axs[i].xaxis.grid(True, visible=True, which='major')
+            for tick in axs[i].xaxis.get_major_ticks():
+                tick.label.set_fontsize('x-small')
+            for tick in axs[i].yaxis.get_major_ticks():
+                tick.label.set_fontsize('x-small')
+
+            axs[i].annotate(multipanel_labels[i], (-0.13, 1.02), xycoords='axes fraction',
+                                   fontsize='medium', fontweight='bold')
+        output_name = target + "_fused_seasonality"
+        png_path = png_dir / (output_name + '.png')
+        svg_path = svg_dir / (output_name + '.svg')
+        plt.savefig(png_path, dpi=600)
+        plt.savefig(svg_path)
+        plt.close()
+
+        # Plot ACF (Raw, Hourly Residual)
+        nrows, ncols = 1, 2
+        # rough figure size
+        wspace, hspace = 0.2, 0.2
+        # inch/1pt (=1.0inch / 72pt) * 10pt/row * 8row (6 row + margins)
+        ax_size = min(7.22 / ncols, 9.45 / nrows)
+        fig_size_w = ax_size*ncols
+        fig_size_h = ax_size*nrows
+
+        multipanel_labels = np.array(list(string.ascii_uppercase)[:ncols]).reshape(ncols)
+
+        fig, axs = plt.subplots(nrows, ncols,
+                                figsize=(ax_size*ncols, ax_size*nrows),
+                                dpi=600)
+        fig.tight_layout(pad=0.15)
+        fig.subplots_adjust(left=0.1, bottom=0.2)
+
+        tpl.plot_acf(raws, ax=axs[0], lags=nlags)
+        axs[0].set_xlabel('day', fontsize='small')
+        axs[0].set_ylabel('corr', fontsize='small')
+        tpl.plot_acf(hr, ax=axs[1], lags=nlags*24)
+        axs[1].set_xlabel('hour', fontsize='small')
+
+        # axs[0].annotate("Correlation Distance \nof Raw Values : \n" + '{0:.3g}'.format(raw_cd),
+        #                     (0.65, 0.85), xycoords='axes fraction', fontsize='x-small')
+        # axs[1].annotate("Correlation Distance \nof Residuals : \n" + '{0:.3g}'.format(h_cd),
+        #                     (0.65, 0.85), xycoords='axes fraction', fontsize='x-small')
+        for i in range(2):
+            axs[i].annotate(multipanel_labels[i], (-0.13, 1.05), xycoords='axes fraction',
+                            fontsize='medium', fontweight='bold')
+            for tick in axs[i].xaxis.get_major_ticks():
+                tick.label.set_fontsize('x-small')
+            for tick in axs[i].yaxis.get_major_ticks():
+                tick.label.set_fontsize('x-small')
+
+        output_name = target + "_fused_acf"
+        png_path = png_dir / (output_name + '.png')
+        svg_path = svg_dir / (output_name + '.svg')
+        plt.savefig(png_path, dpi=600)
+        plt.savefig(svg_path)
+        plt.close()
+
+        df_cd = pd.DataFrame.from_dict({
+            'raw': raw_cd, 'y': y_cd, 'w': w_cd, 'h': h_cd}, orient='index')
+        df_cd.to_csv(data_dir / ("correlation_distance.csv"))
+
 
 class SeasonalityDecompositor_AH(TransformerMixin, BaseEstimator):
     """Decompose Seasonality
