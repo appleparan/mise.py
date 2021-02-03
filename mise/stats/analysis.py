@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import random
 import shutil
+import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -239,7 +240,7 @@ def stats_analysis(station_name="종로구"):
             sample_size=sample_size,
             output_size=output_size,
             scaler_X=train_valid_set.scaler_X,
-            scaler_Y=train_valid_set.scaler_Y)        
+            scaler_Y=train_valid_set.scaler_Y)
 
         test_set.transform()
         # save seasonality index-wise
@@ -304,7 +305,7 @@ def stats_analysis(station_name="종로구"):
             Path.mkdir(_data_dir, parents=True, exist_ok=True)
             Path.mkdir(_png_dir, parents=True, exist_ok=True)
             Path.mkdir(_svg_dir, parents=True, exist_ok=True)
-            
+
             # enumerate window
             # for i, s in enumerate(train_valid_set):
             #     x, x_1d, x_sa, x_sw, x_sh, \
@@ -315,7 +316,7 @@ def stats_analysis(station_name="종로구"):
 
             # Define unbounded process
             Xs = train_valid_set.ys - train_valid_set.ys.mean()[target]
-            
+
             # iterate
             for td in train_valid_set.ys.iterrows():
                 x, x_1d, x_sa, x_sw, x_sh, \
@@ -330,4 +331,70 @@ def stats_analysis(station_name="종로구"):
         #run_01_CLT()
         #run_02_LRD()
     #plot_sea()
+
+
+def dfa(data: np.ndarray, ss=[10, 20, 30], order=1,
+        debug_plot=False, debug_data=False, plot_file=None):
+    """
+    Performs a detrended fluctuation analysis (DFA) on the given data to detect long-range dependence (LRD)
+
+
+    Recommendations for parameter settings by Hardstone et al.:
+        * nvals should be equally spaced on a logarithmic scale so that each window
+        scale hase the same weight
+        * min(nvals) < 4 does not make much sense as fitting a polynomial (even if
+        it is only of order 1) to 3 or less data points is very prone.
+        * max(nvals) > len(data) / 10 does not make much sense as we will then have
+        less than 10 windows to calculate the average fluctuation
+        * use overlap=True to obtain more windows and therefore better statistics
+        (at an increased computational cost)
+
+    # Reference
+    * Kantelhardt, Jan W., et al. "Detecting long-range correlations with detrended fluctuation analysis." Physica A: Statistical Mechanics and its Applications 295.3-4 (2001): 441-454.
+    * Inspiration from [this code](https://github.com/CSchoel/nolds/blob/b52530a783d2d2aa39351ea285ab0d8e3a502ab3/nolds/measures.py)
+    """
+    if data.ndims != 1:
+        raise ValueError("ndims of data should be 1")
+
+    # Step 1.
+    # Compute fluctuation
+    Y = data - np.mean(data)
+
+    total_N = len(data)
+
+    if len(total_N) < 70:
+        raise ValueError("Data length is too small!")
+
+    def seg_polyfit(s):
+        return s - np.polynomial.Polynomial.fit(range(len(s)), s, deg=order)
+
+    for s in ss:
+        # s : segment size
+        # Step 2
+        # Split data by non-overlapping segments
+        # i.e. s == 3 -> N_s = [N/s] == 3 and 2N_s segments are computed
+        # not to discard remainders
+        # [1, 2, 3], [4, 5, 6], [7, 8, 9]
+        # [2, 3, 4], [5, 6, 7], [8, 9, 10]
+        Ns, Ns_rem = divmod(total_N, s)
+        if Ns_rem == 0:
+            seg1 = np.array_split(Y, s)
+            seg2 = seg1.copy()
+        else:
+            seg1 = np.array_split(Y, s)[:Ns]
+            seg2 = np.array_split(Y[Ns_rem:], s)
+
+        segs = np.concatenate(seg1, seg2)
+
+        # Step 3
+        # Compute basis of variance (Y - fitted)
+        # eq. 4 in Kantelhardt, et. al
+        seg1_detrend = map(seg_polyfit, seg1)
+        seg2_detrend = map(seg_polyfit, seg2)
+
+        # Step 4
+        # Compute Variance (eq. 5 in Kantelhardt, et. al) then average
+        segs_detrend = np.concatenate(seg1_detrend, seg2_detrend)
+
+
 
