@@ -376,7 +376,7 @@ class BaseMLPModel(LightningModule):
             else:
                 x = layer(x)
 
-        x = self.act(x)
+        x = x
 
         return x
 
@@ -470,7 +470,8 @@ class BaseMLPModel(LightningModule):
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        y_hat2 = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+        y_hat2 = relu_mul(
+            np.array(self.test_dataset.inverse_transform(y_hat, dates)))
         _loss = self.loss(torch.as_tensor(y_hat2).to(device), _y_raw)
 
         _mae = mean_absolute_error(y_hat2, y_raw)
@@ -1003,3 +1004,9 @@ class LogCoshLoss(nn.Module):
                 torch.log(torch.full_like(x, 2, dtype=x.dtype))
 
         return torch.mean(_log_cosh(input - target))
+
+
+def relu_mul(x):
+    """[fastest method](https://stackoverflow.com/a/32109519/743078)
+    """
+    return x * (x > 0)

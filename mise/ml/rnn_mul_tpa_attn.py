@@ -595,7 +595,7 @@ class BaseTPAAttnModel(LightningModule):
         _outputs, _hidden = self.decoder(hidden, x_cnn)
 
         # equation (15) in TPA paper
-        outputs = self.act(self.output(_outputs))
+        outputs = self.output(_outputs)
 
         return outputs
 
@@ -688,7 +688,7 @@ class BaseTPAAttnModel(LightningModule):
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        y_hat2 = np.array(self.test_dataset.inverse_transform(y_hat, dates))
+        y_hat2 = relu_mul(np.array(self.test_dataset.inverse_transform(y_hat, dates)))
         _loss = self.loss(torch.as_tensor(y_hat2).to(device), _y_raw)
 
         _mae = mean_absolute_error(y_hat2, y_raw)
@@ -1228,3 +1228,8 @@ class RMSELoss(nn.Module):
     def forward(self, yhat, y):
         loss = torch.sqrt(self.mse(yhat, y) + self.eps)
         return loss
+
+def relu_mul(x):
+    """[fastest method](https://stackoverflow.com/a/32109519/743078)
+    """
+    return x * (x > 0)

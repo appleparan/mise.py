@@ -761,6 +761,10 @@ class BaseTransformerModel(LightningModule):
             self.data_dir / "seasonality",
             self.png_dir / "seasonality",
             self.svg_dir / "seasonality")
+        train_valid_set.plot_seasonality(
+            self.data_dir / "seasonality",
+            self.png_dir / "seasonality",
+            self.svg_dir / "seasonality")
         # save seasonality index-wise
         train_valid_set.broadcast_seasonality()
 
