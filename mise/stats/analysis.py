@@ -166,7 +166,8 @@ def stats_analysis(station_name="종로구"):
 
     # plot_sea()
 
-    for target in targets:
+    #for target in targets:
+    for target in train_features_periodic:
         print("Analyze " + target + "...")
         target_sea_h_path = Path(
             "/input/python/input_jongro_imputed_hourly_pandas.csv")
@@ -311,22 +312,24 @@ def stats_analysis(station_name="종로구"):
             Path.mkdir(_svg_dir, parents=True, exist_ok=True)
 
             # Define unbounded process
-            Xs = train_valid_set.ys - train_valid_set.ys.mean()[target]
-            Xs_raw = train_valid_set.ys_raw - train_valid_set.ys_raw.mean()[target]
+            Xs = train_valid_set.ys
+            Xs_raw = train_valid_set.ys_raw
 
-            lag = np.unique(np.logspace(0.5, 3, 50).astype(int))
+            n_lag = 100
+            large_s = int(n_lag * 0.3)
+            org_lag = np.unique(np.logspace(0.5, 3, n_lag).astype(int))
 
             # Select a list of powers q
             # if q == 2 -> standard square root based average
-            q_list = [2, 3, 4, 5]
+            q_list = [-6, -2, -3, 2, 3, 6]
 
             # The order of the polynomial fitting
             for order in [1, 2, 3]:
-                lag, dfa = MFDFA.MFDFA(Xs[target].to_numpy(), lag=lag, q=q_list, order=order)
+                lag, dfa = MFDFA.MFDFA(Xs[target].to_numpy(), lag=org_lag, q=q_list, order=order)
                 norm_dfa = np.zeros_like(dfa)
 
                 for i in range(dfa.shape[1]):
-                    norm_dfa[:, i] = dfa[:, i] / np.sqrt(lag[i])
+                    norm_dfa[:, i] = np.divide(dfa[:, i], np.sqrt(lag))
 
                 df = pd.DataFrame.from_dict(
                     {str(q_list[i]): dfa[:, i] for i in range(dfa.shape[1])})
@@ -340,24 +343,28 @@ def stats_analysis(station_name="종로구"):
                 fig = plt.figure()
                 plt.clf()
                 sns.color_palette("tab10")
-                q0fit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, 0]), 1)
-                qnfit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, -1]), 1)
                 sns.lineplot(x='s', y='value', hue='q',
                             data=pd.melt(df_norm, id_vars=['s'], var_name='q'))
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, q0fit.coef),
-                         label=r'$h({{{0}}}) \propto s^{{{1}}}$'.format(
-                    q_list[0], q0fit.coef[1]),
-                    color='k', linestyle='dashed')
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, qnfit.coef),
-                         label=r'$h({{{0}}}) \propto s^{{{1}}}$'.format(
-                    q_list[-1], qnfit.coef[1]),
-                    color='k', linestyle='dashdot')
+                q0fit = np.polynomial.Polynomial.fit(
+                    np.log10(lag)[large_s:], np.log10(df.to_numpy()[:, 0])[large_s:], 1)
+                q0fit_vals = np.polynomial.polynomial.polyval(
+                    np.log10(lag), q0fit.coef)
+                plt.plot(lag, np.power(10, q0fit_vals),
+                         label=r'$h({{{0}}}) = {{{1:.2f}}}$'.format(
+                            q_list[0], q0fit.coef[1]),
+                            alpha=0.7, color='k', linestyle='dashed')
+                qnfit = np.polynomial.Polynomial.fit(
+                    np.log10(lag)[large_s:], np.log10(df.to_numpy()[:, -1])[large_s:], 1)
+                qnfit_vals = np.polynomial.polynomial.polyval(
+                    np.log10(lag), qnfit.coef)
+                plt.plot(lag, np.power(10, q0fit_vals),
+                         label=r'$h({{{0}}}) = {{{1:.2f}}}$'.format(
+                            q_list[-1], qnfit.coef[1]),
+                            alpha=0.7, color='k', linestyle='dashed')
                 ax = plt.gca()
                 leg_handles, leg_labels = ax.get_legend_handles_labels()
                 for i in range(len(q_list)):
-                    leg_labels[i] = r'h({{{0}}}}'.format(q_list[i])
+                    leg_labels[i] = r'h({{{0}}})'.format(q_list[i])
                 ax.legend(leg_handles, leg_labels)
                 ax.set_xlabel(r'$s$')
                 ax.set_ylabel(r'$F^{(n)}(s)/\sqrt{s}$')
@@ -376,24 +383,28 @@ def stats_analysis(station_name="종로구"):
                 fig = plt.figure()
                 plt.clf()
                 sns.color_palette("tab10")
-                q0fit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, 0]), 1)
-                qnfit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, -1]), 1)
                 sns.lineplot(x='s', y='value', hue='q',
                             data=pd.melt(df, id_vars=['s'], var_name='q'))
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, q0fit.coef),
-                         label=r'$h({{{0}}}) \propto s^{{{1}}}$'.format(
+                q0fit = np.polynomial.Polynomial.fit(
+                    np.log10(lag)[large_s:], np.log10(df.to_numpy()[:, 0])[large_s:], 1)
+                q0fit_vals = np.polynomial.polynomial.polyval(
+                    np.log10(lag), q0fit.coef)
+                plt.plot(lag, np.power(10, q0fit_vals),
+                         label=r'$h({{{0}}}) = {{{1:.2f}}}$'.format(
                     q_list[0], q0fit.coef[1]),
-                    color='k', linestyle='dashed')
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, qnfit.coef),
-                         label=r'$h({{{0}}}) \propto s^{{{1}}}$'.format(
+                    alpha=0.7, color='k', linestyle='dashed')
+                qnfit = np.polynomial.Polynomial.fit(
+                    np.log10(lag)[large_s:], np.log10(df.to_numpy()[:, -1])[large_s:], 1)
+                qnfit_vals = np.polynomial.polynomial.polyval(
+                    np.log10(lag), qnfit.coef)
+                plt.plot(lag, np.power(10, q0fit_vals),
+                         label=r'$h({{{0}}}) = {{{1:.2f}}}$'.format(
                     q_list[-1], qnfit.coef[1]),
-                    color='k', linestyle='dashdot')
+                    alpha=0.7, color='k', linestyle='dashed')
                 ax = plt.gca()
                 leg_handles, leg_labels = ax.get_legend_handles_labels()
                 for i in range(len(q_list)):
-                    leg_labels[i] = r'h({{{0}}}}'.format(q_list[i])
+                    leg_labels[i] = r'h({{{0}}})'.format(q_list[i])
                 ax.legend(leg_handles, leg_labels)
                 ax.set_xlabel(r'$s$')
                 ax.set_ylabel(r'$F^{(n)}(s)$')
@@ -410,7 +421,7 @@ def stats_analysis(station_name="종로구"):
                 plt.close()
 
                 lag, dfa = MFDFA.MFDFA(
-                    Xs_raw[target].to_numpy(), lag=lag, q=q_list, order=order)
+                    Xs_raw[target].to_numpy(), lag=org_lag, q=q_list, order=order)
                 norm_dfa = np.zeros_like(dfa)
 
                 for i in range(dfa.shape[1]):
@@ -428,24 +439,28 @@ def stats_analysis(station_name="종로구"):
                 fig = plt.figure()
                 plt.clf()
                 sns.color_palette("tab10")
-                q0fit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, 0]), 1)
-                qnfit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, -1]), 1)
                 sns.lineplot(x='s', y='value', hue='q',
                             data=pd.melt(df_norm, id_vars=['s'], var_name='q'))
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, q0fit.coef),
-                         label=r'$h({{{0}}}) \propto s^{{{1}}}$'.format(
+                q0fit = np.polynomial.Polynomial.fit(
+                    np.log10(lag)[large_s:], np.log10(df.to_numpy()[:, 0])[large_s:], 1)
+                q0fit_vals = np.polynomial.polynomial.polyval(
+                    np.log10(lag), q0fit.coef)
+                plt.plot(lag, np.power(10, q0fit_vals),
+                         label=r'$h({{{0}}}) = {{{1:.2f}}}$'.format(
                     q_list[0], q0fit.coef[1]),
-                    color='k', linestyle='dashed')
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, qnfit.coef),
-                         label=r'$h({{{0}}}) \propto s^{{{1}}}$'.format(
+                    alpha=0.7, color='k', linestyle='dashed')
+                qnfit = np.polynomial.Polynomial.fit(
+                    np.log10(lag)[large_s:], np.log10(df.to_numpy()[:, -1])[large_s:], 1)
+                qnfit_vals = np.polynomial.polynomial.polyval(
+                    np.log10(lag), qnfit.coef)
+                plt.plot(lag, np.power(10, q0fit_vals),
+                         label=r'$h({{{0}}}) = {{{1:.2f}}}$'.format(
                     q_list[-1], qnfit.coef[1]),
-                    color='k', linestyle='dashdot')
+                    alpha=0.7, color='k', linestyle='dashed')
                 ax = plt.gca()
                 leg_handles, leg_labels = ax.get_legend_handles_labels()
                 for i in range(len(q_list)):
-                    leg_labels[i] = r'h({{{0}}}}'.format(q_list[i])
+                    leg_labels[i] = r'h({{{0}}})'.format(q_list[i])
                 ax.legend(leg_handles, leg_labels)
                 ax.set_xlabel(r'$s$')
                 ax.set_ylabel(r'$F^{(n)}(s)/\sqrt{s}$')
@@ -464,24 +479,28 @@ def stats_analysis(station_name="종로구"):
                 fig = plt.figure()
                 plt.clf()
                 sns.color_palette("tab10")
-                q0fit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, 0]), 1)
-                qnfit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, -1]), 1)
                 sns.lineplot(x='s', y='value', hue='q',
                             data=pd.melt(df, id_vars=['s'], var_name='q'))
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, q0fit.coef),
-                         label=r'$h({{{0}}}) \propto s^{{{1}}}$'.format(
+                q0fit = np.polynomial.Polynomial.fit(
+                    np.log10(lag)[large_s:], np.log10(df.to_numpy()[:, 0])[large_s:], 1)
+                q0fit_vals = np.polynomial.polynomial.polyval(
+                    np.log10(lag), q0fit.coef)
+                plt.plot(lag, np.power(10, q0fit_vals),
+                         label=r'$h({{{0}}}) = {{{1:.2f}}}$'.format(
                     q_list[0], q0fit.coef[1]),
-                    color='k', linestyle='dashed')
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, qnfit.coef),
-                         label=r'$h({{{0}}}) \propto s^{{{1}}}$'.format(
+                    alpha=0.7, color='k', linestyle='dashed')
+                qnfit = np.polynomial.Polynomial.fit(
+                    np.log10(lag)[large_s:], np.log10(df.to_numpy()[:, -1])[large_s:], 1)
+                qnfit_vals = np.polynomial.polynomial.polyval(
+                    np.log10(lag), qnfit.coef)
+                plt.plot(lag, np.power(10, q0fit_vals),
+                         label=r'$h({{{0}}}) = {{{1:.2f}}}$'.format(
                     q_list[-1], qnfit.coef[1]),
-                    color='k', linestyle='dashdot')
+                    alpha=0.7, color='k', linestyle='dashed')
                 ax = plt.gca()
                 leg_handles, leg_labels = ax.get_legend_handles_labels()
                 for i in range(len(q_list)):
-                    leg_labels[i] = r'h({{{0}}}}'.format(q_list[i])
+                    leg_labels[i] = r'h({{{0}}})'.format(q_list[i])
                 ax.legend(leg_handles, leg_labels)
                 ax.set_xlabel(r'$s$')
                 ax.set_ylabel(r'$F^{(n)}(s)$')
@@ -506,24 +525,29 @@ def stats_analysis(station_name="종로구"):
             Path.mkdir(_svg_dir, parents=True, exist_ok=True)
 
             # Define unbounded process
-            Xs = train_valid_set.ys - train_valid_set.ys.mean()[target]
-            Xs_raw = train_valid_set.ys_raw - \
-                train_valid_set.ys_raw.mean()[target]
+            Xs = train_valid_set.ys
+            Xs_raw = train_valid_set.ys_raw
 
-            lag = np.unique(np.logspace(0.5, 3, 50).astype(int))
+            n_lag = 100
+            large_s = int(n_lag * 0.3)
+            org_lag = np.unique(np.logspace(0.5, 3, n_lag).astype(int))
 
             # Select a list of powers q
             # if q == 2 -> standard square root based average
             q_list = [2]
 
+            def model_func(x, A, B):
+                return A * np.power(x, B)
+
             # The order of the polynomial fitting
             for order in [1, 2, 3]:
+                # RESIDUALS
                 lag, dfa = MFDFA.MFDFA(
-                    Xs[target].to_numpy(), lag=lag, q=q_list, order=order)
+                    Xs[target].to_numpy(), lag=org_lag, q=q_list, order=order)
                 norm_dfa = np.zeros_like(dfa)
 
                 for i in range(dfa.shape[1]):
-                    norm_dfa[:, i] = dfa[:, i] / np.sqrt(lag[i])
+                    norm_dfa[:, i] = np.divide(dfa[:, i], np.sqrt(lag))
 
                 df = pd.DataFrame.from_dict(
                     {str(q_list[i]): dfa[:, i] for i in range(dfa.shape[1])})
@@ -536,23 +560,28 @@ def stats_analysis(station_name="종로구"):
                 # plot
                 fig = plt.figure()
                 sns.color_palette("tab10")
-                qfit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, -1]), 1)
                 sns.lineplot(x='s', y='value', hue='q',
                              data=pd.melt(df_norm, id_vars=['s'], var_name='q'))
-                plt.plot(lag, np.power(lag, 0.5),
-                         label=r'$h(2) = 1/2$',
-                         color='k', linestyle='dashed')
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, qfit.coef),
-                         label=r'$h(2) \propto {{{0}}} + $'.format(
-                             qfit.coef[1]),
-                         color='k', linestyle='dashdot')
+                base_lines = np.ones(len(lag)) * 10.0**(-2) * np.power(lag, 0.5)
+                plt.plot(lag, base_lines,
+                        label=r'$h(2) = 0.5$',
+                        alpha=0.7, color='tab:green', linestyle='dashed')
+                p0 = (1., 1.e-5)
+                popt, pcov = sp.optimize.curve_fit(
+                    model_func, lag[large_s:], df_norm.to_numpy()[:, -1][large_s:], p0)
+                coef_annot = popt[1]
+                gamma_annot = 2.0 * (1.0 - popt[1])
+                estimated = model_func(lag, popt[0], popt[1])
+                plt.plot(lag, estimated,
+                        label=r'$h(2) = {{{0:.2f}}}, \gamma = {{{1:.2f}}}$'.format(
+                        coef_annot, gamma_annot),
+                        alpha=0.7, color='tab:orange', linestyle='dashed')
                 ax = plt.gca()
                 leg_handles, leg_labels = ax.get_legend_handles_labels()
-                leg_labels[0] == r'h(2)'
+                leg_labels[0] = r'$h(2)$'
                 ax.legend(leg_handles, leg_labels)
                 ax.set_xlabel(r'$s$')
-                ax.set_ylabel(r'$F^{(n)}(s)/\sqrt{s}$')
+                ax.set_ylabel(r'$F^{(n)}(s)$')
                 ax.set_xscale('log')
                 ax.set_yscale('log')
 
@@ -567,20 +596,26 @@ def stats_analysis(station_name="종로구"):
 
                 fig = plt.figure()
                 sns.color_palette("tab10")
-                qfit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, -1]), 1)
                 sns.lineplot(x='s', y='value', hue='q',
                              data=pd.melt(df, id_vars=['s'], var_name='q'))
-                plt.plot(lag, np.power(lag, 0.5),
-                         label=r'$h(2) = 1/2$',
-                         color='k', linestyle='dashed')
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, qfit.coef),
-                         label=r'$h(2) \propto {{{0}}} + $'.format(
-                             qfit.coef[1]),
-                         color='k', linestyle='dashdot')
+                base_lines = np.ones(len(lag)) * \
+                    10.0**(-2) * np.power(lag, 0.5)
+                plt.plot(lag, base_lines,
+                         label=r'$h(2) = 0.5$',
+                         alpha=0.7, color='tab:green', linestyle='dashed')
+                p0 = (1., 1.e-5)
+                popt, pcov = sp.optimize.curve_fit(
+                    model_func, lag[large_s:], df.to_numpy()[:, -1][large_s:], p0)
+                coef_annot = popt[1]
+                gamma_annot = 2.0 * (1.0 - popt[1])
+                estimated = model_func(lag, popt[0], popt[1])
+                plt.plot(lag, estimated,
+                         label=r'$h(2) = {{{0:.2f}}}, \gamma = {{{1:.2f}}}$'.format(
+                            coef_annot, gamma_annot),
+                            alpha=0.7, color='tab:orange', linestyle='dashed')
                 ax = plt.gca()
                 leg_handles, leg_labels = ax.get_legend_handles_labels()
-                leg_labels[0] == r'h(2)'
+                leg_labels[0] = r'$h(2)$'
                 ax.legend(leg_handles, leg_labels)
                 ax.set_xlabel(r'$s$')
                 ax.set_ylabel(r'$F^{(n)}(s)$')
@@ -595,8 +630,9 @@ def stats_analysis(station_name="종로구"):
                 plt.savefig(svg_path)
                 plt.close()
 
+                # RAW
                 lag, dfa = MFDFA.MFDFA(
-                    Xs_raw[target].to_numpy(), lag=lag, q=q_list, order=order)
+                    Xs_raw[target].to_numpy(), lag=org_lag, q=q_list, order=order)
                 norm_dfa = np.zeros_like(dfa)
 
                 for i in range(dfa.shape[1]):
@@ -613,20 +649,26 @@ def stats_analysis(station_name="종로구"):
                 # plot
                 fig = plt.figure()
                 sns.color_palette("tab10")
-                qfit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, -1]), 1)
                 sns.lineplot(x='s', y='value', hue='q',
                              data=pd.melt(df_norm, id_vars=['s'], var_name='q'))
-                plt.plot(lag, np.power(lag, 0.5),
-                         label=r'$h(2) = 1/2$',
-                         color='k', linestyle='dashed')
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, qfit.coef),
-                         label=r'$h(2) \propto {{{0}}} + $'.format(
-                             qfit.coef[1]),
-                         color='k', linestyle='dashdot')
+                base_lines = np.ones(len(lag)) * \
+                    10.0**(-2) * np.power(lag, 0.5)
+                plt.plot(lag, base_lines,
+                         label=r'$h(2) = 0.5$',
+                         alpha=0.7, color='tab:green', linestyle='dashed')
+                p0 = (1., 1.e-5)
+                popt, pcov = sp.optimize.curve_fit(
+                    model_func, lag[large_s:], df_norm.to_numpy()[:, -1][large_s:], p0)
+                coef_annot = popt[1]
+                gamma_annot = 2.0 * (1.0 - popt[1])
+                estimated = model_func(lag, popt[0], popt[1])
+                plt.plot(lag, estimated,
+                         label=r'$h(2) = {{{0:.2f}}}, \gamma = {{{1:.2f}}}$'.format(
+                    coef_annot, gamma_annot),
+                    alpha=0.7, color='tab:orange', linestyle='dashed')
                 ax = plt.gca()
                 leg_handles, leg_labels = ax.get_legend_handles_labels()
-                leg_labels[0] == r'h(2)'
+                leg_labels[0] = r'$h(2)$'
                 ax.legend(leg_handles, leg_labels)
                 ax.set_xlabel(r'$s$')
                 ax.set_ylabel(r'$F^{(n)}(s)/\sqrt{s}$')
@@ -644,20 +686,26 @@ def stats_analysis(station_name="종로구"):
 
                 fig = plt.figure()
                 sns.color_palette("tab10")
-                qfit = np.polynomial.Polynomial.fit(
-                    np.log(lag), np.log(dfa[:, -1]), 1)
                 sns.lineplot(x='s', y='value', hue='q',
                              data=pd.melt(df, id_vars=['s'], var_name='q'))
-
-                plt.plot(lag, np.power(lag, 0.5),
-                         label=r'$h(2) = 1/2$',
-                         color='k', linestyle='dashed')
-                plt.plot(lag, np.polynomial.polynomial.polyval(lag, qfit.coef),
-                         label=r'$h(2) \propto {{{0}}} + $'.format(qfit.coef[1]),
-                         color='k', linestyle='dashdot')
+                base_lines = np.ones(len(lag)) * \
+                    10.0**(-2) * np.power(lag, 0.5)
+                plt.plot(lag, base_lines,
+                         label=r'$h(2) = 0.5$',
+                         alpha=0.7, color='tab:green', linestyle='dashed')
+                p0 = (1., 1.e-5)
+                popt, pcov = sp.optimize.curve_fit(
+                    model_func, lag[large_s:], df.to_numpy()[:, -1][large_s:], p0)
+                coef_annot = popt[1]
+                gamma_annot = 2.0 * (1.0 - popt[1])
+                estimated = model_func(lag, popt[0], popt[1])
+                plt.plot(lag, estimated,
+                        label=r'$h(2) = {{{0:.2f}}}, \gamma = {{{1:.2f}}}$'.format(
+                        coef_annot, gamma_annot),
+                        alpha=0.7, color='tab:orange', linestyle='dashed')
                 ax = plt.gca()
                 leg_handles, leg_labels = ax.get_legend_handles_labels()
-                leg_labels[0] == r'h(2)'
+                leg_labels[0] = r'$h(2)$'
                 ax.legend(leg_handles, leg_labels)
                 ax.set_xlabel(r'$s$')
                 ax.set_ylabel(r'$F^{(n)}(s)$')
@@ -675,5 +723,6 @@ def stats_analysis(station_name="종로구"):
         #run_01_CLT()
         run_02_DFA()
         run_02_MFDFA()
-    #plot_sea()
+
+    plot_sea()
 
