@@ -103,8 +103,17 @@ class BaseDataset(Dataset):
         self._train_valid_ratio = kwargs.get('train_valid_ratio', 0.8)
 
         # load imputed data from filepath if not provided as dataframe
+        # 1. If Jongno ->
+        #   1.1 -> Check imputed -> load preimputed data
+        # 2. If other station -> load input.csv
+        #   2.1 -> Impute and load
         filepath = kwargs.get('filepath', Path(
-            "/input/python/input_jongro_imputed_hourly_pandas.csv"))
+                "/input/python/input_seoul_imputed_hourly_pandas.csv"))
+        if self.station_name == '종로구':
+            # TODO : parse re? or whatever make logic for loading precomputed file if jongno, load default file otherwise
+            filepath = kwargs.get('filepath', Path(
+                "/input/python/input_jongno_imputed_hourly_pandas.csv"))
+
         raw_df = pd.read_csv(filepath,
                              index_col=[0, 1],
                              parse_dates=[0])
@@ -1550,6 +1559,8 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         for i, (a, [c1, c2]) in enumerate(zip(acf, confint)):
             if c1 - a < a and a < c2 - a:
                 return i
+
+        return len(acf) - 1
 
     def plot_raw_acf(self, df, target, fdate, tdate, data_dir, png_dir, svg_dir,
                         nlags=15):
