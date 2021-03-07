@@ -13,7 +13,7 @@ from constants import SEOUL_STATIONS
 
 seoultz = timezone('Asia/Seoul')
 
-def stats_preprocess(station_name="종로구"):
+def stats_preprocess():
     print("Data preprocessing(imputation) start...")
 
     raw_df = data.load(datecol=[1])
@@ -22,7 +22,7 @@ def stats_preprocess(station_name="종로구"):
         sdf = data.load_station(raw_df, SEOUL_STATIONS[station_name])
 
         imputer = KNNImputer(
-            n_neighbors=2, weights="uniform", missing_values=np.NaN)
+            n_neighbors=5, weights="distance", missing_values=np.NaN)
         _df = pd.DataFrame(imputer.fit_transform(sdf))
         _df.columns = sdf.columns
         _df.index = sdf.index
