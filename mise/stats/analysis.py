@@ -46,7 +46,7 @@ import matplotlib.colors as mcolors
 import MFDFA
 
 from data import load_imputed, MultivariateRNNDataset, MultivariateRNNMeanSeasonalityDataset
-from constants import SEOUL_STATIONS, SEOULTZ, SEOUL_NAMES_ENGDICT
+from constants import SEOUL_STATIONS, SEOUL_CODES, SEOULTZ, SEOUL_NAMES_ENGDICT
 import utils
 
 HOURLY_DATA_PATH = "/input/python/input_seoul_imputed_hourly_pandas.csv"
@@ -61,6 +61,19 @@ def stats_analysis(_station_name="종로구"):
     * Ghil, M., et al. "Extreme events: dynamics, statistics and prediction." Nonlinear Processes in Geophysics 18.3 (2011): 295-350.
     """
     print("Start Analysis of input")
+    if not Path(HOURLY_DATA_PATH).is_file():
+        query_str = 'stationCode in ' + str(SEOUL_CODES)
+        print(query_str, flush=True)
+
+        _df_h = load_imputed()
+        _df_h.to_csv("/input/python/input_imputed_hourly_pandas.csv")
+
+        df_h = _df_h.query(query_str)
+        df_h.to_csv(HOURLY_DATA_PATH)
+
+        # filter by seoul codes
+        print("Imputed!", flush=True)
+
     targets = ["PM10", "PM25"]
     sea_targets = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                    "temp", "u", "v", "pres", "humid", "prep", "snow"]
@@ -167,7 +180,7 @@ def stats_analysis(_station_name="종로구"):
     for station_name in station_names:
         for target in train_features_periodic:
             print("Analyze " + target + "...")
-            
+
             # if not Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
             #     # load imputed result
             #     _df_h = load_imputed(HOURLY_DATA_PATH)
@@ -319,7 +332,7 @@ def stats_analysis(_station_name="종로구"):
 
                 n_lag = 100
                 large_s = int(n_lag * 0.3)
-                org_lag = np.unique(np.logspace(0.5, 4, n_lag).astype(int))
+                org_lag = np.unique(np.logspace(0.5, 3, n_lag).astype(int))
 
                 # Select a list of powers q
                 # if q == 2 -> standard square root based average
@@ -532,7 +545,7 @@ def stats_analysis(_station_name="종로구"):
 
                 n_lag = 100
                 large_s = int(n_lag * 0.3)
-                org_lag = np.unique(np.logspace(0.5, 4, n_lag).astype(int))
+                org_lag = np.unique(np.logspace(0.5, 3, n_lag).astype(int))
 
                 # Select a list of powers q
                 # if q == 2 -> standard square root based average
