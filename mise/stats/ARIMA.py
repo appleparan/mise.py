@@ -127,7 +127,7 @@ def stats_arima(station_name = "종로구"):
 
             print("ARIMA " + str(order) + " of " + target + "...")
             def run_arima(order):
-                df_obs = mw_df(df_test, target, output_size,
+                df_obs = mw_df(test_set.ys_raw.copy(), target, output_size,
                             test_fdate, test_tdate)
                 dates = df_obs.index
 
@@ -165,6 +165,10 @@ def mw_df(df_org, target, output_size, fdate, tdate):
     values, indicies = [], []
 
     for i, (_index, _row) in enumerate(df.iterrows()):
+        # skip prediction before fdate
+        if _index < fdate:
+            continue
+
         # findex ~ tindex = output_size
         findex = _index
         tindex = _index + dt.timedelta(hours=(output_size - 1))
