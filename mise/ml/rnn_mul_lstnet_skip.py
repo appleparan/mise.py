@@ -78,7 +78,9 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
     learning_rate = 1e-3
 
     train_fdate = dt.datetime(2008, 1, 5, 0).astimezone(SEOULTZ)
-    train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    train_tdate = dt.datetime(2016, 12, 31, 23).astimezone(SEOULTZ)
+    valid_fdate = dt.datetime(2017, 1, 1, 0).astimezone(SEOULTZ)
+    valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     #test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
@@ -146,6 +148,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
                                     target=target,
                                     features=train_features,
                                     train_fdate=train_fdate, train_tdate=train_tdate,
+                                    valid_fdate=valid_fdate, valid_tdate=valid_tdate,
                                     test_fdate=test_fdate, test_tdate=test_tdate,
                                     output_dir=output_dir)
 
@@ -252,6 +255,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
                                 target=target,
                                 features=train_features,
                                 train_fdate=train_fdate, train_tdate=train_tdate,
+                                valid_fdate=valid_fdate, valid_tdate=valid_tdate,
                                 test_fdate=test_fdate, test_tdate=test_tdate,
                                 output_dir=output_dir)
 
@@ -310,7 +314,11 @@ class BaseLSTNetModel(LightningModule):
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
         self.train_tdate = kwargs.get('train_tdate', dt.datetime(
-            2017, 12, 31, 23).astimezone(SEOULTZ))
+            2016, 12, 31, 23).astimezone(SEOULTZ))
+        self.valid_fdate = kwargs.get('valid_fdate', dt.datetime(
+            2017, 1, 1, 0).astimezone(SEOULTZ))
+        self.valid_tdate = kwargs.get('valid_tdate', dt.datetime(
+            2018, 12, 31, 23).astimezone(SEOULTZ))
         self.test_fdate = kwargs.get('test_fdate', dt.datetime(
             2018, 1, 1, 0).astimezone(SEOULTZ))
         self.test_tdate = kwargs.get('test_tdate', dt.datetime(
@@ -637,44 +645,57 @@ class BaseLSTNetModel(LightningModule):
 
         return _df_obs, _df_sim
 
-    def prepare_data(self):
-        # create custom dataset
-        train_valid_set = data.MultivariateRNNDataset(
+    def setup(self, stage=None):
+        """Data operations on every GPU
+        Wrong usage of LightningModule. Need to Refactored
+
+        * TODO : Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
+        """
+        train_set = data.MultivariateRNNDataset(
             station_name=self.station_name,
             target=self.target,
-            filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
+            filepath="/input/python/input_jongno_imputed_hourly_pandas.csv",
             features=self.features,
             fdate=self.train_fdate,
             tdate=self.train_tdate,
             sample_size=self.sample_size,
-            output_size=self.output_size,
-            train_valid_ratio=0.8)
+            output_size=self.output_size)
 
         # save train/valid set
-        train_valid_set.to_csv(
-            self.data_dir / ("df_train_valid_set_" + self.target + ".csv"))
+        train_set.to_csv(
+            self.data_dir / ("df_train_set_" + self.target + ".csv"))
 
         # fit & transform (standardization)
-        train_valid_set.preprocess()
+        train_set.preprocess()
 
-        # split train/valid/test set
-        train_len = int(len(train_valid_set) *
-                        train_valid_set.train_valid_ratio)
-        valid_len = len(train_valid_set) - train_len
-        train_set, valid_set = torch.utils.data.random_split(
-            train_valid_set, [train_len, valid_len])
+        valid_set = data.MultivariateRNNDataset(
+            station_name=self.station_name,
+            target=self.target,
+            filepath="/input/python/input_jongno_imputed_hourly_pandas.csv",
+            features=self.features,
+            fdate=self.valid_fdate,
+            tdate=self.valid_tdate,
+            sample_size=self.sample_size,
+            output_size=self.output_size,
+            scaler_X=train_set.scaler_X,
+            scaler_Y=train_set.scaler_Y)
+
+        valid_set.transform()
+
+        valid_set.to_csv(
+            self.data_dir / ("df_valid_set_" + self.target + ".csv"))
 
         test_set = data.MultivariateRNNDataset(
             station_name=self.station_name,
             target=self.target,
-            filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
+            filepath="/input/python/input_jongno_imputed_hourly_pandas.csv",
             features=self.features,
             fdate=self.test_fdate,
             tdate=self.test_tdate,
             sample_size=self.sample_size,
             output_size=self.output_size,
-            scaler_X=train_valid_set.scaler_X,
-            scaler_Y=train_valid_set.scaler_Y)
+            scaler_X=train_set.scaler_X,
+            scaler_Y=train_set.scaler_Y)
         test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
 
         test_set.transform()
