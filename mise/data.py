@@ -63,9 +63,8 @@ def load(filepath="/input/input.csv", datecol=[1]):
 
     return df
 
-def load_imputed(filepath="/input/input.csv", datecol=[0]):
-    # date column in raw data : 1
-    # date column in imputed data : 0
+def load_imputed(filepath="/input/input.csv", datecol=[1]):
+    # station code & date
     df = pd.read_csv(filepath,
                      index_col=[0, 1],
                      parse_dates=datecol)
@@ -116,7 +115,7 @@ class BaseDataset(Dataset):
 
         raw_df = pd.read_csv(filepath,
                              index_col=[0, 1],
-                             parse_dates=[0])
+                             parse_dates=[1])
         # filter by station_name
         self._df = raw_df.query('stationCode == "' +
                                 str(SEOUL_STATIONS[self.station_name]) + '"')
