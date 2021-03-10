@@ -1,5 +1,6 @@
 import copy
 import datetime as dt
+import itertools
 import os
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import pandas as pd
 from pytz import timezone
 from sklearn.impute import KNNImputer
 from scipy.stats import boxcox
-import statsmodels.tsa.arima_model as arm
+import statsmodels.tsa.arima.model as arm
 import statsmodels.tsa.stattools as stls
 import statsmodels.graphics.tsaplots as tpl
 from statsmodels.tsa.stattools import acf, pacf
@@ -35,29 +36,35 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 def stats_arima(station_name = "종로구"):
     print("Data loading start...")
     if Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
-        df_d = data.load_imputed("/input/python/input_jongro_imputed_daily_pandas.csv")
         df_h = data.load_imputed(
             "/input/python/input_jongro_imputed_hourly_pandas.csv")
     else:
         # load imputed result
-        _df_d = data.load_imputed(DAILY_DATA_PATH)
         _df_h = data.load_imputed(HOURLY_DATA_PATH)
-        df_d = _df_d.query('stationCode == "' +
-                           str(SEOUL_STATIONS[station_name]) + '"')
         df_h = _df_h.query('stationCode == "' +
                            str(SEOUL_STATIONS[station_name]) + '"')
 
-        df_d.to_csv("/input/python/input_jongro_imputed_daily_pandas.csv")
         df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
 
     print("Data loading complete")
     targets = ["PM10", "PM25"]
-    orders = [(1, 0, 0), (1, 0, 1)]
+
+    # p (1, 0, 0) ~ (3, 0, 0), (4, 0, 0) ~ (6, 0, 0), (7, 0, 0) ~ (9, 0, 0),
+    # p (1, 0, 1) ~ (3, 0, 1), (4, 0, 1) ~ (6, 0, 1), (7, 0, 1) ~ (9, 0, 1),
+    # p (1, 0, 2) ~ (3, 0, 2), (4, 0, 2) ~ (6, 0, 2), (7, 0, 2) ~ (9, 0, 2),
+    orders1 = [(_p, 0, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
+    orders2 = [(_p, 1, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
+    orders = orders1 + orders2
+    # orders = [(_p, 1, _q) for _q, _p in itertools.product([2], range(1, 4)) if not (_p == 0 and _q == 0)]
+    # orders = [(_p, 1, _q) for _q, _p in itertools.product([2], range(4, 7)) if not (_p == 0 and _q == 0)]
+    # orders = [(_p, 1, _q) for _q, _p in itertools.product([2], range(7, 10)) if not (_p == 0 and _q == 0)]
+
+    sample_size = 48
     output_size = 24
-    train_fdate = dt.datetime(2018, 1, 1, 0).astimezone(seoultz)
+    train_fdate = dt.datetime(2008, 1, 5, 0).astimezone(seoultz)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(seoultz)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(seoultz)
-    test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(seoultz)
+    test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(seoultz)
     # consective dates between train and test
     assert train_tdate + dt.timedelta(hours=1) == test_fdate
 
@@ -74,28 +81,58 @@ def stats_arima(station_name = "종로구"):
             norm_values, norm_maxlog = boxcox(df_h[target])
             norm_target = "norm_" + target
 
-            numeric_pipeline_X = Pipeline(
-                [('seasonalitydecompositor', data.SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05))])
+            train_set = data.MultivariateRNNMeanSeasonalityDataset(
+                station_name=station_name,
+                target=target,
+                filepath=HOURLY_DATA_PATH,
+                features=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                            "temp", "u", "v", "pres", "humid", "prep", "snow"],
+                features_1=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                            "temp", "v", "pres", "humid", "prep", "snow"],
+                features_2=['u'],
+                fdate=train_fdate,
+                tdate=train_tdate,
+                sample_size=sample_size,
+                output_size=output_size,
+                train_valid_ratio=0.8)
 
-            scaler = ColumnTransformer(
-                transformers=[
-                    ('num', numeric_pipeline_X, [target])])
+            train_set.preprocess(
+                data_dir / "seasonality_fused",
+                png_dir / "seasonality_fused",
+                svg_dir / "seasonality_fused")
 
-            df_ta = df_h[[target]].copy().droplevel('stationCode')
-            scaler.fit(df_ta)
-            df_ta_norm = pd.DataFrame(data=scaler.transform(df_ta),
-                                    index=df_ta.index, columns=df_ta.columns)
+            test_set = data.MultivariateRNNMeanSeasonalityDataset(
+                station_name=station_name,
+                target=target,
+                filepath=HOURLY_DATA_PATH,
+                features=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                            "temp", "u", "v", "pres", "humid", "prep", "snow"],
+                features_1=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                            "temp", "v", "pres", "humid", "prep", "snow"],
+                features_2=['u'],
+                fdate=test_fdate - dt.timedelta(hours=48),
+                tdate=test_tdate,
+                sample_size=sample_size,
+                output_size=output_size,
+                scaler_X=train_set.scaler_X,
+                scaler_Y=train_set.scaler_Y)
 
-            df_train = df_ta_norm.loc[train_fdate:train_tdate, :]
-            df_test = df_ta_norm.loc[test_fdate:test_tdate, :]
+            test_set.transform()
+
+            df_ta = train_set.ys_raw.copy()
+            df_ta_norm = train_set.ys.copy()
+
+            df_train = train_set.ys.copy()
+            df_test = test_set.ys.copy()
 
             print("ARIMA " + str(order) + " of " + target + "...")
             def run_arima(order):
-                df_obs = mw_df(df_ta, target, output_size,
+                df_obs = mw_df(df_test, target, output_size,
                             test_fdate, test_tdate)
                 dates = df_obs.index
-                df_sim = sim_arima(df_train, df_test, dates, target, \
-                                   order, scaler, output_size)
+
+                df_sim = sim_arima(df_train, df_test, dates, test_fdate, target, \
+                                   order, test_set.scaler_Y, output_size)
 
                 assert df_obs.shape == df_sim.shape
 
@@ -143,28 +180,37 @@ def mw_df(df_org, target, output_size, fdate, tdate):
     return df_obs
 
 
-def sim_arima(df_train, df_test, dates, target, order, scaler, output_size):
+def sim_arima(df_train, df_test, dates, fdate, target, order, scaler, output_size):
     # columns are offset to datetime
     cols = [str(i) for i in range(output_size)]
     df_sim = pd.DataFrame(columns=cols)
 
     # initial endog
     # train data -> initial endog
-    sz = len(df_train)
-    index0 = df_test.index[0]
-    endog = list(
-        df_train.loc[index0-dt.timedelta(hours=len(df_train[target])):index0, target])
-
     values = np.zeros((len(dates), output_size), dtype=df_train[target].dtype)
 
+    model = arm.ARIMA(endog=df_train, order=order)
+    model_fit = model.fit()
+
+    test_model = model
+    test_model_fit = model_fit
+
     for i, (index, row) in tqdm.tqdm(enumerate(df_test.iterrows()), total=len(dates)-1):
+        # skip prediction before fdate
+        if index < fdate:
+            continue
+
         if i > len(dates) - 1:
             break
 
-        model = arm.ARIMA(np.array(endog[-sz:]), order)
-        model_fit = model.fit(disp = 0)
+        # new input
+        endog = df_test[index - dt.timedelta(hours=output_size):index + dt.timedelta(hours=1)]
 
-        ys, err_arr, conf_ints = model_fit.forecast(steps = output_size)
+        # same state-space params, but different input (endog)
+        test_model_fit = test_model_fit.append([df_test.loc[index, :].to_numpy()])
+
+        # out-of-sample forecast
+        ys = test_model_fit.forecast(steps = output_size)
 
         # inverse_transform
         _dates = pd.date_range(
@@ -173,13 +219,11 @@ def sim_arima(df_train, df_test, dates, target, order, scaler, output_size):
             pd.DataFrame(data=ys, index=_dates, columns=[target]))
 
         _date = index
-        assert dates[i] == _date
         values[i, :] = value.squeeze()
-
-        endog.append(row[target])
 
     df_sim = pd.DataFrame(data=values, index=dates, columns=cols)
     df_sim.index.name = 'date'
+
     return df_sim
 
 
