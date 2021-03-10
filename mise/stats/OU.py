@@ -35,20 +35,14 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 def stats_ou(station_name="종로구"):
     print("Data loading start...")
     if Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
-        df_d = data.load_imputed(
-            "/input/python/input_jongro_imputed_daily_pandas.csv")
         df_h = data.load_imputed(
             "/input/python/input_jongro_imputed_hourly_pandas.csv")
     else:
         # load imputed result
-        _df_d = data.load_imputed(DAILY_DATA_PATH)
         _df_h = data.load_imputed(HOURLY_DATA_PATH)
-        df_d = _df_d.query('stationCode == "' +
-                           str(SEOUL_STATIONS[station_name]) + '"')
         df_h = _df_h.query('stationCode == "' +
                            str(SEOUL_STATIONS[station_name]) + '"')
 
-        df_d.to_csv("/input/python/input_jongro_imputed_daily_pandas.csv")
         df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
 
     print("Data loading complete")
@@ -57,11 +51,12 @@ def stats_ou(station_name="종로구"):
         "PM10": 8.73062775,
         "PM25": 8.636373132
     }
+    sample_size = 48
     output_size = 24
-    train_fdate = dt.datetime(2017, 12, 1, 0).astimezone(seoultz)
+    train_fdate = dt.datetime(2008, 1, 5, 0).astimezone(seoultz)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(seoultz)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(seoultz)
-    test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(seoultz)
+    test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(seoultz)
     # consective dates between train and test
     assert train_tdate + dt.timedelta(hours=1) == test_fdate
 
@@ -75,30 +70,67 @@ def stats_ou(station_name="종로구"):
         Path.mkdir(png_dir, parents=True, exist_ok=True)
         Path.mkdir(svg_dir, parents=True, exist_ok=True)
 
-        numeric_pipeline_X = Pipeline(
-            [('seasonalitydecompositor', data.SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05))])
+        # numeric_pipeline_X = Pipeline(
+        #     [('seasonalitydecompositor',
+        #         data.SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
+        #      ('standardtransformer', data.StandardScalerWrapper(scaler=StandardScaler()))])
 
-        scaler = ColumnTransformer(
-            transformers=[
-                ('num', numeric_pipeline_X, [target])])
+        # scaler = ColumnTransformer(
+        #     transformers=[
+        #         ('num', numeric_pipeline_X, [target])])
 
-        df_ta = df_h[[target]].copy().droplevel('stationCode')
-        scaler.fit(df_ta)
-        df_ta_norm = pd.DataFrame(data=scaler.transform(df_ta),
-                                  index=df_ta.index, columns=df_ta.columns)
+        # prepare dataset
+        train_valid_set = data.MultivariateRNNMeanSeasonalityDataset(
+            station_name=station_name,
+            target=target,
+            filepath=HOURLY_DATA_PATH,
+            features=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                        "temp", "u", "v", "pres", "humid", "prep", "snow"],
+            features_1=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                        "temp", "v", "pres", "humid", "prep", "snow"],
+            features_2=['u'],
+            fdate=train_fdate,
+            tdate=train_tdate,
+            sample_size=sample_size,
+            output_size=output_size,
+            train_valid_ratio=0.8)
 
-        df_train = df_ta_norm.loc[train_fdate:train_tdate, :]
-        df_test = df_ta_norm.loc[test_fdate:test_tdate, :]
+        train_valid_set.preprocess(
+            data_dir / "seasonality_fused",
+            png_dir / "seasonality_fused",
+            svg_dir / "seasonality_fused")
+
+        test_set = data.MultivariateRNNMeanSeasonalityDataset(
+            station_name=station_name,
+            target=target,
+            filepath=HOURLY_DATA_PATH,
+            features=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                        "temp", "u", "v", "pres", "humid", "prep", "snow"],
+            features_1=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                        "temp", "v", "pres", "humid", "prep", "snow"],
+            features_2=['u'],
+            fdate=test_fdate,
+            tdate=test_tdate,
+            sample_size=sample_size,
+            output_size=output_size,
+            scaler_X=train_valid_set.scaler_X,
+            scaler_Y=train_valid_set.scaler_Y)
+
+        test_set.transform()
+
+        df_ta = train_valid_set.ys_raw.copy()
+        df_ta_norm = train_valid_set.ys.copy()
+
+        df_test = test_set.ys.copy()
 
         print("Simulate by Ornstein–Uhlenbeck process for " + target + "...")
 
         def run_OU(_intT):
-            df_obs = mw_df(df_ta, target, output_size,
+            df_obs = mw_df(test_set.ys_raw.copy(), target, output_size,
                            test_fdate, test_tdate)
             dates = df_obs.index
-            df_sim = sim_OU(df_train, df_test, dates, target, \
-                            _intT[target], scaler, output_size)
-
+            df_sim = sim_OU(df_test, dates, target, \
+                            _intT[target], test_set.scaler_Y, output_size)
             assert df_obs.shape == df_sim.shape
 
             # join df
@@ -144,16 +176,17 @@ def mw_df(df_org, target, output_size, fdate, tdate):
     return df_obs
 
 
-def sim_OU(df_train, df_test, dates, target, intT, scaler, output_size):
+def sim_OU(df_test, dates, target, intT, scaler, output_size):
+    """
+    Mean Reverting term + white noise term
+    Reference:
+    * The Ornstein-Uhlenbeck Process In Neural Decision-Making: Mathematical Foundations And Simulations Suggesting The Adaptiveness Of Robustly Integrating Stochastic Neural Evidence
+    """
     # columns are offset to datetime
     cols = [str(i) for i in range(output_size)]
     df_sim = pd.DataFrame(columns=cols)
 
-    # train -> initial data
-    endog = df_train[target]
-    #endog = df_train[target].tolist()
-    sz = len(endog)
-    values = np.zeros((len(dates), output_size), dtype=df_train[target].dtype)
+    values = np.zeros((len(dates), output_size), dtype=df_test[target].dtype)
 
     for i, (index, row) in tqdm.tqdm(enumerate(df_test.iterrows()), total=len(dates)-1):
         if i > len(dates) - 1:
@@ -184,7 +217,6 @@ def sim_OU(df_train, df_test, dates, target, intT, scaler, output_size):
             pd.DataFrame(data=ys, index=_dates, columns=[target]))
 
         _date = index
-        assert dates[i] == _date
         values[i, :] = value.squeeze()
 
     df_sim = pd.DataFrame(data=values, index=dates, columns=cols)
