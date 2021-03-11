@@ -55,13 +55,13 @@ def stats_arima(station_name = "종로구"):
     orders1 = [(_p, 0, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
     orders2 = [(_p, 1, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
     orders = orders1 + orders2
-    # orders = [(_p, 1, _q) for _q, _p in itertools.product([2], range(1, 4)) if not (_p == 0 and _q == 0)]
-    # orders = [(_p, 1, _q) for _q, _p in itertools.product([2], range(4, 7)) if not (_p == 0 and _q == 0)]
-    # orders = [(_p, 1, _q) for _q, _p in itertools.product([2], range(7, 10)) if not (_p == 0 and _q == 0)]
+    # orders = [(_p, 0, _q) for _q, _p in itertools.product([0], range(1, 4)) if not (_p == 0 and _q == 0)]
+    # orders = [(_p, 0, _q) for _q, _p in itertools.product([0], range(4, 7)) if not (_p == 0 and _q == 0)]
+    # orders = [(_p, 0, _q) for _q, _p in itertools.product([0], range(7, 9)) if not (_p == 0 and _q == 0)]
 
     sample_size = 48
     output_size = 24
-    train_fdate = dt.datetime(2008, 1, 5, 0).astimezone(seoultz)
+    train_fdate = dt.datetime(2008, 1, 3, 0).astimezone(seoultz)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(seoultz)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(seoultz)
     test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(seoultz)
@@ -101,6 +101,7 @@ def stats_arima(station_name = "종로구"):
                 png_dir / "seasonality_fused",
                 svg_dir / "seasonality_fused")
 
+            # set fdate=test_fdate,
             test_set = data.MultivariateRNNMeanSeasonalityDataset(
                 station_name=station_name,
                 target=target,
@@ -110,7 +111,7 @@ def stats_arima(station_name = "종로구"):
                 features_1=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                             "temp", "v", "pres", "humid", "prep", "snow"],
                 features_2=['u'],
-                fdate=test_fdate - dt.timedelta(hours=48),
+                fdate=test_fdate,
                 tdate=test_tdate,
                 sample_size=sample_size,
                 output_size=output_size,
@@ -119,20 +120,18 @@ def stats_arima(station_name = "종로구"):
 
             test_set.transform()
 
-            df_ta = train_set.ys_raw.copy()
-            df_ta_norm = train_set.ys.copy()
+            df_train = train_set.ys.loc[train_fdate:train_tdate, :].copy()
+            df_test = test_set.ys.loc[test_fdate:test_tdate, :].copy()
+            df_test_org = test_set.ys_raw.loc[test_fdate:test_tdate, :].copy()
 
-            df_train = train_set.ys.copy()
-            df_test = test_set.ys.copy()
-
-            print("ARIMA " + str(order) + " of " + target + "...")
+            print("ARIMA " + str(order) + " of " + target + "...", flush=True)
             def run_arima(order):
-                df_obs = mw_df(test_set.ys_raw.copy(), target, output_size,
+                df_obs = mw_df(df_test_org, target, output_size,
                             test_fdate, test_tdate)
                 dates = df_obs.index
 
-                df_sim = sim_arima(df_train, df_test, dates, test_fdate, target, \
-                                   order, test_set.scaler_Y, output_size)
+                df_sim = sim_arima(df_train, df_test, dates, target, \
+                                   order, test_set.scaler_Y, sample_size, output_size)
 
                 assert df_obs.shape == df_sim.shape
 
@@ -164,14 +163,14 @@ def mw_df(df_org, target, output_size, fdate, tdate):
 
     values, indicies = [], []
 
-    for i, (_index, _row) in enumerate(df.iterrows()):
+    for i, (index, row) in enumerate(df.iterrows()):
         # skip prediction before fdate
-        if _index < fdate:
+        if index < fdate:
             continue
 
         # findex ~ tindex = output_size
-        findex = _index
-        tindex = _index + dt.timedelta(hours=(output_size - 1))
+        findex = index
+        tindex = index + dt.timedelta(hours=(output_size - 1))
         if tindex > tdate - dt.timedelta(hours=output_size):
             break
 
@@ -184,7 +183,7 @@ def mw_df(df_org, target, output_size, fdate, tdate):
     return df_obs
 
 
-def sim_arima(df_train, df_test, dates, fdate, target, order, scaler, output_size):
+def sim_arima(df_train, df_test, dates, target, order, scaler, sample_size, output_size):
     # columns are offset to datetime
     cols = [str(i) for i in range(output_size)]
     df_sim = pd.DataFrame(columns=cols)
@@ -193,28 +192,21 @@ def sim_arima(df_train, df_test, dates, fdate, target, order, scaler, output_siz
     # train data -> initial endog
     values = np.zeros((len(dates), output_size), dtype=df_train[target].dtype)
 
-    model = arm.ARIMA(endog=df_train, order=order)
+    model = arm.ARIMA(endog=df_train.to_numpy(), order=order)
     model_fit = model.fit()
 
-    test_model = model
-    test_model_fit = model_fit
+    # TODO : Need Optimization, too slow!
+    assert df_test.index[0] == dates[0]
 
     for i, (index, row) in tqdm.tqdm(enumerate(df_test.iterrows()), total=len(dates)-1):
-        # skip prediction before fdate
-        if index < fdate:
-            continue
-
-        if i > len(dates) - 1:
+        if i >= len(dates):
             break
 
-        # new input
-        endog = df_test[index - dt.timedelta(hours=output_size):index + dt.timedelta(hours=1)]
+        # out-of-sample forecast
+        ys = model_fit.forecast(steps = output_size)
 
         # same state-space params, but different input (endog)
-        test_model_fit = test_model_fit.append([df_test.loc[index, :].to_numpy()])
-
-        # out-of-sample forecast
-        ys = test_model_fit.forecast(steps = output_size)
+        model_fit = model_fit.append([df_test.loc[index, :].to_numpy()])
 
         # inverse_transform
         _dates = pd.date_range(
@@ -222,7 +214,6 @@ def sim_arima(df_train, df_test, dates, fdate, target, order, scaler, output_siz
         value = scaler.named_transformers_['num'].inverse_transform(
             pd.DataFrame(data=ys, index=_dates, columns=[target]))
 
-        _date = index
         values[i, :] = value.squeeze()
 
     df_sim = pd.DataFrame(data=values, index=dates, columns=cols)
