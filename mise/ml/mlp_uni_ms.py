@@ -5,6 +5,7 @@ from math import sqrt
 import os
 from pathlib import Path
 import shutil
+import statistics
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,8 +18,7 @@ from sklearn import preprocessing
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import random_split, DataLoader
-from torch.utils.data import RandomSampler, SequentialSampler, BatchSampler
+from torch.utils.data import random_split, DataLoader, ConcatDataset
 from torch.utils.tensorboard import SummaryWriter
 
 import pytorch_lightning as pl
@@ -36,10 +36,6 @@ from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
 from bokeh.io import export_png, export_svgs
 
-from sklearn.preprocessing import StandardScaler
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.compose import ColumnTransformer
-
 import data
 from constants import SEOUL_STATIONS, SEOULTZ
 
@@ -48,7 +44,6 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
 
 class MetricsCallback(Callback):
     """PyTorch Lightning metric callback."""
@@ -60,6 +55,38 @@ class MetricsCallback(Callback):
     def on_validation_end(self, trainer, pl_module):
         self.metrics.append(trainer.callback_metrics)
 
+def construct_dataset(fdate, tdate,
+    scaler_X=None, scaler_Y=None,
+    filepath=HOURLY_DATA_PATH, station_name='종로구', target='PM10',
+    sample_size=48, output_size=24,
+    transform=True):
+    if scaler_X == None or scaler_Y == None:
+        data_set = data.UnivariateMeanSeasonalityDataset(
+            station_name=station_name,
+            target=target,
+            filepath=filepath,
+            features=[target],
+            fdate=fdate,
+            tdate=tdate,
+            sample_size=sample_size,
+            output_size=output_size)
+    else:
+        data_set = data.UnivariateMeanSeasonalityDataset(
+            station_name=station_name,
+            target=target,
+            filepath=filepath,
+            features=[target],
+            fdate=fdate,
+            tdate=tdate,
+            sample_size=sample_size,
+            output_size=output_size,
+            scaler_X=scaler_X,
+            scaler_Y=scaler_Y)
+
+    if transform:
+        data_set.transform()
+
+    return data_set
 
 def ml_mlp_uni_ms(station_name="종로구"):
     print("Start Univariate MLP Mean Seasonality Decomposition Model")
@@ -68,58 +95,102 @@ def ml_mlp_uni_ms(station_name="종로구"):
     #sample_size = 336
     sample_size = 48
     output_size = 24
-    output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 216
+    n_trials = 200
     # fast_dev_run = True
-    # n_trials = 1
+    # n_trials = 2
 
     # Hyper parameter
     epoch_size = 500
-    batch_size = 256
+    batch_size = 64
     learning_rate = 1e-3
 
-    train_fdate = dt.datetime(2008, 1, 5, 0).astimezone(SEOULTZ)
-    train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    # Blocked Cross Validation
+    # neglect small overlap between train_dates and valid_dates
+    train_dates = [
+        (dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2010, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 6, 30, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
+    valid_dates = [
+        (dt.datetime(2010, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2010, 6, 30, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2012, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
+
+    # Debug
+    # train_dates = [
+    #     (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
+    #     (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
+    # valid_dates = [
+    #     (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
+    #     (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
+
+    train_valid_fdate = dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ)
+    train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
-    test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
+    test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
 
     # check date range assumption
-    assert test_tdate > train_fdate
-    assert test_fdate > train_tdate
+    assert len(train_dates) == len(valid_dates)
+    for i, (td, vd) in enumerate(zip(train_dates, valid_dates)):
+        assert vd[0] > td[1]
+    assert test_fdate > train_dates[-1][1]
+    assert test_fdate > valid_dates[-1][1]
 
     train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                       "temp", "u", "v", "pres", "humid", "prep", "snow"]
 
     for target in targets:
-        print("Training " + target + "...")
-        target_sea_h_path = Path(
-            "/input/python/input_jongro_imputed_hourly_pandas.csv")
-
-        df_sea_h = pd.read_csv(target_sea_h_path,
-                               index_col=[0],
-                               parse_dates=[0])
-
-        output_dir = Path("/mnt/data/MLPMSUnivariate_" + str(sample_size) + "/" +
-                          station_name + "/" + target + "/")
+        print("Training " + target + "...", flush=True)
+        output_dir = Path(f"/mnt/data/MLPMSUnivariate/{station_name}/{target}/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
 
-        if not Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
-            # load imputed result
-            _df_h = data.load_imputed(HOURLY_DATA_PATH)
-            df_h = _df_h.query('stationCode == "' +
-                               str(SEOUL_STATIONS[station_name]) + '"')
-            df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
+        _df_h = data.load_imputed(HOURLY_DATA_PATH)
+        df_h = _df_h.query('stationCode == "' +
+                            str(SEOUL_STATIONS[station_name]) + '"')
 
-        early_stop_callback = EarlyStopping(
-            monitor='val_loss',
-            min_delta=0.001,
-            patience=30,
-            verbose=True,
-            mode='auto')
+        if station_name == '종로구' and \
+            not Path("/input/python/input_jongno_imputed_hourly_pandas.csv").is_file():
+            # load imputed result
+
+            df_h.to_csv("/input/python/input_jongno_imputed_hourly_pandas.csv")
+
+        # construct dataset for seasonality
+        train_valid_dataset = construct_dataset(train_valid_fdate, train_valid_tdate,
+            filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+            sample_size=sample_size, output_size=output_size, transform=False)
+        # compute seasonality
+        train_valid_dataset.preprocess()
+
+        # For Block Cross Validation..
+        # load dataset in given range dates and transform using scaler from train_valid_set
+        # all dataset are saved in tuple
+        train_datasets = tuple(construct_dataset(td[0], td[1],
+                                                scaler_X=train_valid_dataset.scaler_X,
+                                                scaler_Y=train_valid_dataset.scaler_Y,
+                                                filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+                                                sample_size=sample_size, output_size=output_size, transform=True) for td in train_dates)
+
+        valid_datasets = tuple(construct_dataset(vd[0], vd[1],
+                                                scaler_X=train_valid_dataset.scaler_X,
+                                                scaler_Y=train_valid_dataset.scaler_Y,
+                                                filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+                                                sample_size=sample_size, output_size=output_size, transform=True) for vd in valid_dates)
+
+        # just single test set
+        test_dataset = construct_dataset(test_fdate, test_tdate,
+                                        scaler_X=train_valid_dataset.scaler_X,
+                                        scaler_Y=train_valid_dataset.scaler_Y,
+                                        filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+                                        sample_size=sample_size, output_size=output_size, transform=True)
+
+        # convert tuple of datasets to ConcatDataset
+        train_dataset = ConcatDataset(train_datasets)
+        val_dataset = ConcatDataset(valid_datasets)
 
         # num_layer == number of hidden layer
         hparams = Namespace(
@@ -131,6 +202,7 @@ def ml_mlp_uni_ms(station_name="종로구"):
         # The default logger in PyTorch Lightning writes to event files to be consumed by
         # TensorBoard. We don't use any logger here as it requires us to implement several abstract
         # methods. Instead we setup a simple callback, that saves metrics from each validation step.
+        # metrics_callback = [MetricsCallback() for _ in range(len(train_dates_opt))]
         metrics_callback = MetricsCallback()
 
         def objective(trial):
@@ -147,6 +219,7 @@ def ml_mlp_uni_ms(station_name="종로구"):
                 learning_rate=learning_rate,
                 batch_size=batch_size)
 
+            # models are independent from dataset and dates
             model = BaseMLPModel(trial=trial,
                                  hparams=hparams,
                                  input_size=sample_size,
@@ -155,23 +228,27 @@ def ml_mlp_uni_ms(station_name="종로구"):
                                  station_name=station_name,
                                  target=target,
                                  features=[target],
-                                 train_fdate=train_fdate, train_tdate=train_tdate,
-                                 test_fdate=test_fdate, test_tdate=test_tdate,
+                                 train_dataset=train_dataset,
+                                 val_dataset=val_dataset,
+                                 test_dataset=test_dataset,
+                                 scaler_X=train_valid_dataset.scaler_X,
+                                 scaler_Y=train_valid_dataset.scaler_Y,
                                  output_dir=output_dir)
 
             # most basic trainer, uses good defaults
+            # TODO: PytorchLightningPruningCallback wheree to put?
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
                               min_epochs=1, max_epochs=20,
                               early_stop_callback=PyTorchLightningPruningCallback(
-                                  trial, monitor="val_loss"),
+                                    trial, monitor="val_loss"),
                               default_root_dir=output_dir,
                               fast_dev_run=fast_dev_run,
                               logger=model.logger,
                               row_log_interval=10,
                               checkpoint_callback=checkpoint_callback,
                               callbacks=[metrics_callback, PyTorchLightningPruningCallback(
-                                  trial, monitor="val_loss")])
+                                    trial, monitor="val_loss")])
 
             trainer.fit(model)
 
@@ -232,6 +309,8 @@ def ml_mlp_uni_ms(station_name="종로구"):
             dict_hparams["output_size"] = output_size
             with open(output_dir / 'hparams.json', 'w') as f:
                 print(dict_hparams, file=f)
+            with open(output_dir / 'hparams.csv', 'w') as f:
+                print(pd.DataFrame.from_dict(dict_hparams, orient='index'), file=f)
 
         model = BaseMLPModel(hparams=hparams,
                              input_size=sample_size,
@@ -240,14 +319,32 @@ def ml_mlp_uni_ms(station_name="종로구"):
                              station_name=station_name,
                              target=target,
                              features=[target],
-                             train_fdate=train_fdate, train_tdate=train_tdate,
-                             test_fdate=test_fdate, test_tdate=test_tdate,
+                             train_dataset=train_dataset,
+                             val_dataset=val_dataset,
+                             test_dataset=test_dataset,
+                             scaler_X=train_valid_dataset.scaler_X,
+                             scaler_Y=train_valid_dataset.scaler_Y,
                              output_dir=output_dir)
 
+        # record input
+        for i, _train_set in enumerate(train_datasets):
+            _train_set.to_csv(model.data_dir / ("df_trainset_{0}_".format(str(i).zfill(2)) + target + ".csv"))
+        for i, _valid_set in enumerate(valid_datasets):
+            _valid_set.to_csv(model.data_dir / ("df_validset_{0}_".format(str(i).zfill(2)) + target + ".csv"))
+        train_valid_dataset.to_csv(model.data_dir / ("df_trainvalidset_" + target + ".csv"))
+        test_dataset.to_csv(model.data_dir / ("df_testset_" + target + ".csv"))
+
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            os.path.join(model_dir, "train"), monitor="val_loss",
+            os.path.join(model_dir, "train_{epoch}_{val_loss:.2f}"), monitor="val_loss",
             period=10
         )
+
+        early_stop_callback = EarlyStopping(
+            monitor='val_loss',
+            min_delta=0.00001,
+            patience=30,
+            verbose=True,
+            mode='min')
 
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
@@ -280,14 +377,6 @@ class BaseMLPModel(LightningModule):
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', [self.target])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
-        self.train_fdate = kwargs.get('train_fdate', dt.datetime(
-            2012, 1, 1, 0).astimezone(SEOULTZ))
-        self.train_tdate = kwargs.get('train_tdate', dt.datetime(
-            2017, 12, 31, 23).astimezone(SEOULTZ))
-        self.test_fdate = kwargs.get('test_fdate', dt.datetime(
-            2018, 1, 1, 0).astimezone(SEOULTZ))
-        self.test_tdate = kwargs.get('test_tdate', dt.datetime(
-            2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
             'output_dir', Path('/mnt/data/MLPMS2Univariate/'))
@@ -302,6 +391,14 @@ class BaseMLPModel(LightningModule):
         self.data_dir = kwargs.get(
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
+
+        self.train_dataset = kwargs.get('train_dataset', None)
+        self.val_dataset = kwargs.get('val_dataset', None)
+        self.test_dataset = kwargs.get('test_dataset', None)
+
+        # Set ColumnTransformer if provided
+        self._scaler_X = kwargs.get('scaler_X', None)
+        self._scaler_Y = kwargs.get('scaler_Y', None)
 
         self.trial = kwargs.get('trial', None)
         self.sample_size = kwargs.get('sample_size', 48)
@@ -555,63 +652,10 @@ class BaseMLPModel(LightningModule):
         Wrong usage of LightningModule. Need to Refactored
         * TODO: Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
         """
-        # create custom dataset
-        train_valid_set = data.UnivariateMeanSeasonalityDataset(
-            station_name=self.station_name,
-            target=self.target,
-            filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
-            features=[self.target],
-            fdate=self.train_fdate,
-            tdate=self.train_tdate,
-            sample_size=self.sample_size,
-            output_size=self.output_size,
-            train_valid_ratio=0.8)
-
         # first mkdir of seasonality
         Path.mkdir(self.png_dir / "seasonality", parents=True, exist_ok=True)
         Path.mkdir(self.svg_dir / "seasonality", parents=True, exist_ok=True)
         Path.mkdir(self.data_dir / "seasonality", parents=True, exist_ok=True)
-
-        # fit & transform (seasonality)
-        train_valid_set.preprocess(
-            self.data_dir / "seasonality", self.png_dir / "seasonality", self.svg_dir / "seasonality")
-
-        # create test_set after computing seasonality of train/valid set
-        test_set = data.UnivariateMeanSeasonalityDataset(
-            station_name=self.station_name,
-            target=self.target,
-            filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
-            features=[self.target],
-            fdate=self.test_fdate,
-            tdate=self.test_tdate,
-            sample_size=self.sample_size,
-            output_size=self.output_size,
-            scaler_X=train_valid_set.scaler_X,
-            scaler_Y=train_valid_set.scaler_Y)
-
-        # preprocess
-        test_set.transform()
-
-        # save dataset
-        train_valid_set.to_csv(
-            self.data_dir / ("df_train_valid_set_" + self.target + ".csv"))
-        test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
-
-        # split train/valid/test set
-        train_len = int(len(train_valid_set) *
-                        train_valid_set.train_valid_ratio)
-        valid_len = len(train_valid_set) - train_len
-        train_set, valid_set = torch.utils.data.random_split(
-            train_valid_set, [train_len, valid_len])
-
-        # assign LightningModule's variable to use in dataloaders
-        self.train_dataset = train_set
-        self.val_dataset = valid_set
-        self.test_dataset = test_set
-
-        self.train_sampler = RandomSampler(self.train_dataset)
-        self.valid_sampler = SequentialSampler(self.val_dataset)
-        self.test_sampler = SequentialSampler(self.test_dataset)
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
@@ -623,12 +667,14 @@ class BaseMLPModel(LightningModule):
     def val_dataloader(self):
         return DataLoader(self.val_dataset,
                           batch_size=self.hparams.batch_size,
+                          shuffle=False,
                           num_workers=self.num_workers,
                           collate_fn=self.collate_fn)
 
     def test_dataloader(self):
         return DataLoader(self.test_dataset,
                           batch_size=self.hparams.batch_size,
+                          shuffle=False,
                           num_workers=self.num_workers,
                           collate_fn=self.collate_fn)
 
@@ -637,14 +683,16 @@ class BaseMLPModel(LightningModule):
 
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
-        data: list of tuple  (x, y, dates).
-            - x: pandas DataFrame or numpy of shape (input_size, num_features);
-            - y: pandas DataFrame or numpy of shape (output_size);
-            - date: pandas DateTimeIndex of shape (output_size):
+            batch: list of tuple  (x, y, y_raw, dates).
+                - x: pandas DataFrame or numpy of shape (input_size, num_features);
+                - y: pandas DataFrame or numpy of shape (output_size);
+                - y_raw: pandas DataFrame or numpy of shape (output_size);
+                - date: pandas DateTimeIndex of shape (output_size):
 
         Returns:
             - xs: torch Tensor of shape (batch_size, input_size, num_features);
             - ys: torch Tensor of shape (batch_size, output_size);
+            - ys_raw: torch Tensor of shape (batch_size, output_size);
             - dates: pandas DateTimeIndex of shape (batch_size, output_size):
         """
 
@@ -657,6 +705,13 @@ class BaseMLPModel(LightningModule):
             torch.as_tensor(ys_raw), \
             dates
 
+    @property
+    def scaler_X(self):
+        return self._scaler_X
+
+    @property
+    def scaler_Y(self):
+        return self._scaler_Y
 
 def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
