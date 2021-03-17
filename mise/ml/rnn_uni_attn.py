@@ -98,8 +98,8 @@ def ml_rnn_uni_attn(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 160
-    fast_dev_run = True
-    n_trials = 2
+    # fast_dev_run = True
+    # n_trials = 2
 
     # Hyper parameter
     epoch_size = 500
