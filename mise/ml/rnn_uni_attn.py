@@ -103,11 +103,12 @@ def ml_rnn_uni_attn(station_name="종로구"):
 
     # Hyper parameter
     epoch_size = 500
-    batch_size = 64
-    learning_rate = 1e-3
+    batch_size = 128
+    learning_rate = 1e-4
 
     # Blocked Cross Validation
     # neglect small overlap between train_dates and valid_dates
+    # 11y = ((2y, 0.5y), (2y, 0.5y), (2y, 0.5y), (2.5y, 1y))
     train_dates = [
         (dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
         (dt.datetime(2010, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 6, 30, 23).astimezone(SEOULTZ)),
@@ -586,8 +587,8 @@ class BaseAttentionModel(LightningModule):
             self.hparams.hidden_size = self.trial.suggest_int(
                 "hidden_size", 8, 1024)
 
-        #self.loss = nn.MSELoss()
-        self.loss = nn.L1Loss()
+        self.loss = nn.MSELoss()
+        # self.loss = nn.L1Loss()
 
         self._train_set = None
         self._valid_set = None
@@ -640,7 +641,8 @@ class BaseAttentionModel(LightningModule):
         return outputs
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+        return torch.optim.Adam(self.parameters(),
+            lr=self.hparams.learning_rate, weight_decay=0.001)
 
     def training_step(self, batch, batch_idx):
         # x, _y0, _y, dates = batch
@@ -884,7 +886,6 @@ class BaseAttentionModel(LightningModule):
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
         xs, ys, ys0, ys_raw, y_dates = zip(*batch)
-        print(type(ys), type(ys0), type(ys_raw))
 
         return torch.as_tensor(xs), \
                torch.as_tensor(ys), \
