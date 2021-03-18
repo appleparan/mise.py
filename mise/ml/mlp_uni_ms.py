@@ -103,11 +103,12 @@ def ml_mlp_uni_ms(station_name="종로구"):
 
     # Hyper parameter
     epoch_size = 500
-    batch_size = 64
-    learning_rate = 1e-3
+    batch_size = 128
+    learning_rate = 1e-4
 
     # Blocked Cross Validation
     # neglect small overlap between train_dates and valid_dates
+    # 11y = ((2y, 0.5y), (2y, 0.5y), (2y, 0.5y), (2.5y, 1y))
     train_dates = [
         (dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
         (dt.datetime(2010, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 6, 30, 23).astimezone(SEOULTZ)),
@@ -440,8 +441,8 @@ class BaseMLPModel(LightningModule):
 
         self.dropout = nn.Dropout(p=0.2)
 
-        #self.loss = nn.MSELoss()
-        self.loss = nn.L1Loss()
+        self.loss = nn.MSELoss()
+        # self.loss = nn.L1Loss()
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
