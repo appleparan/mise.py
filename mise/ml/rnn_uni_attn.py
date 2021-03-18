@@ -103,7 +103,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
 
     # Hyper parameter
     epoch_size = 500
-    batch_size = 128
+    batch_size = 64
     learning_rate = 1e-4
 
     # Blocked Cross Validation
@@ -585,7 +585,7 @@ class BaseAttentionModel(LightningModule):
 
         if self.trial:
             self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 8, 1024)
+                "hidden_size", 8, 512)
 
         self.loss = nn.MSELoss()
         # self.loss = nn.L1Loss()
