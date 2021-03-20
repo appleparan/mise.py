@@ -7,7 +7,7 @@ from stats.OU import stats_ou
 from stats.stl import stats_stl
 from stats.stl_acf import stats_stl_acf
 from stats.msea_acf import stats_msea_acf
-from stats.preprocess import stats_preprocess
+from stats.preprocess import stats_preprocess, stats_parse
 from stats.analysis import stats_analysis
 
 #from ml.dnn import ml_dnn
