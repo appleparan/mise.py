@@ -97,13 +97,13 @@ def ml_mlp_uni_ms(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 200
+    n_trials = 128
     # fast_dev_run = True
     # n_trials = 2
 
     # Hyper parameter
     epoch_size = 500
-    batch_size = 64
+    batch_size = 128
     learning_rate = 1e-4
 
     # Blocked Cross Validation
@@ -195,8 +195,8 @@ def ml_mlp_uni_ms(station_name="종로구"):
 
         # num_layer == number of hidden layer
         hparams = Namespace(
-            num_layers=1,
-            layer_size=128,
+            num_layers=2,
+            layer_size=64,
             learning_rate=learning_rate,
             batch_size=batch_size)
 
@@ -415,7 +415,7 @@ class BaseMLPModel(LightningModule):
             self.hparams.num_layers = self.trial.suggest_int(
                 "num_layers", 2, 32)
             self.hparams.layer_size = self.trial.suggest_int(
-                "layer_size", 24, 96)
+                "layer_size", 8, 48)
 
         for l in range(self.hparams.num_layers):
             # insert another layer_size to end of list of layer_size
@@ -455,15 +455,17 @@ class BaseMLPModel(LightningModule):
         x = x.view(-1, self.input_size).to(device)
 
         for (i, layer) in enumerate(self.linears):
-            if i != len(self.linears):
-                x = self.dropout(F.leaky_relu(layer(x)))
+            if i != len(self.linears) - 1:
+                x = F.leaky_relu(layer(x))
             else:
                 x = layer(x)
 
         return x
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr | self.hparams.learning_rate)
+        return torch.optim.Adam(self.parameters(),
+            lr=self.hparams.lr | self.hparams.learning_rate,
+            weight_decay=0.01)
 
     def training_step(self, batch, batch_idx):
         x, _y, _y_raw, dates = batch
