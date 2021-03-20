@@ -27,44 +27,43 @@ from bokeh.plotting import figure, output_file, show
 from bokeh.io import export_png, export_svgs
 
 import data
-from constants import SEOUL_STATIONS
+from constants import SEOUL_STATIONS, SEOULTZ
 
-seoultz = timezone('Asia/Seoul')
 HOURLY_DATA_PATH = "/input/python/input_seoul_imputed_hourly_pandas.csv"
 DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 
 def stats_arima(station_name = "종로구"):
-    print("Data loading start...")
-    if Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
-        df_h = data.load_imputed(
-            "/input/python/input_jongro_imputed_hourly_pandas.csv")
-    else:
+    print("Data loading start...", flush=True)
+    _df_h = data.load_imputed(HOURLY_DATA_PATH)
+    df_h = _df_h.query('stationCode == "' +
+                        str(SEOUL_STATIONS[station_name]) + '"')
+
+    if station_name == '종로구' and \
+        not Path("/input/python/input_jongno_imputed_hourly_pandas.csv").is_file():
         # load imputed result
-        _df_h = data.load_imputed(HOURLY_DATA_PATH)
-        df_h = _df_h.query('stationCode == "' +
-                           str(SEOUL_STATIONS[station_name]) + '"')
 
-        df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
+        df_h.to_csv("/input/python/input_jongno_imputed_hourly_pandas.csv")
 
-    print("Data loading complete")
+    print("Data loading complete", flush=True)
     targets = ["PM10", "PM25"]
 
     # p (1, 0, 0) ~ (3, 0, 0), (4, 0, 0) ~ (6, 0, 0), (7, 0, 0) ~ (9, 0, 0),
     # p (1, 0, 1) ~ (3, 0, 1), (4, 0, 1) ~ (6, 0, 1), (7, 0, 1) ~ (9, 0, 1),
     # p (1, 0, 2) ~ (3, 0, 2), (4, 0, 2) ~ (6, 0, 2), (7, 0, 2) ~ (9, 0, 2),
-    orders1 = [(_p, 0, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
-    orders2 = [(_p, 1, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
-    orders = orders1 + orders2
+    # orders1 = [(_p, 0, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
+    # orders2 = [(_p, 1, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
+    # orders = orders1 + orders2
     # orders = [(_p, 0, _q) for _q, _p in itertools.product([0], range(1, 4)) if not (_p == 0 and _q == 0)]
-    # orders = [(_p, 0, _q) for _q, _p in itertools.product([0], range(4, 7)) if not (_p == 0 and _q == 0)]
-    # orders = [(_p, 0, _q) for _q, _p in itertools.product([0], range(7, 9)) if not (_p == 0 and _q == 0)]
+    # orders = [(_p, 0, _q) for _q, _p in itertools.product([2], range(4, 7)) if not (_p == 0 and _q == 0)]
+    # orders = [(_p, 0, _q) for _q, _p in itertools.product(range(0, 48, 6), range(0, 48, 6)) if not (_p == 0 and _q == 0)]
+    orders = [(_p, 0, _q) for _q, _p in itertools.product([6], [11, 12]) if not (_p == 0 and _q == 0)]
 
     sample_size = 48
     output_size = 24
-    train_fdate = dt.datetime(2008, 1, 3, 0).astimezone(seoultz)
-    train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(seoultz)
-    test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(seoultz)
-    test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(seoultz)
+    train_fdate = dt.datetime(2008, 1, 3, 0).astimezone(SEOULTZ)
+    train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
+    test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
     # consective dates between train and test
     assert train_tdate + dt.timedelta(hours=1) == test_fdate
 
