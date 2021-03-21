@@ -97,7 +97,7 @@ def ml_mlp_uni_ms(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 128
+    n_trials = 64
     # fast_dev_run = True
     # n_trials = 2
 
@@ -413,7 +413,7 @@ class BaseMLPModel(LightningModule):
         if self.trial:
             # if trial, there is no element of layer name such as "layer0_size"
             self.hparams.num_layers = self.trial.suggest_int(
-                "num_layers", 2, 32)
+                "num_layers", 2, 8)
             self.hparams.layer_size = self.trial.suggest_int(
                 "layer_size", 8, 48)
 

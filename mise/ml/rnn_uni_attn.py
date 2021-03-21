@@ -97,7 +97,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 128
+    n_trials = 24
     # fast_dev_run = True
     # n_trials = 0
 
@@ -585,7 +585,7 @@ class BaseAttentionModel(LightningModule):
 
         if self.trial:
             self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 8, 64)
+                "hidden_size", 4, 96)
 
         self.loss = nn.MSELoss()
         # self.loss = nn.L1Loss()
@@ -642,7 +642,7 @@ class BaseAttentionModel(LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(),
-            lr=self.hparams.lr | self.hparams.learning_rate,
+            lr=self.hparams.learning_rate,
             weight_decay=0.01)
 
     def training_step(self, batch, batch_idx):

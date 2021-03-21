@@ -784,14 +784,12 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
             y.index.to_numpy()
 
-    def preprocess(self, data_dir, png_dir, svg_dir):
+    def preprocess(self):
         """Compute seasonality and transform by seasonality
         """
         # compute seasonality
         self._scaler_X.fit(self._xs)
         self._scaler_Y.fit(self._ys, y=self._ys)
-        # plot
-        self.plot_seasonality(data_dir, png_dir, svg_dir)
 
         self.transform()
 
