@@ -23,6 +23,7 @@ from ml.rnn_mul_lstnet_skip import ml_rnn_mul_lstnet_skip
 from ml.rnn_mul_tpa_attn import ml_rnn_mul_tpa_attn
 from ml.rnn_mul_tpa_attn_general import ml_rnn_mul_tpa_attn_general
 from ml.mlp_mul_transformer import ml_mlp_mul_transformer
+from ml.xgboost import ml_xgboost
 
 """
     plot(args)
