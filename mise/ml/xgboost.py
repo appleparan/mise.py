@@ -133,8 +133,8 @@ def ml_xgboost(station_name="종로구"):
                     test_fdate, test_tdate)
 
         # prediction
-        df_sim = sim_xgboost(X_train, Y_train, X_test, Y_test, test_dates,
-                features, target, sample_size, output_size, test_set.scaler_Y,
+        df_sim = sim_xgboost(X_train.copy(), Y_train, X_test.copy(), Y_test, test_dates,
+                copy.deepcopy(features), target, sample_size, output_size, test_set.scaler_Y,
                 test_fdate, test_tdate, data_dir, png_dir, svg_dir)
 
         assert df_obs.shape == df_sim.shape
@@ -220,13 +220,18 @@ def sim_xgboost(X_train, Y_train, X_test, Y_test, dates,
     # output shape and dtype is same as Y_test (observation)
     values = np.zeros(Y_test.shape, dtype=Y_test.dtypes[0])
 
+    # drop target column from X
+    X_train.drop(labels=[target], axis='columns', inplace=True)
+    X_test.drop(labels=[target], axis='columns', inplace=True)
+    features.remove(target)
+
     # create model and fit to X_train and Y_train
     models = []
-    models.append(xgboost.XGBRegressor(objective='reg:squarederror',
-        n_estimators=1000))
-    print("Models are created!", flush=True)
-    # multioutputregressor = MultiOutputRegressor(model.fit(X_train, Y_train.loc[:, lag], verbose=True))
+
     for l in tqdm.tqdm(range(output_size)):
+        models.append(xgboost.XGBRegressor(objective='reg:squarederror',
+            n_estimators=1000, nthread=14))
+
         models[l].fit(X_train, Y_train.loc[:, l], verbose=True)
 
         # feature importance by XGBOost Feature importance
@@ -246,12 +251,15 @@ def sim_xgboost(X_train, Y_train, X_test, Y_test, dates,
         shap_values = explainer(X_test)
 
         plt.figure()
-        shap.summary_plot(shap_values, X_test, feature_name)
-        output_to_plot = 'shap_values_' + str(l + 1).zfill(2) +"h"
-        data_path = data_dir / (output_to_plot + '.csv')
+        shap.summary_plot(shap_values, X_test, show=False)
+        # output_to_plot = 'shap_values_' + str(l + 1).zfill(2) +"h"
+        output_to_plot_explainer = 'shap_explainer_' + str(l + 1).zfill(2) +"h"
+        # data_path1 = data_dir / (output_to_plot + '.csv')
+        # data_path2 = data_dir / (output_to_plot_explainer + '.csv')
         png_path = png_dir / (output_to_plot + '.png')
         svg_path = svg_dir / (output_to_plot + '.svg')
-        pd.DataFrame(data=[shap_values], columns=features).to_csv(data_path)
+        # explainer.save(data_path2)
+
         plt.savefig(png_path, dpi=600)
         plt.savefig(svg_path)
         plt.close()
