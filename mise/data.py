@@ -877,6 +877,23 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
     def scaler_Y(self):
         return self._scaler_Y
 
+    @property
+    def ys(self):
+        return self._ys
+
+    @property
+    def ys_raw(self):
+        return self._ys_raw
+
+    @property
+    def xs(self):
+        return self._xs
+
+    @property
+    def xs_raw(self):
+        return self._xs_raw
+
+
 class MultivariateRNNDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1030,6 +1047,7 @@ class MultivariateRNNDataset(BaseDataset):
     @property
     def ys(self):
         return self._ys
+
 
 class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
@@ -1294,8 +1312,12 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         return self._ys_raw
 
     @property
-    def ys(self):
-        return self._ys
+    def xs(self):
+        return self._xs
+
+    @property
+    def xs_raw(self):
+        return self._xs_raw
 
 
 class MultivariateGeneralDataset(Dataset):
