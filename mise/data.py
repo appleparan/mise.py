@@ -1,3 +1,4 @@
+import copy
 import datetime as dt
 from functools import reduce
 import hashlib
@@ -718,6 +719,10 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         self.features_2 = kwargs.get('features_2',
                                    ["SO2", "CO", "O3", "NO2", "PM10", "PM25"])
 
+        # complement of features
+        self.features_c = copy.deepcopy(self.features)
+        self.features_c.remove(self.target)
+
         self._df_raw = self._df.copy()
         # 2D, in Univariate -> (row x 1)
         self._xs = self._df[self.features]
@@ -773,13 +778,18 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
             Tensor: transformed input (might be normalized)
             Tensor: output without transform
         """
+        # https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#combining-positional-and-label-based-indexing
+        # get_loc -> series, get_indexer -> 1D DataFrame
+        # x = self._xs.iloc[i:i+self.sample_size, self._xs.columns.get_indexer(self.features_c)]
         x = self._xs.iloc[i:i+self.sample_size, :]
+        x1d = self._xs.iloc[i:i+self.sample_size, self._xs.columns.get_indexer([self.target])]
         y = self._ys.iloc[(i+self.sample_size)
                            :(i+self.sample_size+self.output_size), :]
         y_raw = self._ys_raw.iloc[(i+self.sample_size)
                            :(i+self.sample_size+self.output_size), :]
 
         return np.squeeze(x.to_numpy()).astype('float32'), \
+            np.squeeze(x1d.to_numpy()).astype('float32'), \
             np.squeeze(y.to_numpy()).astype('float32'), \
             np.squeeze(y_raw.to_numpy()).astype('float32'), \
             y.index.to_numpy()
@@ -892,7 +902,6 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
     @property
     def xs_raw(self):
         return self._xs_raw
-
 
 class MultivariateRNNDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
@@ -1047,7 +1056,6 @@ class MultivariateRNNDataset(BaseDataset):
     @property
     def ys(self):
         return self._ys
-
 
 class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
     def __init__(self, *args, **kwargs):

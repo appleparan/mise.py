@@ -70,9 +70,9 @@ def construct_dataset(fdate, tdate,
     features=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                       "temp", "wind_spd", "wind_cdir", "wind_sdir",
                       "pres", "humid", "prep", "snow"],
-    features_nonperiodic=["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
+    features_periodic=["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
                                 "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"],
-    features_periodic=["prep", "snow"],
+    features_nonperiodic=["prep", "snow"],
     transform=True):
     if scaler_X == None or scaler_Y == None:
         data_set = data.MultivariateMeanSeasonalityDataset(
@@ -117,9 +117,9 @@ def ml_mlp_mul_ms(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 216
-    fast_dev_run = True
-    n_trials = 1
+    n_trials = 192
+    # fast_dev_run = True
+    # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -456,9 +456,9 @@ class BaseMLPModel(LightningModule):
         if self.trial:
             # if trial, there is no element of layer name such as "layer0_size"
             self.hparams.num_layers = self.trial.suggest_int(
-                "num_layers", 2, 16)
+                "num_layers", 2, 8)
             self.hparams.layer_size = self.trial.suggest_int(
-                "layer_size", 8, 1024)
+                "layer_size", 8, 512)
 
         for l in range(self.hparams.num_layers):
             # insert another layer_size to end of list of layer_size
@@ -482,11 +482,14 @@ class BaseMLPModel(LightningModule):
         print("Linear Layers :")
         print(self.linears)
 
+        self.ar = nn.Linear(self.sample_size, self.output_size)
+
         self.act = nn.ReLU()
 
         self.dropout = nn.Dropout(p=0.2)
         #self.loss = nn.MSELoss()
         self.loss = nn.L1Loss()
+        # self.loss2 = nn.KLDivLoss(reduction='batchmean')
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
         self.logger = TensorBoardLogger(self.log_dir, name=log_name)
@@ -494,7 +497,7 @@ class BaseMLPModel(LightningModule):
         self.train_logs = {}
         self.valid_logs = {}
 
-    def forward(self, x):
+    def forward(self, x, x1d):
         # vectorize
         x = x.view(-1, self.input_size).to(device)
 
@@ -504,18 +507,18 @@ class BaseMLPModel(LightningModule):
             else:
                 x = layer(x)
 
-        x = x
+        y = x + self.ar(x1d)
 
         return x
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(),
                 lr=self.hparams.lr | self.hparams.learning_rate,
-                weight_decay=0.01)
+                weight_decay=0.1)
 
     def training_step(self, batch, batch_idx):
-        x, _y, _y_raw, dates = batch
-        _y_hat = self(x)
+        x, x1d, _y, _y_raw, dates = batch
+        _y_hat = self(x, x1d)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
@@ -555,8 +558,8 @@ class BaseMLPModel(LightningModule):
         return torch.optim.Adam(self.parameters())
 
     def validation_step(self, batch, batch_idx):
-        x, _y, _y_raw, dates = batch
-        _y_hat = self(x)
+        x, x1d, _y, _y_raw, dates = batch
+        _y_hat = self(x, x1d)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
@@ -593,9 +596,9 @@ class BaseMLPModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, _y, _y_raw, dates = batch
+        x, x1d, _y, _y_raw, dates = batch
 
-        _y_hat = self(x)
+        _y_hat = self(x, x1d)
 
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
@@ -751,10 +754,11 @@ class BaseMLPModel(LightningModule):
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, ys, ys_raw, dates = zip(*batch)
+        xs, x1ds, ys, ys_raw, dates = zip(*batch)
 
         #return torch.as_tensor(xs.reshape(1, -1)), \
         return torch.as_tensor(xs), \
+            torch.as_tensor(x1ds), \
             torch.as_tensor(ys), \
             torch.as_tensor(ys_raw), \
             dates
