@@ -33,6 +33,10 @@ import matplotlib.patches as mpatches
 import matplotlib.gridspec as gridspec
 import matplotlib.colors as mcolors
 
+from bokeh.models import Range1d, DatetimeTickFormatter
+from bokeh.plotting import figure, output_file, show
+from bokeh.io import export_png, export_svgs
+
 import data
 from constants import SEOUL_STATIONS, SEOULTZ
 import utils
@@ -223,9 +227,9 @@ def sim_xgboost(X_train, Y_train, X_test, Y_test, dates,
     values = np.zeros((len(dates), Y_test.shape[1]), dtype=Y_test.dtypes[0])
 
     # drop target column from X
-    # X_train.drop(labels=[target], axis='columns', inplace=True)
-    # X_test.drop(labels=[target], axis='columns', inplace=True)
-    # features.remove(target)
+    X_train.drop(labels=[target], axis='columns', inplace=True)
+    X_test.drop(labels=[target], axis='columns', inplace=True)
+    features.remove(target)
 
     # create model and fit to X_train and Y_train
     models = []
