@@ -4,6 +4,7 @@ import datetime as dt
 from math import sqrt
 import os
 from pathlib import Path
+import pickle
 import random
 import shutil
 
@@ -64,7 +65,7 @@ def ml_xgboost(station_name="종로구"):
     # use one step input
     sample_size = 1
     output_size = 24
-    train_fdate = dt.datetime(2015, 1, 3, 0).astimezone(SEOULTZ)
+    train_fdate = dt.datetime(2008, 1, 3, 0).astimezone(SEOULTZ)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
@@ -131,11 +132,12 @@ def ml_xgboost(station_name="종로구"):
         print("XGBoost " + target + "...", flush=True)
         df_obs = mw_df(df_test_org, target, output_size, input_lag,
                     test_fdate, test_tdate)
+        dates = df_obs.index
 
         # prediction
-        df_sim = sim_xgboost(X_train.copy(), Y_train, X_test.copy(), Y_test, test_dates,
+        df_sim = sim_xgboost(X_train.copy(), Y_train, X_test.copy(), Y_test, dates,
                 copy.deepcopy(features), target, sample_size, output_size, test_set.scaler_Y,
-                test_fdate, test_tdate, data_dir, png_dir, svg_dir)
+                data_dir, png_dir, svg_dir)
 
         assert df_obs.shape == df_sim.shape
 
@@ -150,7 +152,7 @@ def ml_xgboost(station_name="종로구"):
         df_sim.to_csv(data_dir / csv_fname)
 
 def dataset2svinput(dataset, lag=0):
-    """Iterate dataset then separate it to X and Y 
+    """Iterate dataset then separate it to X and Y
 
     X: single-step input
     Y: lagged multi-step output
@@ -159,13 +161,13 @@ def dataset2svinput(dataset, lag=0):
     """
     # single step
     _Xset = [dataset[i][0] for i in range(len(dataset)) if i + lag < len(dataset)]
-    # lagged multi step 
-    _Yset = [dataset[i + lag][1] for i in range(len(dataset)) if i + lag < len(dataset)]
+    # lagged multi step
+    _Yset = [dataset[i + lag][2] for i in range(len(dataset)) if i + lag < len(dataset)]
     # index of single step -> 1 step
     x_dates = [dataset.xs.index[i] for i in range(len(dataset)) if i + lag < len(dataset)]
     # starting index of multi step -> 1 step
     # dataset[i + lag][3] : total dates of prediction result of single step
-    y_dates = [dataset[i + lag][3][0] for i in range(len(dataset)) if i + lag < len(dataset)]
+    y_dates = [dataset[i + lag][4][0] for i in range(len(dataset)) if i + lag < len(dataset)]
 
     ycols = range(len(_Yset[0]))
     # 1D inputs -> total time steps x features DataFrame
@@ -212,18 +214,18 @@ def mw_df(df_org, target, output_size, lag, fdate, tdate):
 
 def sim_xgboost(X_train, Y_train, X_test, Y_test, dates,
     features, target, sample_size, output_size, scaler,
-    test_fdate, test_tdate, data_dir, png_dir, svg_dir):
+    data_dir, png_dir, svg_dir):
     # columns are offset to datetime
     cols = [str(i) for i in range(output_size)]
     df_sim = pd.DataFrame(columns=cols)
 
     # output shape and dtype is same as Y_test (observation)
-    values = np.zeros(Y_test.shape, dtype=Y_test.dtypes[0])
+    values = np.zeros((len(dates), Y_test.shape[1]), dtype=Y_test.dtypes[0])
 
     # drop target column from X
-    X_train.drop(labels=[target], axis='columns', inplace=True)
-    X_test.drop(labels=[target], axis='columns', inplace=True)
-    features.remove(target)
+    # X_train.drop(labels=[target], axis='columns', inplace=True)
+    # X_test.drop(labels=[target], axis='columns', inplace=True)
+    # features.remove(target)
 
     # create model and fit to X_train and Y_train
     models = []
@@ -248,18 +250,21 @@ def sim_xgboost(X_train, Y_train, X_test, Y_test, dates,
 
         # feature importance by SHAP values
         explainer = shap.Explainer(models[l])
-        shap_values = explainer(X_test)
+        shap_values = explainer(X_train)
 
         plt.figure()
-        shap.summary_plot(shap_values, X_test, show=False)
-        # output_to_plot = 'shap_values_' + str(l + 1).zfill(2) +"h"
+        shap.summary_plot(shap_values, X_train, show=False)
+        output_to_plot_values = 'shap_values_' + str(l + 1).zfill(2) +"h"
         output_to_plot_explainer = 'shap_explainer_' + str(l + 1).zfill(2) +"h"
-        # data_path1 = data_dir / (output_to_plot + '.csv')
-        # data_path2 = data_dir / (output_to_plot_explainer + '.csv')
-        png_path = png_dir / (output_to_plot + '.png')
-        svg_path = svg_dir / (output_to_plot + '.svg')
-        # explainer.save(data_path2)
 
+        data_path = data_dir / (output_to_plot_values)
+        with open(data_path.absolute(), 'wb') as f:
+            pickle.dump(shap_values, f, pickle.HIGHEST_PROTOCOL)
+        # data_path = data_dir / (output_to_plot_explainer)
+        # with open(data_path.absolute(), 'wb') as f:
+        #     explainer.save(f)
+        png_path = png_dir / (output_to_plot_values + '.png')
+        svg_path = svg_dir / (output_to_plot_values + '.svg')
         plt.savefig(png_path, dpi=600)
         plt.savefig(svg_path)
         plt.close()
@@ -268,12 +273,15 @@ def sim_xgboost(X_train, Y_train, X_test, Y_test, dates,
     print("Models are fitted", flush=True)
 
     for i, (index, row) in tqdm.tqdm(enumerate(X_test.iterrows())):
+        if i >= len(dates):
+            break
+
         _dates = pd.date_range(
                 index, index + dt.timedelta(hours=(output_size - 1)), freq='1H')
         ys = np.zeros(output_size)
         for l in range(output_size):
             # out-of-sample forecast
-            ys[l] = models[l].predict([row])
+            ys[l] = models[l].predict(row.to_frame().transpose())
 
         # inverse_transform
         value = scaler.named_transformers_['num'].inverse_transform(
@@ -281,12 +289,14 @@ def sim_xgboost(X_train, Y_train, X_test, Y_test, dates,
 
         values[i, :] = value.squeeze()
 
-    df_sim = pd.DataFrame(data=values, index=Y_test.index, columns=cols)
+    df_sim = pd.DataFrame(data=values, index=dates, columns=cols)
     df_sim.index.name = 'date'
 
     return df_sim
 
-def plot_xgboost(df_sim, df_obs, target, order, data_dir, png_dir, svg_dir, _test_fdate, _test_tdate, station_name, output_size):
+
+def plot_xgboost(df_sim, df_obs, target, data_dir, png_dir, svg_dir,
+    _test_fdate, _test_tdate, station_name, output_size):
     dir_prefix = Path("/mnt/data/XGBoost/" + station_name + "/" + target + "/")
 
     times = list(range(0, output_size+1))
