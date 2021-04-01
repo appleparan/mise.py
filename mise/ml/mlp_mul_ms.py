@@ -30,6 +30,8 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import sklearn.metrics
 
+import madgrad
+
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
 import optuna.visualization as optv
@@ -74,6 +76,8 @@ def construct_dataset(fdate, tdate,
                                 "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"],
     features_nonperiodic=["prep", "snow"],
     transform=True):
+    """Crate dataset and transform
+    """
     if scaler_X == None or scaler_Y == None:
         data_set = data.MultivariateMeanSeasonalityDataset(
             station_name=station_name,
@@ -169,7 +173,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
 
     for target in targets:
         print("Training " + target + "...")
-        output_dir = Path(f"/mnt/data/MLPMSUnivariate/{station_name}/{target}/")
+        output_dir = Path(f"/mnt/data/MLPMSMultivariate/{station_name}/{target}/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
@@ -487,8 +491,8 @@ class BaseMLPModel(LightningModule):
         self.act = nn.ReLU()
 
         self.dropout = nn.Dropout(p=0.2)
-        #self.loss = nn.MSELoss()
-        self.loss = nn.L1Loss()
+        self.loss = nn.MSELoss()
+        # self.loss = nn.L1Loss()
         # self.loss2 = nn.KLDivLoss(reduction='batchmean')
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
@@ -515,6 +519,9 @@ class BaseMLPModel(LightningModule):
         return torch.optim.Adam(self.parameters(),
                 lr=self.hparams.lr | self.hparams.learning_rate,
                 weight_decay=0.1)
+        # return madgrad.MADGRAD(self.parameters(), 
+        #         lr=self.hparams.lr | self.hparams.learning_rate,
+        #         weight_decay=0.1)
 
     def training_step(self, batch, batch_idx):
         x, x1d, _y, _y_raw, dates = batch
