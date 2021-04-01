@@ -541,8 +541,12 @@ class UnivariateRNNMeanSeasonalityDataset(BaseDataset):
         return self._ys_raw
 
     @property
-    def ys(self):
-        return self._ys
+    def xs(self):
+        return self._xs
+
+    @property
+    def xs_raw(self):
+        return self._xs_raw
 
 class MultivariateDataset(BaseDataset):
     def __init__(self, *args, **kwargs):
@@ -1171,7 +1175,7 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
             np.squeeze(y_sh.to_numpy()).astype('float32'), \
             self._dates[(i+self.sample_size):(i+self.sample_size+self.output_size)]
 
-    def preprocess(self, data_dir, png_dir, svg_dir):
+    def preprocess(self):
         """Compute seasonality and transform by seasonality
         """
         # plot correlation matrix
@@ -1179,9 +1183,6 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         # compute seasonality
         self._scaler_X.fit(self._xs)
         self._scaler_Y.fit(self._ys)
-
-        # plot
-        #self.plot_seasonality(data_dir, png_dir, svg_dir)
 
         self.transform()
 

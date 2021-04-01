@@ -5,6 +5,7 @@ from math import sqrt
 import os
 from pathlib import Path
 import shutil
+import statistics
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,10 +18,8 @@ from sklearn import preprocessing
 
 import torch
 import torch.nn as nn
-from torch.nn.utils.rnn import pack_padded_sequence
 import torch.nn.functional as F
-from torch.utils.data import random_split, DataLoader
-from torch.utils.data import RandomSampler, SequentialSampler, BatchSampler
+from torch.utils.data import random_split, DataLoader, ConcatDataset
 from torch.utils.tensorboard import SummaryWriter
 
 import pytorch_lightning as pl
@@ -30,6 +29,8 @@ from pytorch_lightning.callbacks import Callback, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import sklearn.metrics
+
+import madgrad
 
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
@@ -59,6 +60,52 @@ class MetricsCallback(Callback):
     def on_validation_end(self, trainer, pl_module):
         self.metrics.append(trainer.callback_metrics)
 
+def construct_dataset(fdate, tdate,
+    scaler_X=None, scaler_Y=None,
+    filepath=HOURLY_DATA_PATH, station_name='종로구', target='PM10',
+    sample_size=48, output_size=24,
+    features=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                      "temp", "wind_spd", "wind_cdir", "wind_sdir",
+                      "pres", "humid", "prep", "snow"],
+    features_periodic=["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
+                                "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"],
+    features_nonperiodic=["prep", "snow"],
+    transform=True):
+    """Crate dataset and transform
+    """
+    if scaler_X == None or scaler_Y == None:
+        data_set = data.MultivariateRNNMeanSeasonalityDataset(
+            station_name=station_name,
+            target=target,
+            filepath=filepath,
+            features=features,
+            features_1=features_nonperiodic,
+            features_2=features_periodic,
+            fdate=fdate,
+            tdate=tdate,
+            sample_size=sample_size,
+            output_size=output_size)
+    else:
+        data_set = data.MultivariateRNNMeanSeasonalityDataset(
+            station_name=station_name,
+            target=target,
+            filepath=filepath,
+            features=features,
+            features_1=features_nonperiodic,
+            features_2=features_periodic,
+            fdate=fdate,
+            tdate=tdate,
+            sample_size=sample_size,
+            output_size=output_size,
+            scaler_X=scaler_X,
+            scaler_Y=scaler_Y)
+
+    if transform:
+        data_set.transform()
+        # you can braodcast seasonality only if scaler was fit
+        data_set.broadcast_seasonality()
+
+    return data_set
 
 def ml_rnn_mul_lstnet_skip(station_name="종로구"):
     print("Start Multivariate LSTNet (Skip Layer) Model")
@@ -68,64 +115,131 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 216
-    # fast_dev_run = True
-    # n_trials = 1
+    n_trials = 192
+    fast_dev_run = True
+    n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
     batch_size = 256
     learning_rate = 1e-3
 
-    train_fdate = dt.datetime(2008, 1, 5, 0).astimezone(SEOULTZ)
-    train_tdate = dt.datetime(2016, 12, 31, 23).astimezone(SEOULTZ)
-    valid_fdate = dt.datetime(2017, 1, 1, 0).astimezone(SEOULTZ)
-    valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    # Blocked Cross Validation
+    # neglect small overlap between train_dates and valid_dates
+    # 11y = ((2y, 0.5y), (2y, 0.5y), (2y, 0.5y), (2.5y, 1y))
+    train_dates = [
+        (dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2010, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 6, 30, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
+    valid_dates = [
+        (dt.datetime(2010, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2010, 6, 30, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2012, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
+
+    train_valid_fdate = dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ)
+    train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+
+    # Debug
+    # train_dates = [
+    #     (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
+    #     (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
+    # valid_dates = [
+    #     (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
+    #     (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
+    # train_valid_fdate = dt.datetime(2013, 1, 1, 1).astimezone(SEOULTZ)
+    # train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
-    #test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
-    test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
+    test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
 
     # check date range assumption
-    assert test_tdate > train_fdate
-    assert test_fdate > train_tdate
+    assert len(train_dates) == len(valid_dates)
+    for i, (td, vd) in enumerate(zip(train_dates, valid_dates)):
+        assert vd[0] > td[1]
+    assert test_fdate > train_dates[-1][1]
+    assert test_fdate > valid_dates[-1][1]
 
     train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
-                      "temp", "u", "v", "pres", "humid", "prep", "snow"]
+                      "temp", "wind_spd", "wind_cdir", "wind_sdir",
+                      "pres", "humid", "prep", "snow"]
+    train_features_periodic = ["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
+                                "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"]
+    train_features_nonperiodic = ["prep", "snow"]
 
     for target in targets:
         print("Training " + target + "...")
-        target_sea_h_path = Path(
-            "/input/python/input_jongro_imputed_hourly_pandas.csv")
-
-        df_sea_h = pd.read_csv(target_sea_h_path,
-                               index_col=[0],
-                               parse_dates=[0])
-
-        output_dir = Path("/mnt/data/RNNLSTNetSkipMultivariate_" + str(sample_size) + "/" +
-                          station_name + "/" + target + "/")
+        output_dir = Path(f"/mnt/data/RNNLSTNetSkipMultivariate/{station_name}/{target}/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
 
-        if not Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
-            # load imputed result
-            _df_h = data.load_imputed(HOURLY_DATA_PATH)
-            df_h = _df_h.query('stationCode == "' +
-                               str(SEOUL_STATIONS[station_name]) + '"')
-            df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
+        _df_h = data.load_imputed(HOURLY_DATA_PATH)
+        df_h = _df_h.query('stationCode == "' +
+                            str(SEOUL_STATIONS[station_name]) + '"')
 
-        early_stop_callback = EarlyStopping(
-            monitor='val_loss',
-            min_delta=0.001,
-            patience=30,
-            verbose=True,
-            mode='auto')
+        if station_name == '종로구' and \
+            not Path("/input/python/input_jongno_imputed_hourly_pandas.csv").is_file():
+            # load imputed result
+
+            df_h.to_csv("/input/python/input_jongno_imputed_hourly_pandas.csv")
+
+
+        # construct dataset for seasonality
+        train_valid_dataset = construct_dataset(train_valid_fdate, train_valid_tdate,
+            filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+            sample_size=sample_size, output_size=output_size, features=train_features,
+            features_periodic=train_features_periodic, features_nonperiodic=train_features_nonperiodic,
+            transform=False)
+        # scaler in trainn_valid_set is not fitted, so fit!
+        train_valid_dataset.preprocess()
+        # then it can broadcast its seasonalities!
+        train_valid_dataset.broadcast_seasonality()
+
+        # For Block Cross Validation..
+        # load dataset in given range dates and transform using scaler from train_valid_set
+        # all dataset are saved in tuple
+        train_datasets = tuple(construct_dataset(td[0], td[1],
+                                                scaler_X=train_valid_dataset.scaler_X,
+                                                scaler_Y=train_valid_dataset.scaler_Y,
+                                                filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+                                                sample_size=sample_size, output_size=output_size,
+                                                features=train_features,
+                                                features_periodic=train_features_periodic,
+                                                features_nonperiodic=train_features_nonperiodic,
+                                                transform=True) for td in train_dates)
+
+        valid_datasets = tuple(construct_dataset(vd[0], vd[1],
+                                                scaler_X=train_valid_dataset.scaler_X,
+                                                scaler_Y=train_valid_dataset.scaler_Y,
+                                                filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+                                                sample_size=sample_size, output_size=output_size,
+                                                features=train_features,
+                                                features_periodic=train_features_periodic,
+                                                features_nonperiodic=train_features_nonperiodic,
+                                                transform=True) for vd in valid_dates)
+
+        # just single test set
+        test_dataset = construct_dataset(test_fdate, test_tdate,
+                                        scaler_X=train_valid_dataset.scaler_X,
+                                        scaler_Y=train_valid_dataset.scaler_Y,
+                                        filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+                                        sample_size=sample_size, output_size=output_size,
+                                        features=train_features,
+                                        features_periodic=train_features_periodic,
+                                        features_nonperiodic=train_features_nonperiodic,
+                                        transform=True)
+
+        # convert tuple of datasets to ConcatDataset
+        train_dataset = ConcatDataset(train_datasets)
+        val_dataset = ConcatDataset(valid_datasets)
 
         hparams = Namespace(
             filter_size=3,
             hidCNN=16,
             hidSkip=16,
-            hidden_size=16,
+            hidRNN=16,
             learning_rate=learning_rate,
             batch_size=batch_size)
         # The default logger in PyTorch Lightning writes to event files to be consumed by
@@ -147,9 +261,13 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
                                     output_size=output_size,
                                     target=target,
                                     features=train_features,
-                                    train_fdate=train_fdate, train_tdate=train_tdate,
-                                    valid_fdate=valid_fdate, valid_tdate=valid_tdate,
-                                    test_fdate=test_fdate, test_tdate=test_tdate,
+                                    features_periodic=train_features_periodic,
+                                    features_nonperiodic=train_features_nonperiodic,
+                                    train_dataset=train_dataset,
+                                    val_dataset=val_dataset,
+                                    test_dataset=test_dataset,
+                                    scaler_X=train_valid_dataset.scaler_X,
+                                    scaler_Y=train_valid_dataset.scaler_Y,
                                     output_dir=output_dir)
 
             # most basic trainer, uses good defaults
@@ -195,25 +313,25 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
                 str(output_dir / "contour_filter_size_hidCNN.svg"))
 
             fig_cont2 = optv.plot_contour(
-                study, params=['hidCNN', 'hidden_size'])
+                study, params=['hidCNN', 'hidRNN'])
             fig_cont2.write_image(
-                str(output_dir / "contour_hidCNN_hidden_size.png"))
+                str(output_dir / "contour_hidCNN_hidRNN.png"))
             fig_cont2.write_image(
-                str(output_dir / "contour_hidCNN_hidden_size.svg"))
+                str(output_dir / "contour_hidCNN_hidRNN.svg"))
 
             fig_cont3 = optv.plot_contour(
-                study, params=['filter_size', 'hidden_size'])
+                study, params=['filter_size', 'hidRNN'])
             fig_cont3.write_image(
-                str(output_dir / "contour_filter_size_hidden_size.png"))
+                str(output_dir / "contour_filter_size_hidRNN.png"))
             fig_cont3.write_image(
-                str(output_dir / "contour_filter_size_hidden_size.svg"))
+                str(output_dir / "contour_filter_size_hidRNN.svg"))
 
             fig_cont3 = optv.plot_contour(
-                study, params=['hidSkip', 'hidden_size'])
+                study, params=['hidSkip', 'hidRNN'])
             fig_cont3.write_image(
-                str(output_dir / "contour_hidSkip_hidden_size.png"))
+                str(output_dir / "contour_hidSkip_hidRNN.png"))
             fig_cont3.write_image(
-                str(output_dir / "contour_hidSkip_hidden_size.svg"))
+                str(output_dir / "contour_hidSkip_hidRNN.svg"))
 
             fig_edf = optv.plot_edf(study)
             fig_edf.write_image(str(output_dir / "edf.png"))
@@ -228,12 +346,12 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             fig_his.write_image(str(output_dir / "opt_history.svg"))
 
             fig_pcoord = optv.plot_parallel_coordinate(
-                study, params=['filter_size', 'hidCNN', 'hidSkip', 'hidden_size'])
+                study, params=['filter_size', 'hidCNN', 'hidSkip', 'hidRNN'])
             fig_pcoord.write_image(str(output_dir / "parallel_coord.png"))
             fig_pcoord.write_image(str(output_dir / "parallel_coord.svg"))
 
             fig_slice = optv.plot_slice(
-                study, params=['filter_size', 'hidCNN', 'hidSkip',  'hidden_size'])
+                study, params=['filter_size', 'hidCNN', 'hidSkip',  'hidRNN'])
             fig_slice.write_image(str(output_dir / "slice.png"))
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
@@ -241,28 +359,49 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             hparams.filter_size = trial.params['filter_size']
             hparams.hidCNN = trial.params['hidCNN']
             hparams.hidSkip = trial.params['hidSkip']
-            hparams.hidden_size = trial.params['hidden_size']
+            hparams.hidRNN = trial.params['hidRNN']
 
             dict_hparams = copy.copy(vars(hparams))
             dict_hparams["sample_size"] = sample_size
             dict_hparams["output_size"] = output_size
             with open(output_dir / 'hparams.json', 'w') as f:
                 print(dict_hparams, file=f)
+            with open(output_dir / 'hparams.csv', 'w') as f:
+                print(pd.DataFrame.from_dict(dict_hparams, orient='index'), file=f)
 
         model = BaseLSTNetModel(hparams=hparams,
                                 sample_size=sample_size,
                                 output_size=output_size,
                                 target=target,
                                 features=train_features,
-                                train_fdate=train_fdate, train_tdate=train_tdate,
-                                valid_fdate=valid_fdate, valid_tdate=valid_tdate,
-                                test_fdate=test_fdate, test_tdate=test_tdate,
+                                features_periodic=train_features_periodic,
+                                features_nonperiodic=train_features_nonperiodic,
+                                train_dataset=train_dataset,
+                                val_dataset=val_dataset,
+                                test_dataset=test_dataset,
+                                scaler_X=train_valid_dataset.scaler_X,
+                                scaler_Y=train_valid_dataset.scaler_Y,
                                 output_dir=output_dir)
+
+        # record input
+        for i, _train_set in enumerate(train_datasets):
+            _train_set.to_csv(model.data_dir / ("df_trainset_{0}_".format(str(i).zfill(2)) + target + ".csv"))
+        for i, _valid_set in enumerate(valid_datasets):
+            _valid_set.to_csv(model.data_dir / ("df_validset_{0}_".format(str(i).zfill(2)) + target + ".csv"))
+        train_valid_dataset.to_csv(model.data_dir / ("df_trainvalidset_" + target + ".csv"))
+        test_dataset.to_csv(model.data_dir / ("df_testset_" + target + ".csv"))
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
             os.path.join(model_dir, "train"), monitor="val_loss",
             period=10
         )
+
+        early_stop_callback = EarlyStopping(
+            monitor='val_loss',
+            min_delta=0.00001,
+            patience=30,
+            verbose=True,
+            mode='min')
 
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
@@ -300,7 +439,7 @@ class BaseLSTNetModel(LightningModule):
         self.hparams = kwargs.get('hparams', Namespace(
             hidCNN=4,
             hidSkip=16,
-            hidden_size=16,
+            hidRNN=16,
             filter_size=5,
             learning_rate=1e-3,
             batch_size=32
@@ -309,20 +448,14 @@ class BaseLSTNetModel(LightningModule):
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
-                                                "temp", "u", "v", "pres", "humid", "prep", "snow"])
+                                        "temp", "wind_spd", "wind_cdir", "wind_sdir",
+                                        "pres", "humid", "prep", "snow"])
+        self.features_periodic = kwargs.get('features_periodic',
+                                            ["SO2", "CO", "O3", "NO2", "PM10", "PM25"])
+        self.features_nonperiodic = kwargs.get('features_nonperiodic',
+                                            ["temp", "wind_spd", "wind_cdir", "wind_sdir",
+                                            "pres", "humid", "prep", "snow"])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
-        self.train_fdate = kwargs.get('train_fdate', dt.datetime(
-            2012, 1, 1, 0).astimezone(SEOULTZ))
-        self.train_tdate = kwargs.get('train_tdate', dt.datetime(
-            2016, 12, 31, 23).astimezone(SEOULTZ))
-        self.valid_fdate = kwargs.get('valid_fdate', dt.datetime(
-            2017, 1, 1, 0).astimezone(SEOULTZ))
-        self.valid_tdate = kwargs.get('valid_tdate', dt.datetime(
-            2018, 12, 31, 23).astimezone(SEOULTZ))
-        self.test_fdate = kwargs.get('test_fdate', dt.datetime(
-            2018, 1, 1, 0).astimezone(SEOULTZ))
-        self.test_tdate = kwargs.get('test_tdate', dt.datetime(
-            2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
             'output_dir', Path('/mnt/data/RNNLSTNetSkipMultivariate/'))
@@ -338,6 +471,14 @@ class BaseLSTNetModel(LightningModule):
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
+        self.train_dataset = kwargs.get('train_dataset', None)
+        self.val_dataset = kwargs.get('val_dataset', None)
+        self.test_dataset = kwargs.get('test_dataset', None)
+
+        # Set ColumnTransformer if provided
+        self._scaler_X = kwargs.get('scaler_X', None)
+        self._scaler_Y = kwargs.get('scaler_Y', None)
+
         self.trial = kwargs.get('trial', None)
         self.sample_size = kwargs.get('sample_size', 48)
         self.output_size = kwargs.get('output_size', 24)
@@ -345,27 +486,15 @@ class BaseLSTNetModel(LightningModule):
         if self.trial:
             self.hparams.filter_size = self.trial.suggest_int(
                 "filter_size", 1, 7, step=2)
-            self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 8, 1024)
+            self.hparams.hidRNN = self.trial.suggest_int(
+                "hidRNN", 8, 512)
             self.hparams.hidCNN = self.trial.suggest_int(
-                "hidCNN", 8, 1024)
+                "hidCNN", 8, 128)
             self.hparams.hidSkip = self.trial.suggest_int(
-                "hidSkip", 8, 1024)
+                "hidSkip", 8, 512)
 
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 
-        self.loss = nn.MSELoss()
-        #self.loss = nn.L1Loss()
-
-        self._train_set = None
-        self._valid_set = None
-        self._test_set = None
-
-        log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
-        self.logger = TensorBoardLogger(self.log_dir, name=log_name)
-
-        self.train_logs = {}
-        self.valid_logs = {}
 
         padding_size = int(self.hparams.filter_size - 1)
         self.pad = nn.ZeroPad2d((0, 0, padding_size, 0))
@@ -374,7 +503,7 @@ class BaseLSTNetModel(LightningModule):
         self.dropout = nn.Dropout(p = 0.1)
 
         # normal GRU
-        self.gru_no_skip = nn.GRU(self.hparams.hidCNN, self.hparams.hidden_size, batch_first=True)
+        self.gru_no_skip = nn.GRU(self.hparams.hidCNN, self.hparams.hidRNN, batch_first=True)
 
         # skip interval
         self.p = 24
@@ -391,10 +520,20 @@ class BaseLSTNetModel(LightningModule):
 
         self.ar = nn.Linear(self.sample_size, self.output_size)
 
-        self.proj1 = nn.Linear(self.hparams.hidden_size + self.p * self.hparams.hidSkip,
+        self.proj1 = nn.Linear(self.hparams.hidRNN + self.p * self.hparams.hidSkip,
                                self.output_size)
         self.proj2 = nn.Linear(self.output_size, self.output_size)
-        self.act = nn.ReLU()
+        # self.act = nn.ReLU()
+
+        self.loss = nn.MSELoss()
+        #self.loss = nn.L1Loss()
+
+        log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
+        self.logger = TensorBoardLogger(self.log_dir, name=log_name)
+
+        self.train_logs = {}
+        self.valid_logs = {}
+
 
     def forward(self, _x, _x1d):
         """
@@ -420,10 +559,10 @@ class BaseLSTNetModel(LightningModule):
         c = c.squeeze(3)
 
         # Recurrent Layer
-        # x_rnn = (num_layers * num_directions, batch_size, hidden_size)
+        # x_rnn = (num_layers * num_directions, batch_size, hidRNN)
         _, x_rnn = self.gru_no_skip(c.permute(0, 2, 1))
 
-        # x_rnn = (batch_size, hidden_size)
+        # x_rnn = (batch_size, hidRNN)
         x_rnn = self.dropout(x_rnn.squeeze(0))
 
         # Recurrent Skip Layer
@@ -444,7 +583,7 @@ class BaseLSTNetModel(LightningModule):
         x_rnn_skip = self.dropout(
             x_rnn_skip.reshape(batch_size, self.p * self.hparams.hidSkip))
 
-        # (batch_size, hidden_size + self.p * hidSkip
+        # (batch_size, hidRNN + self.p * hidSkip
         output1 = torch.cat((x_rnn, x_rnn_skip), dim=1)
         # (batch_first, output_size)
         output2 = self.ar(_x1d)
@@ -455,10 +594,12 @@ class BaseLSTNetModel(LightningModule):
         return output
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+        return torch.optim.Adam(self.parameters(),
+                lr=self.hparams.learning_rate,
+                weight_decay=0.001)
 
     def training_step(self, batch, batch_idx):
-        x, _x1d, _y0, _y, _y_raw, dates = batch
+        x, _x1d, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d)
         _loss = self.loss(_y_hat, _y)
@@ -497,7 +638,7 @@ class BaseLSTNetModel(LightningModule):
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
-        x, _x1d, _y0, _y, _y_raw, dates = batch
+        x, _x1d, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d)
         _loss = self.loss(_y_hat, _y)
@@ -536,7 +677,7 @@ class BaseLSTNetModel(LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
-        x, _x1d, _y0, _y, _y_raw, dates = batch
+        x, _x1d, _y, _y_raw, dates = batch
 
         _y_hat = self(x, _x1d)
 
@@ -648,66 +789,12 @@ class BaseLSTNetModel(LightningModule):
     def setup(self, stage=None):
         """Data operations on every GPU
         Wrong usage of LightningModule. Need to Refactored
-
-        * TODO : Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
+        * TODO: Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
         """
-        train_set = data.MultivariateRNNDataset(
-            station_name=self.station_name,
-            target=self.target,
-            filepath="/input/python/input_jongno_imputed_hourly_pandas.csv",
-            features=self.features,
-            fdate=self.train_fdate,
-            tdate=self.train_tdate,
-            sample_size=self.sample_size,
-            output_size=self.output_size)
-
-        # save train/valid set
-        train_set.to_csv(
-            self.data_dir / ("df_train_set_" + self.target + ".csv"))
-
-        # fit & transform (standardization)
-        train_set.preprocess()
-
-        valid_set = data.MultivariateRNNDataset(
-            station_name=self.station_name,
-            target=self.target,
-            filepath="/input/python/input_jongno_imputed_hourly_pandas.csv",
-            features=self.features,
-            fdate=self.valid_fdate,
-            tdate=self.valid_tdate,
-            sample_size=self.sample_size,
-            output_size=self.output_size,
-            scaler_X=train_set.scaler_X,
-            scaler_Y=train_set.scaler_Y)
-
-        valid_set.transform()
-
-        valid_set.to_csv(
-            self.data_dir / ("df_valid_set_" + self.target + ".csv"))
-
-        test_set = data.MultivariateRNNDataset(
-            station_name=self.station_name,
-            target=self.target,
-            filepath="/input/python/input_jongno_imputed_hourly_pandas.csv",
-            features=self.features,
-            fdate=self.test_fdate,
-            tdate=self.test_tdate,
-            sample_size=self.sample_size,
-            output_size=self.output_size,
-            scaler_X=train_set.scaler_X,
-            scaler_Y=train_set.scaler_Y)
-        test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
-
-        test_set.transform()
-
-        # assign to use in dataloaders
-        self.train_dataset = train_set
-        self.val_dataset = valid_set
-        self.test_dataset = test_set
-
-        self.train_sampler = RandomSampler(self.train_dataset)
-        self.val_sampler = SequentialSampler(self.val_dataset)
-        self.test_sampler = SequentialSampler(self.test_dataset)
+        # first mkdir of seasonality
+        Path.mkdir(self.png_dir / "seasonality", parents=True, exist_ok=True)
+        Path.mkdir(self.svg_dir / "seasonality", parents=True, exist_ok=True)
+        Path.mkdir(self.data_dir / "seasonality", parents=True, exist_ok=True)
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
@@ -750,11 +837,11 @@ class BaseLSTNetModel(LightningModule):
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, xs_1d, ys0, ys, ys_raw, dates = zip(*batch)
+        xs, xs_1d, _, _, _, \
+            ys, ys_raw, _, _, _, dates = zip(*batch)
 
         return torch.as_tensor(xs), \
             torch.as_tensor(xs_1d), \
-            torch.as_tensor(ys0), \
             torch.as_tensor(ys), \
             torch.as_tensor(ys_raw), \
             dates
