@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import random
 import shutil
+import statistics
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,10 +19,8 @@ from sklearn import preprocessing
 
 import torch
 import torch.nn as nn
-from torch.nn.utils.rnn import pack_padded_sequence
 import torch.nn.functional as F
-from torch.utils.data import random_split, DataLoader
-from torch.utils.data import RandomSampler, SequentialSampler, BatchSampler
+from torch.utils.data import random_split, DataLoader, ConcatDataset
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
@@ -32,6 +31,8 @@ from pytorch_lightning.callbacks import Callback, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import sklearn.metrics
+
+import madgrad
 
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
@@ -63,6 +64,53 @@ class MetricsCallback(Callback):
     def on_validation_end(self, trainer, pl_module):
         self.metrics.append(trainer.callback_metrics)
 
+def construct_dataset(fdate, tdate,
+    scaler_X=None, scaler_Y=None,
+    filepath=HOURLY_DATA_PATH, station_name='종로구', target='PM10',
+    sample_size=48, output_size=24,
+    features=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                      "temp", "wind_spd", "wind_cdir", "wind_sdir",
+                      "pres", "humid", "prep", "snow"],
+    features_periodic=["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
+                                "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"],
+    features_nonperiodic=["prep", "snow"],
+    transform=True):
+    """Crate dataset and transform
+    """
+    if scaler_X == None or scaler_Y == None:
+        data_set = data.MultivariateRNNMeanSeasonalityDataset(
+            station_name=station_name,
+            target=target,
+            filepath=filepath,
+            features=features,
+            features_1=features_nonperiodic,
+            features_2=features_periodic,
+            fdate=fdate,
+            tdate=tdate,
+            sample_size=sample_size,
+            output_size=output_size)
+    else:
+        data_set = data.MultivariateRNNMeanSeasonalityDataset(
+            station_name=station_name,
+            target=target,
+            filepath=filepath,
+            features=features,
+            features_1=features_nonperiodic,
+            features_2=features_periodic,
+            fdate=fdate,
+            tdate=tdate,
+            sample_size=sample_size,
+            output_size=output_size,
+            scaler_X=scaler_X,
+            scaler_Y=scaler_Y)
+
+    if transform:
+        data_set.transform()
+        # you can braodcast seasonality only if scaler was fit
+        data_set.broadcast_seasonality()
+
+    return data_set
+
 def ml_mlp_mul_transformer(station_name="종로구"):
     print("Start Multivariate Transformer + Seasonality Embedding Model")
     targets = ["PM10", "PM25"]
@@ -71,59 +119,125 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 216
-    # fast_dev_run = True
-    # n_trials = 1
+    n_trials = 160
+    fast_dev_run = True
+    n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
     batch_size = 256
     learning_rate = 1e-3
 
-    train_fdate = dt.datetime(2008, 1, 5, 0).astimezone(SEOULTZ)
-    train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    # Blocked Cross Validation
+    # neglect small overlap between train_dates and valid_dates
+    # 11y = ((2y, 0.5y), (2y, 0.5y), (2y, 0.5y), (2.5y, 1y))
+    train_dates = [
+        (dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2010, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 6, 30, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
+    valid_dates = [
+        (dt.datetime(2010, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2010, 6, 30, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2012, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
+
+    train_valid_fdate = dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ)
+    train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+
+    # Debug
+    # train_dates = [
+    #     (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
+    #     (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
+    # valid_dates = [
+    #     (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
+    #     (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
+    # train_valid_fdate = dt.datetime(2013, 1, 1, 1).astimezone(SEOULTZ)
+    # train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
-    #test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
-    test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
+    test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
 
     # check date range assumption
-    assert test_tdate > train_fdate
-    assert test_fdate > train_tdate
+    assert len(train_dates) == len(valid_dates)
+    for i, (td, vd) in enumerate(zip(train_dates, valid_dates)):
+        assert vd[0] > td[1]
+    assert test_fdate > train_dates[-1][1]
+    assert test_fdate > valid_dates[-1][1]
 
     train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
-                      "temp", "u", "v", "pres", "humid", "prep", "snow"]
-    train_features_periodic = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
-                               "temp", "u", "v", "pres", "humid"]
+                      "temp", "wind_spd", "wind_cdir", "wind_sdir",
+                      "pres", "humid", "prep", "snow"]
+    train_features_periodic = ["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
+                                "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"]
     train_features_nonperiodic = ["prep", "snow"]
 
     for target in targets:
         print("Training " + target + "...")
-        target_sea_h_path = Path(
-            "/input/python/input_jongro_imputed_hourly_pandas.csv")
-
-        df_sea_h = pd.read_csv(target_sea_h_path,
-                               index_col=[0],
-                               parse_dates=[0])
-
-        output_dir = Path("/mnt/data/MLPTransformerSEMultivariate_" + str(sample_size) + "/" +
-                          station_name + "/" + target + "/")
+        output_dir = Path(f"/mnt/data/MLPTransformerSEMultivariate/{station_name}/{target}/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
 
-        if not Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
-            # load imputed result
-            _df_h = load_imputed(HOURLY_DATA_PATH)
-            df_h = _df_h.query('stationCode == "' +
-                               str(SEOUL_STATIONS[station_name]) + '"')
-            df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
+        _df_h = data.load_imputed(HOURLY_DATA_PATH)
+        df_h = _df_h.query('stationCode == "' +
+                            str(SEOUL_STATIONS[station_name]) + '"')
 
-        early_stop_callback = EarlyStopping(
-            monitor='val_loss',
-            min_delta=0.001,
-            patience=30,
-            verbose=True,
-            mode='auto')
+        if station_name == '종로구' and \
+            not Path("/input/python/input_jongno_imputed_hourly_pandas.csv").is_file():
+            # load imputed result
+
+            df_h.to_csv("/input/python/input_jongno_imputed_hourly_pandas.csv")
+
+
+        # construct dataset for seasonality
+        train_valid_dataset = construct_dataset(train_valid_fdate, train_valid_tdate,
+            filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+            sample_size=sample_size, output_size=output_size, features=train_features,
+            features_periodic=train_features_periodic, features_nonperiodic=train_features_nonperiodic,
+            transform=False)
+        # scaler in trainn_valid_set is not fitted, so fit!
+        train_valid_dataset.preprocess()
+        # then it can broadcast its seasonalities!
+        train_valid_dataset.broadcast_seasonality()
+
+        # For Block Cross Validation..
+        # load dataset in given range dates and transform using scaler from train_valid_set
+        # all dataset are saved in tuple
+        train_datasets = tuple(construct_dataset(td[0], td[1],
+                                                scaler_X=train_valid_dataset.scaler_X,
+                                                scaler_Y=train_valid_dataset.scaler_Y,
+                                                filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+                                                sample_size=sample_size, output_size=output_size,
+                                                features=train_features,
+                                                features_periodic=train_features_periodic,
+                                                features_nonperiodic=train_features_nonperiodic,
+                                                transform=True) for td in train_dates)
+
+        valid_datasets = tuple(construct_dataset(vd[0], vd[1],
+                                                scaler_X=train_valid_dataset.scaler_X,
+                                                scaler_Y=train_valid_dataset.scaler_Y,
+                                                filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+                                                sample_size=sample_size, output_size=output_size,
+                                                features=train_features,
+                                                features_periodic=train_features_periodic,
+                                                features_nonperiodic=train_features_nonperiodic,
+                                                transform=True) for vd in valid_dates)
+
+        # just single test set
+        test_dataset = construct_dataset(test_fdate, test_tdate,
+                                        scaler_X=train_valid_dataset.scaler_X,
+                                        scaler_Y=train_valid_dataset.scaler_Y,
+                                        filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
+                                        sample_size=sample_size, output_size=output_size,
+                                        features=train_features,
+                                        features_periodic=train_features_periodic,
+                                        features_nonperiodic=train_features_nonperiodic,
+                                        transform=True)
+
+        # convert tuple of datasets to ConcatDataset
+        train_dataset = ConcatDataset(train_datasets)
+        val_dataset = ConcatDataset(valid_datasets)
 
         hparams = Namespace(
             nhead=8,
@@ -136,7 +250,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
         # The default logger in PyTorch Lightning writes to event files to be consumed by
         # TensorBoard. We don't use any logger here as it requires us to implement several abstract
         # methods. Instead we setup a simple callback, that saves metrics from each validation step.
-        metrics_callback = MetricsCallback()
+        metrics_callback = [MetricsCallback() for _ in range(len(train_dates_opt))]
 
         def objective(trial):
             # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
@@ -147,34 +261,37 @@ def ml_mlp_mul_transformer(station_name="종로구"):
             )
 
             model = BaseTransformerModel(trial=trial,
-                                     hparams=hparams,
-                                     sample_size=sample_size,
-                                     output_size=output_size,
-                                     target=target,
-                                     features=train_features,
-                                     features_periodic=train_features_periodic,
-                                     features_nonperiodic=train_features_nonperiodic,
-                                     train_fdate=train_fdate, train_tdate=train_tdate,
-                                     test_fdate=test_fdate, test_tdate=test_tdate,
-                                     output_dir=output_dir)
+                                        hparams=hparams,
+                                        sample_size=sample_size,
+                                        output_size=output_size,
+                                        target=target,
+                                        features=train_features,
+                                        features_periodic=train_features_periodic,
+                                        features_nonperiodic=train_features_nonperiodic,
+                                        train_dataset=train_dataset,
+                                        val_dataset=val_dataset,
+                                        test_dataset=test_dataset,
+                                        scaler_X=train_valid_dataset.scaler_X,
+                                        scaler_Y=train_valid_dataset.scaler_Y,
+                                        output_dir=output_dir)
 
             # most basic trainer, uses good defaults
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
-                              precision=32,
-                              min_epochs=1, max_epochs=20,
-                              early_stop_callback=PyTorchLightningPruningCallback(
-                                  trial, monitor="val_loss"),
-                              default_root_dir=output_dir,
-                              fast_dev_run=fast_dev_run,
-                              logger=model.logger,
-                              row_log_interval=10,
-                              checkpoint_callback=checkpoint_callback,
-                              callbacks=[metrics_callback, PyTorchLightningPruningCallback(
-                                  trial, monitor="val_loss")])
+                            precision=32,
+                            min_epochs=1, max_epochs=20,
+                            early_stop_callback=PyTorchLightningPruningCallback(
+                                trial, monitor="val_loss"),
+                            default_root_dir=output_dir,
+                            fast_dev_run=fast_dev_run,
+                            logger=model.logger,
+                            row_log_interval=10,
+                            checkpoint_callback=checkpoint_callback,
+                            callbacks=[metrics_callback[i], PyTorchLightningPruningCallback(
+                                trial, monitor="val_loss")])
 
             trainer.fit(model)
 
-            return metrics_callback.metrics[-1]["val_loss"].item()
+            return metrics_callback[i].metrics[-1]["val_loss"].item()
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
@@ -247,33 +364,55 @@ def ml_mlp_mul_transformer(station_name="종로구"):
             dict_hparams["output_size"] = output_size
             with open(output_dir / 'hparams.json', 'w') as f:
                 print(dict_hparams, file=f)
+            with open(output_dir / 'hparams.csv', 'w') as f:
+                print(pd.DataFrame.from_dict(dict_hparams, orient='index'), file=f)
+
 
         model = BaseTransformerModel(hparams=hparams,
-                                 sample_size=sample_size,
-                                 output_size=output_size,
-                                 target=target,
-                                 features=train_features,
-                                 features_periodic=train_features_periodic,
-                                 features_nonperiodic=train_features_nonperiodic,
-                                 train_fdate=train_fdate, train_tdate=train_tdate,
-                                 test_fdate=test_fdate, test_tdate=test_tdate,
-                                 output_dir=output_dir)
+                                    sample_size=sample_size,
+                                    output_size=output_size,
+                                    target=target,
+                                    features=train_features,
+                                    features_periodic=train_features_periodic,
+                                    features_nonperiodic=train_features_nonperiodic,
+                                    train_dataset=train_dataset,
+                                    val_dataset=val_dataset,
+                                    test_dataset=test_dataset,
+                                    scaler_X=train_valid_dataset.scaler_X,
+                                    scaler_Y=train_valid_dataset.scaler_Y,
+                                    output_dir=output_dir)
+
+
+        # record input
+        for i, _train_set in enumerate(train_datasets):
+            _train_set.to_csv(model.data_dir / ("df_trainset_{0}_".format(str(i).zfill(2)) + target + ".csv"))
+        for i, _valid_set in enumerate(valid_datasets):
+            _valid_set.to_csv(model.data_dir / ("df_validset_{0}_".format(str(i).zfill(2)) + target + ".csv"))
+        train_valid_dataset.to_csv(model.data_dir / ("df_trainvalidset_" + target + ".csv"))
+        test_dataset.to_csv(model.data_dir / ("df_testset_" + target + ".csv"))
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
             os.path.join(model_dir, "train"), monitor="val_loss",
             period=10
         )
 
+        early_stop_callback = EarlyStopping(
+            monitor='val_loss',
+            min_delta=0.00001,
+            patience=30,
+            verbose=True,
+            mode='min')
+
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
-                          precision=32,
-                          min_epochs=1, max_epochs=epoch_size,
-                          early_stop_callback=early_stop_callback,
-                          default_root_dir=output_dir,
-                          fast_dev_run=fast_dev_run,
-                          logger=model.logger,
-                          row_log_interval=10,
-                          checkpoint_callback=checkpoint_callback)
+                        precision=32,
+                        min_epochs=1, max_epochs=epoch_size,
+                        early_stop_callback=early_stop_callback,
+                        default_root_dir=output_dir,
+                        fast_dev_run=fast_dev_run,
+                        logger=model.logger,
+                        row_log_interval=10,
+                        checkpoint_callback=checkpoint_callback)
 
         trainer.fit(model)
 
@@ -378,20 +517,14 @@ class BaseTransformerModel(LightningModule):
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
-                                                "temp", "u", "v", "pres", "humid", "prep", "snow"])
+                                        "temp", "wind_spd", "wind_cdir", "wind_sdir",
+                                        "pres", "humid", "prep", "snow"])
         self.features_periodic = kwargs.get('features_periodic',
                                             ["SO2", "CO", "O3", "NO2", "PM10", "PM25"])
         self.features_nonperiodic = kwargs.get('features_nonperiodic',
-                                               ["temp", "u", "v", "pres", "humid", "prep", "snow"])
+                                            ["temp", "wind_spd", "wind_cdir", "wind_sdir",
+                                            "pres", "humid", "prep", "snow"])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
-        self.train_fdate = kwargs.get('train_fdate', dt.datetime(
-            2012, 1, 1, 0).astimezone(SEOULTZ))
-        self.train_tdate = kwargs.get('train_tdate', dt.datetime(
-            2017, 12, 31, 23).astimezone(SEOULTZ))
-        self.test_fdate = kwargs.get('test_fdate', dt.datetime(
-            2018, 1, 1, 0).astimezone(SEOULTZ))
-        self.test_tdate = kwargs.get('test_tdate', dt.datetime(
-            2018, 12, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
             'output_dir', Path('/mnt/data/MLPTransformerSEMultivariate/'))
@@ -407,6 +540,10 @@ class BaseTransformerModel(LightningModule):
             'data_dir', self.output_dir / Path('csv/'))
         Path.mkdir(self.data_dir, parents=True, exist_ok=True)
 
+        self.train_dataset = kwargs.get('train_dataset', None)
+        self.val_dataset = kwargs.get('val_dataset', None)
+        self.test_dataset = kwargs.get('test_dataset', None)
+
         self.trial = kwargs.get('trial', None)
         self.sample_size = kwargs.get('sample_size', 48)
         self.output_size = kwargs.get('output_size', 24)
@@ -417,17 +554,14 @@ class BaseTransformerModel(LightningModule):
             self.hparams.nhead = self.trial.suggest_int(
                 "nhead", 1, 12)
             self.hparams.d_feedforward = self.trial.suggest_int(
-                "d_feedforward", 128, 4096)
+                "d_feedforward", 128, 2048)
             self.hparams.num_layers = self.trial.suggest_int(
                 "num_layers", 3, 12)
 
         self.d_model = self.hparams.nhead * self.hparams.head_dim
 
         self.loss = nn.MSELoss()
-        #self.loss = LogCoshLoss()
         #self.loss = nn.L1Loss()
-        #self.loss = RMSELoss()
-        #self.loss = RMSLELoss()
 
         self._train_set = None
         self._valid_set = None
@@ -439,9 +573,13 @@ class BaseTransformerModel(LightningModule):
         # convert input vector to d_model
         self.proj = nn.Linear(self.sample_size, self.d_model)
 
+        # convert seasonality to d_model
+        self.proj_s = nn.Linear(self.sample_size, self.d_model)
+
         # use Time2Vec instead of positional encoding
         # embed sample_size -> d_model by column-wise
         self.t2v = Time2Vec(self.sample_size, self.d_model)
+        self.t2v_s = Time2Vec(self.sample_size, self.d_model)
 
         # method in A Transformer-based Framework for Multivariate Time Series Representation Learning
         #self.embedding = EmbeddingLayer(self.sample_size, self.d_model)
@@ -449,24 +587,19 @@ class BaseTransformerModel(LightningModule):
 
         self.encoder_layer = TransformerEncoderBatchNormLayer(d_model=self.d_model,
                                                               nhead=self.hparams.nhead,
-                                                              dim_features=len(self.features),
+                                                              dim_features=len(self.features)+3,
                                                               dim_feedforward=self.hparams.d_feedforward,
                                                               activation="gelu")
         self.encoder = nn.TransformerEncoder(
             self.encoder_layer, num_layers=self.hparams.num_layers)
 
-        self.outW = nn.Linear(len(self.features) * self.d_model, self.sample_size)
+        self.outW = nn.Linear((len(self.features)+3) * self.d_model, self.sample_size)
         self.outX = nn.Linear(self.sample_size, self.output_size)
 
-        self.outX_sa = nn.Linear(self.sample_size, self.sample_size)
-        self.outX_sw = nn.Linear(self.sample_size, self.sample_size)
-        self.outX_sh = nn.Linear(self.sample_size, self.sample_size)
-        self.outY_sa = nn.Linear(self.output_size, self.output_size)
-        self.outY_sw = nn.Linear(self.output_size, self.output_size)
-        self.outY_sh = nn.Linear(self.output_size, self.output_size)
         self.outSX = nn.Linear(self.sample_size, self.output_size)
+        self.outSY = nn.Linear(self.output_size, self.output_size)
 
-        self.ar = nn.Linear(self.sample_size, self.sample_size)
+        self.ar = nn.Linear(self.sample_size, self.output_size)
 
         self.act = nn.ReLU()
 
@@ -503,10 +636,23 @@ class BaseTransformerModel(LightningModule):
         x_t2v = self.t2v(x.permute(0, 2, 1))
         # u in paper
         x_prj = self.proj(x.permute(0, 2, 1))
+        # x_prj2 = self.proj_sea(x.permute(0, 2, 1))
 
+        # s: (batch_size, 3, sample_size) d x m
+        s = torch.stack([x_sa, x_sw, x_sh]).unsqueeze(2)
+
+        # x.permute(0,2,1): (batch_size, feature_size, sample_size) d x m
+        s_t2v = self.t2v_s(s)
+        s_prj = self.proj_s(s)
+
+        _x = x_t2v + x_prj
+        _s = s_t2v + s_prj
+
+        _u = torch.stack([_x.reshape(batch_size * feature_size, d_model),
+            _s.reshape(batch_size * 3, d_model)]).reshape(batch_size, feature_size + 3, d_model)
         # then apply x_t2v (same as Positional Encoding) to TransformerEncoder
         # u: (batch_size, feature_size, d_model)
-        u = self.encoder(x_t2v + x_prj)
+        u = self.encoder(_u)
 
         # z: (batch_size, feature_size * d_model)
         # section 3.3
@@ -517,14 +663,13 @@ class BaseTransformerModel(LightningModule):
         # z is nonlinear
         # outX : linear transform: mapping to inverse_transform for StandardScaler
         # outSX : add weight to seasonality
-        _yhat = self.outX(self.outW(z)) + \
-               self.outSX(self.outX_sa(x_sa) + self.outX_sw(x_sw) + self.outX_sh(x_sh)) 
+        yhat = self.outX(self.outW(z))
 
         # linear part
         # Y seasonality is just added, because it has directly related to yhat (linear relationship)
-        yhat = _yhat + self.outY_sa(y_sa) + self.outY_sw(y_sw) + self.outY_sh(y_sh)
+        # yhat = _yhat + self.outY_sa(y_sa) + self.outY_sw(y_sw) + self.outY_sh(y_sh)
 
-        return self.act(yhat)
+        return yhat
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
@@ -631,15 +776,16 @@ class BaseTransformerModel(LightningModule):
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
+        y_hat2 = relu_mul(y_hat)
 
-        _mae = mean_absolute_error(y_hat, y_raw)
-        _mse = mean_squared_error(y_hat, y_raw)
-        _r2 = r2_score(y_hat, y_raw)
+        _mae = mean_absolute_error(y_hat2, y_raw)
+        _mse = mean_squared_error(y_hat2, y_raw)
+        _r2 = r2_score(y_hat2, y_raw)
 
         return {
             'loss': _loss,
             'obs': y_raw,
-            'sim': np.round(y_hat),
+            'sim': np.round(y_hat2),
             'dates': y_dates,
             'metric': {
                 'MSE': _mse,
@@ -734,92 +880,10 @@ class BaseTransformerModel(LightningModule):
 
         * TODO : Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
         """
-        # create custom dataset
-        train_valid_set = MultivariateRNNMeanSeasonalityDataset(
-            station_name=self.station_name,
-            target=self.target,
-            filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
-            features=self.features,
-            features_1=self.features_nonperiodic,
-            features_2=self.features_periodic,
-            fdate=self.train_fdate,
-            tdate=self.train_tdate,
-            sample_size=self.sample_size,
-            output_size=self.output_size,
-            train_valid_ratio=0.8)
-
         # first mkdir of seasonality
         Path.mkdir(self.png_dir / "seasonality", parents=True, exist_ok=True)
         Path.mkdir(self.svg_dir / "seasonality", parents=True, exist_ok=True)
         Path.mkdir(self.data_dir / "seasonality", parents=True, exist_ok=True)
-
-        # fit & transform (seasonality)
-        # without seasonality
-        # train_valid_set.preprocess()
-        # with seasonality
-        train_valid_set.preprocess(
-            self.data_dir / "seasonality",
-            self.png_dir / "seasonality",
-            self.svg_dir / "seasonality")
-        train_valid_set.plot_seasonality(
-            self.data_dir / "seasonality",
-            self.png_dir / "seasonality",
-            self.svg_dir / "seasonality")
-        # save seasonality index-wise
-        train_valid_set.broadcast_seasonality()
-
-        # plot Probability Density Function
-        Path.mkdir(self.png_dir / "dist", parents=True, exist_ok=True)
-        Path.mkdir(self.svg_dir / "dist", parents=True, exist_ok=True)
-        train_valid_set.plot_pdf(
-            self.png_dir / "dist",
-            self.svg_dir / "dist",
-            "train")
-        # save train/valid set
-        train_valid_set.to_csv(
-            self.data_dir / ("df_train_valid_set_" + self.target + ".csv"))
-
-        # split train/valid/test set
-        train_len = int(len(train_valid_set) *
-                        train_valid_set.train_valid_ratio)
-        valid_len = len(train_valid_set) - train_len
-        train_set, valid_set = torch.utils.data.random_split(
-            train_valid_set, [train_len, valid_len])
-
-        test_set = MultivariateRNNMeanSeasonalityDataset(
-            station_name=self.station_name,
-            target=self.target,
-            filepath="/input/python/input_jongro_imputed_hourly_pandas.csv",
-            features=self.features,
-            features_1=self.features_nonperiodic,
-            features_2=self.features_periodic,
-            fdate=self.test_fdate,
-            tdate=self.test_tdate,
-            sample_size=self.sample_size,
-            output_size=self.output_size,
-            scaler_X=train_valid_set.scaler_X,
-            scaler_Y=train_valid_set.scaler_Y)
-        test_set.to_csv(self.data_dir / ("df_testset_" + self.target + ".csv"))
-
-        test_set.transform()
-        # save seasonality index-wise
-        test_set.broadcast_seasonality()
-
-        test_set.plot_pdf(
-            self.png_dir / "dist",
-            self.svg_dir / "dist",
-            "test")
-
-        # assign to use in dataloaders
-        self.train_dataset = train_set
-        self.val_dataset = valid_set
-        self.test_dataset = test_set
-
-        self.train_sampler = RandomSampler(self.train_dataset)
-        self.val_sampler = SequentialSampler(self.val_dataset)
-        self.test_sampler = SequentialSampler(self.test_dataset)
-
-        print("Data Setup Completed")
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
@@ -877,16 +941,16 @@ class BaseTransformerModel(LightningModule):
             ys, ys_raw, ys_sa, ys_sw, ys_sh, y_dates = zip(*batch)
 
         return torch.as_tensor(xs), \
-            torch.as_tensor(xs_1d), \
-            torch.as_tensor(xs_sa), \
-            torch.as_tensor(xs_sw), \
-            torch.as_tensor(xs_sh), \
-            torch.as_tensor(ys), \
-            torch.as_tensor(ys_raw), \
-            torch.as_tensor(ys_sa), \
-            torch.as_tensor(ys_sw), \
-            torch.as_tensor(ys_sh), \
-            y_dates
+               torch.as_tensor(xs_1d), \
+               torch.as_tensor(xs_sa), \
+               torch.as_tensor(xs_sw), \
+               torch.as_tensor(xs_sh), \
+               torch.as_tensor(ys), \
+               torch.as_tensor(ys_raw), \
+               torch.as_tensor(ys_sa), \
+               torch.as_tensor(ys_sw), \
+               torch.as_tensor(ys_sh), \
+               y_dates
 
 def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
@@ -1223,3 +1287,9 @@ class RMSLELoss(nn.Module):
     def forward(self, yhat, y):
         loss = torch.sqrt(self.mse(torch.log(yhat + 1), torch.log(y + 1)) + self.eps)
         return loss
+
+
+def relu_mul(x):
+    """[fastest method](https://stackoverflow.com/a/32109519/743078)
+    """
+    return x * (x > 0)
