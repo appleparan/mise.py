@@ -44,9 +44,8 @@ from bokeh.io import export_png, export_svgs
 
 import matplotlib.pyplot as plt
 
-from data import load_imputed, MultivariateRNNDataset, MultivariateRNNMeanSeasonalityDataset
+import data
 from constants import SEOUL_STATIONS, SEOULTZ
-import utils
 
 HOURLY_DATA_PATH = "/input/python/input_seoul_imputed_hourly_pandas.csv"
 DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
@@ -120,8 +119,8 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 160
-    fast_dev_run = True
-    n_trials = 1
+    # fast_dev_run = True
+    # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -146,14 +145,14 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
 
     # Debug
-    # train_dates = [
-    #     (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
-    #     (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
-    # valid_dates = [
-    #     (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
-    #     (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
-    # train_valid_fdate = dt.datetime(2013, 1, 1, 1).astimezone(SEOULTZ)
-    # train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    train_dates = [
+        (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
+    valid_dates = [
+        (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
+    train_valid_fdate = dt.datetime(2013, 1, 1, 1).astimezone(SEOULTZ)
+    train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
 
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
@@ -250,7 +249,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
         # The default logger in PyTorch Lightning writes to event files to be consumed by
         # TensorBoard. We don't use any logger here as it requires us to implement several abstract
         # methods. Instead we setup a simple callback, that saves metrics from each validation step.
-        metrics_callback = [MetricsCallback() for _ in range(len(train_dates_opt))]
+        metrics_callback = MetricsCallback()
 
         def objective(trial):
             # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
@@ -291,7 +290,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
 
             trainer.fit(model)
 
-            return metrics_callback[i].metrics[-1]["val_loss"].item()
+            return metrics_callback.metrics[-1]["val_loss"].item()
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
@@ -587,14 +586,13 @@ class BaseTransformerModel(LightningModule):
 
         self.encoder_layer = TransformerEncoderBatchNormLayer(d_model=self.d_model,
                                                               nhead=self.hparams.nhead,
-                                                              dim_features=len(self.features)+3,
+                                                              dim_features=len(self.features),
                                                               dim_feedforward=self.hparams.d_feedforward,
                                                               activation="gelu")
         self.encoder = nn.TransformerEncoder(
             self.encoder_layer, num_layers=self.hparams.num_layers)
 
-        self.outW = nn.Linear((len(self.features)+3) * self.d_model, self.sample_size)
-        self.outX = nn.Linear(self.sample_size, self.output_size)
+        self.outW = nn.Linear((len(self.features)) * self.d_model, self.output_size)
 
         self.outSX = nn.Linear(self.sample_size, self.output_size)
         self.outSY = nn.Linear(self.output_size, self.output_size)
@@ -636,23 +634,10 @@ class BaseTransformerModel(LightningModule):
         x_t2v = self.t2v(x.permute(0, 2, 1))
         # u in paper
         x_prj = self.proj(x.permute(0, 2, 1))
-        # x_prj2 = self.proj_sea(x.permute(0, 2, 1))
 
-        # s: (batch_size, 3, sample_size) d x m
-        s = torch.stack([x_sa, x_sw, x_sh]).unsqueeze(2)
-
-        # x.permute(0,2,1): (batch_size, feature_size, sample_size) d x m
-        s_t2v = self.t2v_s(s)
-        s_prj = self.proj_s(s)
-
-        _x = x_t2v + x_prj
-        _s = s_t2v + s_prj
-
-        _u = torch.stack([_x.reshape(batch_size * feature_size, d_model),
-            _s.reshape(batch_size * 3, d_model)]).reshape(batch_size, feature_size + 3, d_model)
         # then apply x_t2v (same as Positional Encoding) to TransformerEncoder
         # u: (batch_size, feature_size, d_model)
-        u = self.encoder(_u)
+        u = self.encoder(x_t2v + x_prj)
 
         # z: (batch_size, feature_size * d_model)
         # section 3.3
@@ -660,14 +645,17 @@ class BaseTransformerModel(LightningModule):
 
         # nonlinear part
         # yhat: (batch_size, output_size)
-        # z is nonlinear
-        # outX : linear transform: mapping to inverse_transform for StandardScaler
+        # z is nonlinear information
+        # outW : add weight to tranformer processed input
         # outSX : add weight to seasonality
-        yhat = self.outX(self.outW(z))
+        # outSY : add weight to seasonality
+        yhat = self.outW(z) + \
+                self.outSX(x_sa + x_sw + x_sh) + \
+                self.outSY(y_sa + y_sw + y_sh)
 
         # linear part
-        # Y seasonality is just added, because it has directly related to yhat (linear relationship)
-        # yhat = _yhat + self.outY_sa(y_sa) + self.outY_sw(y_sw) + self.outY_sh(y_sh)
+        # (self.ar(x1d))
+        yhat = yhat + self.ar(x1d)
 
         return yhat
 
