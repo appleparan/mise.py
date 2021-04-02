@@ -285,7 +285,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
                             logger=model.logger,
                             row_log_interval=10,
                             checkpoint_callback=checkpoint_callback,
-                            callbacks=[metrics_callback[i], PyTorchLightningPruningCallback(
+                            callbacks=[metrics_callback, PyTorchLightningPruningCallback(
                                 trial, monitor="val_loss")])
 
             trainer.fit(model)
@@ -671,15 +671,15 @@ class BaseTransformerModel(LightningModule):
 
         _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
                       _ys_sa, _ys_sw, _ys_sh)
-        _loss = self.loss(_y_hat, _y_raw)
+        _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
 
-        _mae = mean_absolute_error(y_raw, y_hat)
-        _mse = mean_squared_error(y_raw, y_hat)
-        _r2 = r2_score(y_raw, y_hat)
+        _mae = mean_absolute_error(y_hat, y)
+        _mse = mean_squared_error(y_hat, y)
+        _r2 = r2_score(y_hat, y)
 
         return {
             'loss': _loss,
@@ -715,15 +715,15 @@ class BaseTransformerModel(LightningModule):
 
         _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
                       _ys_sa, _ys_sw, _ys_sh)
-        _loss = self.loss(_y_hat, _y_raw)
+        _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
 
-        _mae = mean_absolute_error(y_hat, y_raw)
-        _mse = mean_squared_error(y_hat, y_raw)
-        _r2 = r2_score(y_hat, y_raw)
+        _mae = mean_absolute_error(y_hat, y)
+        _mse = mean_squared_error(y_hat, y)
+        _r2 = r2_score(y_hat, y)
 
         return {
             'loss': _loss,
@@ -759,12 +759,13 @@ class BaseTransformerModel(LightningModule):
 
         _y_hat = self(x, _x1d, _xs_sa, _xs_sw, _xs_sh,
                       _ys_sa, _ys_sw, _ys_sh)
-        _loss = self.loss(_y_hat, _y_raw)
 
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        y_hat2 = relu_mul(y_hat)
+        y_hat2 = relu_mul(
+            np.array(self.test_dataset.inverse_transform(y_hat, y_dates)))
+        _loss = self.loss(torch.as_tensor(y_hat2).to(device), _y_raw)
 
         _mae = mean_absolute_error(y_hat2, y_raw)
         _mse = mean_squared_error(y_hat2, y_raw)
@@ -773,7 +774,7 @@ class BaseTransformerModel(LightningModule):
         return {
             'loss': _loss,
             'obs': y_raw,
-            'sim': np.round(y_hat2),
+            'sim': y_hat2,
             'dates': y_dates,
             'metric': {
                 'MSE': _mse,
