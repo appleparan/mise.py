@@ -145,14 +145,14 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
 
     # Debug
-    train_dates = [
-        (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
-        (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
-    valid_dates = [
-        (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
-        (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
-    train_valid_fdate = dt.datetime(2013, 1, 1, 1).astimezone(SEOULTZ)
-    train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    # train_dates = [
+    #     (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
+    #     (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
+    # valid_dates = [
+    #     (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
+    #     (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
+    # train_valid_fdate = dt.datetime(2013, 1, 1, 1).astimezone(SEOULTZ)
+    # train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
 
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
