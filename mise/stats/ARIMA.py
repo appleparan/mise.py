@@ -50,13 +50,13 @@ def stats_arima(station_name = "종로구"):
     # p (1, 0, 0) ~ (3, 0, 0), (4, 0, 0) ~ (6, 0, 0), (7, 0, 0) ~ (9, 0, 0),
     # p (1, 0, 1) ~ (3, 0, 1), (4, 0, 1) ~ (6, 0, 1), (7, 0, 1) ~ (9, 0, 1),
     # p (1, 0, 2) ~ (3, 0, 2), (4, 0, 2) ~ (6, 0, 2), (7, 0, 2) ~ (9, 0, 2),
-    # orders1 = [(_p, 0, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
-    # orders2 = [(_p, 1, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
-    # orders = orders1 + orders2
+    orders1 = [(_p, 0, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
+    orders2 = [(_p, 1, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
+    orders = orders1 + orders2
     # orders = [(_p, 0, _q) for _q, _p in itertools.product([0], range(1, 4)) if not (_p == 0 and _q == 0)]
     # orders = [(_p, 0, _q) for _q, _p in itertools.product([2], range(4, 7)) if not (_p == 0 and _q == 0)]
     # orders = [(_p, 0, _q) for _q, _p in itertools.product(range(0, 48, 6), range(0, 48, 6)) if not (_p == 0 and _q == 0)]
-    orders = [(_p, 0, _q) for _q, _p in itertools.product([6], [11, 12]) if not (_p == 0 and _q == 0)]
+    # orders = [(_p, 0, _q) for _q, _p in itertools.product([0], [24, 48]) if not (_p == 0 and _q == 0)]
 
     sample_size = 48
     output_size = 24
