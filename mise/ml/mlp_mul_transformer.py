@@ -118,7 +118,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 160
+    n_trials = 192
     # fast_dev_run = True
     # n_trials = 1
 
@@ -586,13 +586,13 @@ class BaseTransformerModel(LightningModule):
 
         self.encoder_layer = TransformerEncoderBatchNormLayer(d_model=self.d_model,
                                                               nhead=self.hparams.nhead,
-                                                              dim_features=len(self.features),
+                                                              dim_features=len(self.features)+3,
                                                               dim_feedforward=self.hparams.d_feedforward,
                                                               activation="gelu")
         self.encoder = nn.TransformerEncoder(
             self.encoder_layer, num_layers=self.hparams.num_layers)
 
-        self.outW = nn.Linear((len(self.features)) * self.d_model, self.output_size)
+        self.outW = nn.Linear((len(self.features)+3) * self.d_model, self.output_size)
 
         self.outSX = nn.Linear(self.sample_size, self.output_size)
         self.outSY = nn.Linear(self.output_size, self.output_size)
@@ -635,13 +635,39 @@ class BaseTransformerModel(LightningModule):
         # u in paper
         x_prj = self.proj(x.permute(0, 2, 1))
 
-        # then apply x_t2v (same as Positional Encoding) to TransformerEncoder
-        # u: (batch_size, feature_size, d_model)
-        u = self.encoder(x_t2v + x_prj)
+        # (batch_size, feature_size, d_model)
+        _x = x_t2v + x_prj
 
-        # z: (batch_size, feature_size * d_model)
+        # s: (batch_size, 3, sample_size) d x m
+        s = torch.column_stack([
+                x_sa.unsqueeze(2).reshape(batch_size*sample_size, 1),
+                x_sw.unsqueeze(2).reshape(batch_size*sample_size, 1),
+                x_sh.unsqueeze(2).reshape(batch_size*sample_size, 1)]) \
+            .reshape(batch_size, sample_size, 3) \
+            .permute(0, 2, 1)
+
+        s_t2v = self.t2v_s(s)
+        s_prj = self.proj_s(s)
+
+        # (batch_size, 3, d_model)
+        _s = s_t2v + s_prj
+
+        # convert (batch_size, features_size, d_model) -> (batch_size, d_model, features_size)
+        # convert (batch_size, 3, d_model) -> (batch_size, d_model, 3)
+        # then stack
+        # then reconvert (batch_size, d_model, features_size + 3) -> (batch_size, features_size + 3, d_model)
+        xs = torch.column_stack([
+                    _x.permute(0, 2, 1).reshape(batch_size * self.d_model, feature_size),
+                    _s.permute(0, 2, 1).reshape(batch_size * self.d_model, 3)]) \
+                .reshape(batch_size, self.d_model, feature_size + 3) \
+                .permute(0, 2, 1)
+
+        # u: (batch_size, feature_size + 3, d_model)
+        u = self.encoder(xs)
+
+        # z: (batch_size, feature_size + 3 * d_model)
         # section 3.3
-        z = u.reshape(batch_size, feature_size * self.d_model)
+        z = u.reshape(batch_size, (feature_size + 3) * self.d_model)
 
         # nonlinear part
         # yhat: (batch_size, output_size)
@@ -649,9 +675,7 @@ class BaseTransformerModel(LightningModule):
         # outW : add weight to tranformer processed input
         # outSX : add weight to seasonality
         # outSY : add weight to seasonality
-        yhat = self.outW(z) + \
-                self.outSX(x_sa + x_sw + x_sh) + \
-                self.outSY(y_sa + y_sw + y_sh)
+        yhat = self.outW(z)
 
         # linear part
         # (self.ar(x1d))
@@ -660,7 +684,9 @@ class BaseTransformerModel(LightningModule):
         return yhat
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+        return torch.optim.Adam(self.parameters(),
+                lr=self.hparams.learning_rate,
+                weight_decay=0.01)
 
     def training_step(self, batch, batch_idx):
         # without seasonality
