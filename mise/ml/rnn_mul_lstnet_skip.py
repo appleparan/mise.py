@@ -116,8 +116,8 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 192
-    fast_dev_run = True
-    n_trials = 1
+    # fast_dev_run = True
+    # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -242,6 +242,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             hidRNN=16,
             learning_rate=learning_rate,
             batch_size=batch_size)
+
         # The default logger in PyTorch Lightning writes to event files to be consumed by
         # TensorBoard. We don't use any logger here as it requires us to implement several abstract
         # methods. Instead we setup a simple callback, that saves metrics from each validation step.
@@ -485,16 +486,15 @@ class BaseLSTNetModel(LightningModule):
 
         if self.trial:
             self.hparams.filter_size = self.trial.suggest_int(
-                "filter_size", 1, 7, step=2)
+                "filter_size", 1, 5, step=2)
             self.hparams.hidRNN = self.trial.suggest_int(
-                "hidRNN", 8, 512)
+                "hidRNN", 8, 128)
             self.hparams.hidCNN = self.trial.suggest_int(
-                "hidCNN", 8, 128)
+                "hidCNN", 8, 64)
             self.hparams.hidSkip = self.trial.suggest_int(
-                "hidSkip", 8, 512)
+                "hidSkip", 8, 128)
 
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
-
 
         padding_size = int(self.hparams.filter_size - 1)
         self.pad = nn.ZeroPad2d((0, 0, padding_size, 0))
