@@ -517,11 +517,8 @@ class BaseMLPModel(LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(),
-                lr=self.hparams.lr | self.hparams.learning_rate,
-                weight_decay=0.1)
-        # return madgrad.MADGRAD(self.parameters(), 
-        #         lr=self.hparams.lr | self.hparams.learning_rate,
-        #         weight_decay=0.1)
+                lr=self.hparams.learning_rate,
+                weight_decay=0.01)
 
     def training_step(self, batch, batch_idx):
         x, x1d, _y, _y_raw, dates = batch
@@ -560,9 +557,6 @@ class BaseMLPModel(LightningModule):
         self.train_logs[self.current_epoch] = _log
 
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
-
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters())
 
     def validation_step(self, batch, batch_idx):
         x, x1d, _y, _y_raw, dates = batch
