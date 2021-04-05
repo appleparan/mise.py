@@ -464,7 +464,7 @@ class BaseMLPModel(LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(),
-            lr=self.hparams.lr | self.hparams.learning_rate,
+            lr=self.hparams.learning_rate,
             weight_decay=0.01)
 
     def training_step(self, batch, batch_idx):

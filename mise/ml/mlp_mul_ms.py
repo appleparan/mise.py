@@ -71,10 +71,10 @@ def construct_dataset(fdate, tdate,
     sample_size=48, output_size=24,
     features=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                       "temp", "wind_spd", "wind_cdir", "wind_sdir",
-                      "pres", "humid", "prep", "snow"],
+                      "pres", "humid", "prep"],
     features_periodic=["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
                                 "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"],
-    features_nonperiodic=["prep", "snow"],
+    features_nonperiodic=["prep"],
     transform=True):
     """Crate dataset and transform
     """
@@ -166,10 +166,10 @@ def ml_mlp_mul_ms(station_name="종로구"):
 
     train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                       "temp", "wind_spd", "wind_cdir", "wind_sdir",
-                      "pres", "humid", "prep", "snow"]
+                      "pres", "humid", "prep"]
     train_features_periodic = ["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
                                 "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"]
-    train_features_nonperiodic = ["prep", "snow"]
+    train_features_nonperiodic = ["prep"]
 
     for target in targets:
         print("Training " + target + "...")
@@ -419,12 +419,12 @@ class BaseMLPModel(LightningModule):
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                                         "temp", "wind_spd", "wind_cdir", "wind_sdir",
-                                        "pres", "humid", "prep", "snow"])
+                                        "pres", "humid", "prep"])
         self.features_periodic = kwargs.get('features_periodic',
                                             ["SO2", "CO", "O3", "NO2", "PM10", "PM25"])
         self.features_nonperiodic = kwargs.get('features_nonperiodic',
                                             ["temp", "wind_spd", "wind_cdir", "wind_sdir",
-                                            "pres", "humid", "prep", "snow"])
+                                            "pres", "humid", "prep"])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(

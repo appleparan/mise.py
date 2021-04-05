@@ -61,10 +61,10 @@ def ml_xgboost(station_name="종로구"):
 
     features=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
             "temp", "wind_spd", "wind_cdir", "wind_sdir",
-            "pres", "humid", "prep", "snow"]
+            "pres", "humid", "prep"]
     features_periodic=["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
                         "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"]
-    features_nonperiodic=["prep", "snow"]
+    features_nonperiodic=["prep"]
 
     # use one step input
     sample_size = 1
