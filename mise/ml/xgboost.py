@@ -73,6 +73,7 @@ def ml_xgboost(station_name="종로구"):
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
+
     # consective dates between train and test
     assert train_tdate + dt.timedelta(hours=1) == test_fdate
 
@@ -233,6 +234,8 @@ def sim_xgboost(X_train, Y_train, X_test, Y_test, dates,
 
     # create model and fit to X_train and Y_train
     models = []
+    model_dir = data_dir / "models"
+    Path.mkdir(model_dir, parents=True, exist_ok=True)
 
     for l in tqdm.tqdm(range(output_size)):
         models.append(xgboost.XGBRegressor(objective='reg:squarederror',
@@ -259,20 +262,19 @@ def sim_xgboost(X_train, Y_train, X_test, Y_test, dates,
         plt.figure()
         shap.summary_plot(shap_values, X_train, show=False)
         output_to_plot_values = 'shap_values_' + str(l + 1).zfill(2) +"h"
-        output_to_plot_explainer = 'shap_explainer_' + str(l + 1).zfill(2) +"h"
+        output_to_model = 'xgboost_model_' + str(l + 1).zfill(2) +"h"
 
         data_path = data_dir / (output_to_plot_values)
         with open(data_path.absolute(), 'wb') as f:
             pickle.dump(shap_values, f, pickle.HIGHEST_PROTOCOL)
-        # data_path = data_dir / (output_to_plot_explainer)
-        # with open(data_path.absolute(), 'wb') as f:
-        #     explainer.save(f)
         png_path = png_dir / (output_to_plot_values + '.png')
         svg_path = svg_dir / (output_to_plot_values + '.svg')
         plt.savefig(png_path, dpi=600)
         plt.savefig(svg_path)
         plt.close()
 
+        model_path = model_dir / (output_to_model + ".json")
+        models[l].save_model(model_path)
 
     print("Models are fitted", flush=True)
 
