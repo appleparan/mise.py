@@ -214,12 +214,6 @@ def ml_mlp_uni_ms(station_name="종로구"):
                 period=10
             )
 
-            hparams = Namespace(
-                num_layers=1,
-                layer_size=128,
-                learning_rate=learning_rate,
-                batch_size=batch_size)
-
             # models are independent from dataset and dates
             model = BaseMLPModel(trial=trial,
                                  hparams=hparams,

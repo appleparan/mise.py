@@ -121,7 +121,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 192
+    n_trials = 144
     # fast_dev_run = True
     # n_trials = 1
 
@@ -252,12 +252,6 @@ def ml_mlp_mul_ms(station_name="종로구"):
                 os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss",
                 period=10
             )
-
-            hparams = Namespace(
-                num_layers=1,
-                layer_size=128,
-                learning_rate=learning_rate,
-                batch_size=batch_size)
 
             model = BaseMLPModel(trial=trial,
                                  hparams=hparams,
