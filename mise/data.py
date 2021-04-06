@@ -267,12 +267,12 @@ class UnivariateMeanSeasonalityDataset(BaseDataset):
         numeric_pipeline_X = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         # Univariate -> only tself.
         preprocessor_X = ColumnTransformer(
@@ -433,12 +433,12 @@ class UnivariateRNNMeanSeasonalityDataset(BaseDataset):
         numeric_pipeline_X = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         preprocessor_X = ColumnTransformer(
             transformers=[
@@ -578,13 +578,13 @@ class MultivariateDataset(BaseDataset):
         # pipeline for regression data
 
         numeric_pipeline_X_1 = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         numeric_pipeline_X_2 = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         numeric_pipeline_Y = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -745,17 +745,17 @@ class MultivariateMeanSeasonalityDataset(BaseDataset):
         # pipeline for regression data
 
         numeric_pipeline_X_1 = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         numeric_pipeline_X_2 = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -925,10 +925,10 @@ class MultivariateRNNDataset(BaseDataset):
 
          # pipeline for regression data
         numeric_pipeline_X = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         numeric_pipeline_Y = Pipeline(
-            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('standardscalerwrapper', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -1109,17 +1109,17 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         #      ('powertransformer', PowerTransformerWrapper(scaler=PowerTransformer()))])
 
         numeric_pipeline_X_std = Pipeline(
-            [('standardtransformer', StandardScalerWrapper(scaler=StandardScaler()))])
+            [('standardtransformer', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         numeric_pipeline_X_sea = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         numeric_pipeline_Y = Pipeline(
             [('seasonalitydecompositor',
                 SeasonalityDecompositor_AWH(smoothing=True, smoothingFrac=0.05)),
-             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler()))])
+             ('standardtransformer', StandardScalerWrapper(scaler=StandardScaler(with_std=False)))])
 
         # Univariate -> only pipline needed
         # Multivariate -> Need ColumnTransformer
@@ -1327,7 +1327,6 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
     @property
     def xs_raw(self):
         return self._xs_raw
-
 
 class MultivariateGeneralDataset(Dataset):
     def __init__(self, df,
