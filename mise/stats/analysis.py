@@ -88,21 +88,21 @@ def stats_analysis(_station_name="종로구"):
     learning_rate = 1e-3
 
     train_fdate = dt.datetime(2015, 1, 5, 0).astimezone(SEOULTZ)
-    train_fdate = dt.datetime(2008, 1, 5, 0).astimezone(SEOULTZ)
+    train_fdate = dt.datetime(2008, 1, 3, 0).astimezone(SEOULTZ)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     #test_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
-    test_tdate = dt.datetime(2019, 12, 31, 23).astimezone(SEOULTZ)
+    test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
 
     # check date range assumption
     assert test_tdate > train_fdate
     assert test_fdate > train_tdate
 
     train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
-                      "temp", "u", "v", "pres", "humid", "prep", "snow"]
+                      "temp", "u", "v", "pres", "humid", "prep"]
     train_features_periodic = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                                "temp", "u", "v", "pres", "humid"]
-    train_features_nonperiodic = ["prep", "snow"]
+    train_features_nonperiodic = ["prep"]
     # station_names = ['종로구']
     # station_names = SEOUL_STATIONS
     station_names = ["종로구", "강서구", "서초구", "광진구"]
@@ -164,10 +164,7 @@ def stats_analysis(_station_name="종로구"):
             # without seasonality
             # train_valid_set.preprocess()
             # with seasonality
-            train_valid_set.preprocess(
-                data_dir / "seasonality_fused",
-                png_dir / "seasonality_fused",
-                svg_dir / "seasonality_fused")
+            train_valid_set.preprocess()
             # save seasonality index-wise
             # train_valid_set.broadcast_seasonality()
 
@@ -240,10 +237,7 @@ def stats_analysis(_station_name="종로구"):
             # without seasonality
             # train_valid_set.preprocess()
             # with seasonality
-            train_valid_set.preprocess(
-                data_dir / "seasonality_fused",
-                png_dir / "seasonality_fused",
-                svg_dir / "seasonality_fused")
+            train_valid_set.preprocess()
             # save seasonality index-wise
             train_valid_set.broadcast_seasonality()
 
@@ -530,11 +524,11 @@ def stats_analysis(_station_name="종로구"):
                     plt.savefig(svg_path)
                     plt.close()
 
-            def run_02_DFA():
+            def run_01_DFA():
                 print("DFA..")
-                _data_dir = data_dir / "02-LRD-DFA"
-                _png_dir = png_dir / "02-LRD-DFA"
-                _svg_dir = svg_dir / "02-LRD-DFA"
+                _data_dir = data_dir / "01-LRD-DFA"
+                _png_dir = png_dir / "01-LRD-DFA"
+                _svg_dir = svg_dir / "01-LRD-DFA"
                 Path.mkdir(_data_dir, parents=True, exist_ok=True)
                 Path.mkdir(_png_dir, parents=True, exist_ok=True)
                 Path.mkdir(_svg_dir, parents=True, exist_ok=True)
@@ -735,10 +729,6 @@ def stats_analysis(_station_name="종로구"):
                     plt.savefig(svg_path)
                     plt.close()
 
-            #run_01_CLT()
-            run_02_DFA()
+            run_01_DFA()
             run_02_MFDFA()
-
-    for station_name in station_names:
-        plot_sea(station_name)
 
