@@ -50,13 +50,15 @@ def stats_arima(station_name = "종로구"):
     # p (1, 0, 0) ~ (3, 0, 0), (4, 0, 0) ~ (6, 0, 0), (7, 0, 0) ~ (9, 0, 0),
     # p (1, 0, 1) ~ (3, 0, 1), (4, 0, 1) ~ (6, 0, 1), (7, 0, 1) ~ (9, 0, 1),
     # p (1, 0, 2) ~ (3, 0, 2), (4, 0, 2) ~ (6, 0, 2), (7, 0, 2) ~ (9, 0, 2),
-    orders1 = [(_p, 0, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
-    orders2 = [(_p, 1, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
-    orders = orders1 + orders2
+    # orders1 = [(_p, 0, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
+    # orders2 = [(_p, 1, _q) for _q, _p in itertools.product(range(3), range(10)) if not (_p == 0 and _q == 0)]
+    # orders = orders1 + orders2
     # orders = [(_p, 0, _q) for _q, _p in itertools.product([0], range(1, 4)) if not (_p == 0 and _q == 0)]
     # orders = [(_p, 0, _q) for _q, _p in itertools.product([2], range(4, 7)) if not (_p == 0 and _q == 0)]
     # orders = [(_p, 0, _q) for _q, _p in itertools.product(range(0, 48, 6), range(0, 48, 6)) if not (_p == 0 and _q == 0)]
     # orders = [(_p, 0, _q) for _q, _p in itertools.product([0], [24, 48]) if not (_p == 0 and _q == 0)]
+    # orders = [(8, 0, 0), (9, 0, 0)]
+    orders = [(8, 0, 0)]
 
     sample_size = 48
     output_size = 24
@@ -95,10 +97,7 @@ def stats_arima(station_name = "종로구"):
                 output_size=output_size,
                 train_valid_ratio=0.8)
 
-            train_set.preprocess(
-                data_dir / "seasonality_fused",
-                png_dir / "seasonality_fused",
-                svg_dir / "seasonality_fused")
+            train_set.preprocess()
 
             # set fdate=test_fdate,
             test_set = data.MultivariateRNNMeanSeasonalityDataset(
@@ -130,7 +129,7 @@ def stats_arima(station_name = "종로구"):
                 dates = df_obs.index
 
                 df_sim = sim_arima(df_train, df_test, dates, target, \
-                                   order, test_set.scaler_Y, sample_size, output_size)
+                                   order, test_set.scaler_Y, sample_size, output_size, data_dir)
 
                 assert df_obs.shape == df_sim.shape
 
@@ -182,10 +181,12 @@ def mw_df(df_org, target, output_size, fdate, tdate):
     return df_obs
 
 
-def sim_arima(df_train, df_test, dates, target, order, scaler, sample_size, output_size):
+def sim_arima(df_train, df_test, dates, target, order, scaler, sample_size, output_size, data_dir):
     # columns are offset to datetime
     cols = [str(i) for i in range(output_size)]
     df_sim = pd.DataFrame(columns=cols)
+    model_dir = data_dir / "model"
+    Path.mkdir(model_dir, parents=True, exist_ok=True)
 
     # initial endog
     # train data -> initial endog
@@ -199,6 +200,7 @@ def sim_arima(df_train, df_test, dates, target, order, scaler, sample_size, outp
 
     for i, (index, row) in tqdm.tqdm(enumerate(df_test.iterrows()), total=len(dates)-1):
         if i >= len(dates):
+            print(model_fit.summary())
             break
 
         # out-of-sample forecast
@@ -206,6 +208,12 @@ def sim_arima(df_train, df_test, dates, target, order, scaler, sample_size, outp
 
         # same state-space params, but different input (endog)
         model_fit = model_fit.append([df_test.loc[index, :].to_numpy()])
+
+        if i % 24 == 0:
+            summary = model_fit.summary()
+            filename = str(model_dir / ("model_" + index.strftime("%Y%m%d%H") + ".csv"))
+            with open(filename, "w") as f:
+                f.write(summary.as_csv())
 
         # inverse_transform
         _dates = pd.date_range(
