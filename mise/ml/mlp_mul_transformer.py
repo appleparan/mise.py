@@ -125,7 +125,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     # Hyper parameter
     epoch_size = 500
     batch_size = 256
-    learning_rate = 1e-3
+    learning_rate = 1e-4
 
     # Blocked Cross Validation
     # neglect small overlap between train_dates and valid_dates
@@ -166,14 +166,14 @@ def ml_mlp_mul_transformer(station_name="종로구"):
 
     train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                       "temp", "wind_spd", "wind_cdir", "wind_sdir",
-                      "pres", "humid", "prep", "snow"]
+                      "pres", "humid", "prep"]
     train_features_periodic = ["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
                                 "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"]
-    train_features_nonperiodic = ["prep", "snow"]
+    train_features_nonperiodic = ["prep"]
 
     for target in targets:
         print("Training " + target + "...")
-        output_dir = Path(f"/mnt/data/MLPTransformerSEMultivariate/{station_name}/{target}/")
+        output_dir = Path(f"/mnt/data/MLPTransformerMultivariate/{station_name}/{target}/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
@@ -517,16 +517,16 @@ class BaseTransformerModel(LightningModule):
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
                                         "temp", "wind_spd", "wind_cdir", "wind_sdir",
-                                        "pres", "humid", "prep", "snow"])
+                                        "pres", "humid", "prep"])
         self.features_periodic = kwargs.get('features_periodic',
                                             ["SO2", "CO", "O3", "NO2", "PM10", "PM25"])
         self.features_nonperiodic = kwargs.get('features_nonperiodic',
                                             ["temp", "wind_spd", "wind_cdir", "wind_sdir",
-                                            "pres", "humid", "prep", "snow"])
+                                            "pres", "humid", "prep"])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
-            'output_dir', Path('/mnt/data/MLPTransformerSEMultivariate/'))
+            'output_dir', Path('/mnt/data/MLPTransformerMultivariate/'))
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.png_dir = kwargs.get(
@@ -573,12 +573,14 @@ class BaseTransformerModel(LightningModule):
         self.proj = nn.Linear(self.sample_size, self.d_model)
 
         # convert seasonality to d_model
-        self.proj_s = nn.Linear(self.sample_size, self.d_model)
+        self.proj_sx = nn.Linear(self.sample_size, self.d_model)
+        self.proj_sy = nn.Linear(self.output_size, self.d_model)
 
         # use Time2Vec instead of positional encoding
         # embed sample_size -> d_model by column-wise
         self.t2v = Time2Vec(self.sample_size, self.d_model)
-        self.t2v_s = Time2Vec(self.sample_size, self.d_model)
+        self.t2v_sx = Time2Vec(self.sample_size, self.d_model)
+        self.t2v_sy = Time2Vec(self.output_size, self.d_model)
 
         # method in A Transformer-based Framework for Multivariate Time Series Representation Learning
         #self.embedding = EmbeddingLayer(self.sample_size, self.d_model)
@@ -586,13 +588,13 @@ class BaseTransformerModel(LightningModule):
 
         self.encoder_layer = TransformerEncoderBatchNormLayer(d_model=self.d_model,
                                                               nhead=self.hparams.nhead,
-                                                              dim_features=len(self.features)+3,
+                                                              dim_features=len(self.features),
                                                               dim_feedforward=self.hparams.d_feedforward,
                                                               activation="gelu")
         self.encoder = nn.TransformerEncoder(
             self.encoder_layer, num_layers=self.hparams.num_layers)
 
-        self.outW = nn.Linear((len(self.features)+3) * self.d_model, self.output_size)
+        self.outW = nn.Linear((len(self.features)) * self.d_model, self.output_size)
 
         self.outSX = nn.Linear(self.sample_size, self.output_size)
         self.outSY = nn.Linear(self.output_size, self.output_size)
@@ -639,35 +641,48 @@ class BaseTransformerModel(LightningModule):
         _x = x_t2v + x_prj
 
         # s: (batch_size, 3, sample_size) d x m
-        s = torch.column_stack([
-                x_sa.unsqueeze(2).reshape(batch_size*sample_size, 1),
-                x_sw.unsqueeze(2).reshape(batch_size*sample_size, 1),
-                x_sh.unsqueeze(2).reshape(batch_size*sample_size, 1)]) \
-            .reshape(batch_size, sample_size, 3) \
-            .permute(0, 2, 1)
+        # sx = torch.column_stack([
+        #         x_sa.unsqueeze(2).reshape(batch_size*sample_size, 1),
+        #         x_sw.unsqueeze(2).reshape(batch_size*sample_size, 1),
+        #         x_sh.unsqueeze(2).reshape(batch_size*sample_size, 1)]) \
+        #     .reshape(batch_size, sample_size, 3) \
+        #     .permute(0, 2, 1)
 
-        s_t2v = self.t2v_s(s)
-        s_prj = self.proj_s(s)
+        # sx_t2v = self.t2v_sx(sx)
+        # sx_prj = self.proj_sx(sx)
 
-        # (batch_size, 3, d_model)
-        _s = s_t2v + s_prj
+        # sy = torch.column_stack([
+        #         y_sa.unsqueeze(2).reshape(batch_size*self.output_size, 1),
+        #         y_sw.unsqueeze(2).reshape(batch_size*self.output_size, 1),
+        #         y_sh.unsqueeze(2).reshape(batch_size*self.output_size, 1)]) \
+        #     .reshape(batch_size, self.output_size, 3) \
+        #     .permute(0, 2, 1)
 
-        # convert (batch_size, features_size, d_model) -> (batch_size, d_model, features_size)
-        # convert (batch_size, 3, d_model) -> (batch_size, d_model, 3)
-        # then stack
-        # then reconvert (batch_size, d_model, features_size + 3) -> (batch_size, features_size + 3, d_model)
-        xs = torch.column_stack([
-                    _x.permute(0, 2, 1).reshape(batch_size * self.d_model, feature_size),
-                    _s.permute(0, 2, 1).reshape(batch_size * self.d_model, 3)]) \
-                .reshape(batch_size, self.d_model, feature_size + 3) \
-                .permute(0, 2, 1)
+        # sy_t2v = self.t2v_sy(sy)
+        # sy_prj = self.proj_sy(sy)
+
+        # (batch_size, 6, d_model)
+        # _s = sx_t2v + sx_prj + sy_t2v + sy_prj
+        # _sx = sx_t2v + sx_prj
+        # _sy = sy_t2v + sy_prj
+
+        # 1. convert (batch_size, features_size, d_model) -> (batch_size, d_model, features_size)
+        # 2. convert (batch_size, 3, d_model) -> (batch_size, d_model, 3)
+        # 3. stack arrays
+        # 4. reconvert (batch_size, d_model, features_size + *) -> (batch_size, features_size + *, d_model)
+        # xs = torch.column_stack([
+        #             _x.permute(0, 2, 1).reshape(batch_size * self.d_model, feature_size),
+        #             _sx.permute(0, 2, 1).reshape(batch_size * self.d_model, 3)]) \
+        #         .reshape(batch_size, self.d_model, feature_size + 3) \
+        #         .permute(0, 2, 1)
 
         # u: (batch_size, feature_size + 3, d_model)
-        u = self.encoder(xs)
+        u = self.encoder(_x)
+        # u = self.encoder(xs)
 
         # z: (batch_size, feature_size + 3 * d_model)
         # section 3.3
-        z = u.reshape(batch_size, (feature_size + 3) * self.d_model)
+        z = u.reshape(batch_size, (feature_size) * self.d_model)
 
         # nonlinear part
         # yhat: (batch_size, output_size)
@@ -686,7 +701,7 @@ class BaseTransformerModel(LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(),
                 lr=self.hparams.learning_rate,
-                weight_decay=0.01)
+                weight_decay=0.001)
 
     def training_step(self, batch, batch_idx):
         # without seasonality
