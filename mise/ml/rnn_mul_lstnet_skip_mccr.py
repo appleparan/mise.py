@@ -108,7 +108,7 @@ def construct_dataset(fdate, tdate,
     return data_set
 
 
-def ml_rnn_mul_lstnet_skip(station_name="종로구"):
+def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
     print("Start Multivariate LSTNet (Skip Layer) Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
@@ -116,7 +116,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 192
+    n_trials = 144
     # fast_dev_run = True
     # n_trials = 1
 
@@ -171,7 +171,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
 
     for target in targets:
         print("Training " + target + "...")
-        output_dir = Path(f"/mnt/data/RNNLSTNetSkipMultivariate/{station_name}/{target}/")
+        output_dir = Path(f"/mnt/data/RNNLSTNetSkipMCCRMultivariate/{station_name}/{target}/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
@@ -237,10 +237,10 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
         val_dataset = ConcatDataset(valid_datasets)
 
         hparams = Namespace(
-            filter_size=3,
+            filter_size=1,
             hidCNN=16,
-            hidSkip=16,
-            hidRNN=16,
+            hidSkip=128,
+            hidRNN=128,
             learning_rate=learning_rate,
             batch_size=batch_size)
 
@@ -526,7 +526,8 @@ class BaseLSTNetModel(LightningModule):
         self.proj2 = nn.Linear(self.output_size, self.output_size)
         # self.act = nn.ReLU()
 
-        self.loss = nn.MSELoss()
+        # self.loss = nn.MSELoss()
+        self.loss = MCCRLoss(sigma=1.0)
         #self.loss = nn.L1Loss()
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
@@ -534,7 +535,6 @@ class BaseLSTNetModel(LightningModule):
 
         self.train_logs = {}
         self.valid_logs = {}
-
 
     def forward(self, _x, _x1d):
         """
@@ -1151,7 +1151,7 @@ class MCCRLoss(nn.Module):
         assert sigma > 0
         self.sigma2 = sigma**2
 
-    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    def forward(self, _input: torch.Tensor, _target: torch.Tensor) -> torch.Tensor:
         """
         Implement maximum correntropy criterion for regression
 
@@ -1162,11 +1162,9 @@ class MCCRLoss(nn.Module):
         Reference:
             * Feng, Yunlong, et al. "Learning with the maximum correntropy criterion induced losses for regression." J. Mach. Learn. Res. 16.1 (2015): 993-1034.
         """
-        # not to compute log(0), add 1e-24 (small value)
-        def _mccr(x):
-            return self.sigma2 * (1-torch.exp(-x**2 / self.sigma2))
 
-        return torch.mean(_mccr(input - target))
+        return torch.mean(
+            self.sigma2 * (1-torch.exp(-(_input - _target)**2 / self.sigma2)))
 
 
 class LogCoshLoss(nn.Module):
