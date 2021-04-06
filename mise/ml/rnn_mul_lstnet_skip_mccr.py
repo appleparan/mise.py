@@ -116,14 +116,14 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 144
+    n_trials = 0
     # fast_dev_run = True
     # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
-    batch_size = 256
-    learning_rate = 1e-4
+    batch_size = 64
+    learning_rate = 1e-3
 
     # Blocked Cross Validation
     # neglect small overlap between train_dates and valid_dates
@@ -237,6 +237,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
         val_dataset = ConcatDataset(valid_datasets)
 
         hparams = Namespace(
+            sigma=0.6,
             filter_size=1,
             hidCNN=16,
             hidSkip=128,
@@ -358,6 +359,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
+            hparams.sigma = trial.params['sigma']
             hparams.filter_size = trial.params['filter_size']
             hparams.hidCNN = trial.params['hidCNN']
             hparams.hidSkip = trial.params['hidSkip']
@@ -439,6 +441,7 @@ class BaseLSTNetModel(LightningModule):
         # 2*padding[1] + 1 = kernel_size[1]
 
         self.hparams = kwargs.get('hparams', Namespace(
+            sigma=1.0,
             hidCNN=4,
             hidSkip=16,
             hidRNN=16,
@@ -486,6 +489,8 @@ class BaseLSTNetModel(LightningModule):
         self.output_size = kwargs.get('output_size', 24)
 
         if self.trial:
+            self.hparams.sigma = self.trial.suggest_float(
+                "sigma", 0.5, 1.5)
             self.hparams.filter_size = self.trial.suggest_int(
                 "filter_size", 1, 5, step=2)
             self.hparams.hidRNN = self.trial.suggest_int(
@@ -527,7 +532,7 @@ class BaseLSTNetModel(LightningModule):
         # self.act = nn.ReLU()
 
         # self.loss = nn.MSELoss()
-        self.loss = MCCRLoss(sigma=1.0)
+        self.loss = MCCRLoss(sigma=self.hparams.sigma)
         #self.loss = nn.L1Loss()
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")

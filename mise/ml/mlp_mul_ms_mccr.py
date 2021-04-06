@@ -127,8 +127,8 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
 
     # Hyper parameter
     epoch_size = 500
-    batch_size = 128
-    learning_rate = 1e-4
+    batch_size = 64
+    learning_rate = 1e-3
 
     # Blocked Cross Validation
     # neglect small overlap between train_dates and valid_dates
@@ -238,6 +238,7 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
 
         # num_layer == number of hidden layer
         hparams = Namespace(
+            sigma=1.0,
             num_layers=4,
             layer_size=1024,
             learning_rate=learning_rate,
@@ -338,6 +339,7 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
+            hparams.sigma = trial.params['sigma']
             hparams.num_layers = trial.params['num_layers']
             hparams.layer_size = trial.params['layer_size']
 
@@ -408,7 +410,9 @@ class BaseMLPModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get('hparams', Namespace(
-            num_layers=1,
+            sigma=1.0,
+            num_layers=4,
+            layer_size=128,
             learning_rate=1e-3,
             batch_size=32))
 
@@ -455,7 +459,8 @@ class BaseMLPModel(LightningModule):
         # num_layer == number of hidden layer
         self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
-            # if trial, there is no element of layer name such as "layer0_size"
+            self.hparams.sigma = self.trial.suggest_float(
+                "sigma", 0.5, 1.5)
             self.hparams.num_layers = self.trial.suggest_int(
                 "num_layers", 2, 8)
             self.hparams.layer_size = self.trial.suggest_int(
@@ -489,7 +494,7 @@ class BaseMLPModel(LightningModule):
 
         self.dropout = nn.Dropout(p=0.2)
         # self.loss = nn.MSELoss()
-        self.loss = MCCRLoss(sigma=1.0)
+        self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
 
         log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
