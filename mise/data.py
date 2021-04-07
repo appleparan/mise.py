@@ -78,7 +78,7 @@ def load_imputed(filepath="/input/input.csv", datecol=[1]):
 
 def load_station(df, code=111123):
     #return df[df['stationCode'] == code]
-    return df.query('stationCode == "' + str(code) + '"')
+    return df.query(f'stationCode == {code}')
 
 class BaseDataset(Dataset):
     def __init__(self, *args, **kwargs):
@@ -118,8 +118,7 @@ class BaseDataset(Dataset):
                              index_col=[0, 1],
                              parse_dates=[1])
         # filter by station_name
-        self._df = raw_df.query('stationCode == "' +
-                                str(SEOUL_STATIONS[self.station_name]) + '"')
+        self._df = raw_df.query(f'stationCode == {SEOUL_STATIONS[self.station_name]}')
         self._df.reset_index(level='stationCode', drop=True, inplace=True)
 
         # filter by date range including train date
