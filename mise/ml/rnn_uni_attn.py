@@ -25,8 +25,9 @@ from torch.utils.tensorboard import SummaryWriter
 import pytorch_lightning as pl
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import Callback, EarlyStopping
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.callbacks import Callback
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import sklearn.metrics
 
@@ -99,14 +100,14 @@ def ml_rnn_uni_attn(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 24
+    n_trials = 16
     # fast_dev_run = True
     # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
     batch_size = 64
-    learning_rate = 1e-3
+    learning_rate = 1e-4
 
     # Blocked Cross Validation
     # neglect small overlap between train_dates and valid_dates
@@ -148,6 +149,8 @@ def ml_rnn_uni_attn(station_name="종로구"):
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
+        log_dir = output_dir / "log"
+        Path.mkdir(log_dir, parents=True, exist_ok=True)
 
         _df_h = data.load_imputed(HOURLY_DATA_PATH)
         df_h = _df_h.query('stationCode == "' +
@@ -232,12 +235,8 @@ def ml_rnn_uni_attn(station_name="종로구"):
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
                               min_epochs=1, max_epochs=20,
-                              early_stop_callback=PyTorchLightningPruningCallback(
-                                    trial, monitor="val_loss"),
                               default_root_dir=output_dir,
                               fast_dev_run=fast_dev_run,
-                              logger=model.logger,
-                              row_log_interval=10,
                               checkpoint_callback=False,
                               callbacks=[metrics_callback, PyTorchLightningPruningCallback(
                                     trial, monitor="val_loss")])
@@ -331,14 +330,19 @@ def ml_rnn_uni_attn(station_name="종로구"):
             verbose=True,
             mode='min')
 
+        log_version = dt.date.today().strftime("%y%m%d-%H-%M")
+        loggers = [ \
+            TensorBoardLogger(log_dir, version=log_version),
+            CSVLogger(log_dir, version=log_version)]
+
         trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                           precision=32,
                           min_epochs=1, max_epochs=epoch_size,
-                          early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
                           fast_dev_run=fast_dev_run,
-                          logger=model.logger,
+                          logger=loggers,
                           row_log_interval=10,
+                          callbacks=[early_stop_callback],
                           checkpoint_callback=checkpoint_callback)
 
         trainer.fit(model)
@@ -590,20 +594,13 @@ class BaseAttentionModel(LightningModule):
 
         if self.trial:
             self.hparams.sigma = self.trial.suggest_float(
-                "sigma", 0.5, 1.5)
+                "sigma", 0.8, 1.5, step=0.05)
             self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 4, 32)
+                "hidden_size", 4, 64)
 
         # self.loss = nn.MSELoss()
         self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
-
-        self._train_set = None
-        self._valid_set = None
-        self._test_set = None
-
-        log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
-        self.logger = TensorBoardLogger(self.log_dir, name=log_name)
 
         self.train_logs = {}
         self.valid_logs = {}
@@ -688,6 +685,7 @@ class BaseAttentionModel(LightningModule):
         _log['loss'] = float(avg_loss.detach().cpu())
 
         self.train_logs[self.current_epoch] = _log
+        self.log('train_loss', avg_loss)
 
         return {'train_loss': avg_loss, 'log': tensorboard_logs}
 
@@ -726,6 +724,7 @@ class BaseAttentionModel(LightningModule):
         _log['loss'] = float(avg_loss.detach().cpu())
 
         self.valid_logs[self.current_epoch] = _log
+        self.log('valid_loss', avg_loss)
 
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
