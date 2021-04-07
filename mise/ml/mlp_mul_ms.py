@@ -25,8 +25,9 @@ from torch.utils.tensorboard import SummaryWriter
 import pytorch_lightning as pl
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import Callback, EarlyStopping
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.callbacks import Callback
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import sklearn.metrics
 
@@ -67,10 +68,10 @@ def construct_dataset(fdate, tdate,
     scaler_X=None, scaler_Y=None,
     filepath=HOURLY_DATA_PATH, station_name='종로구', target='PM10',
     sample_size=48, output_size=24,
-    features=["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+    features=["SO2", "CO", "NO2", "PM10", "PM25",
                       "temp", "wind_spd", "wind_cdir", "wind_sdir",
                       "pres", "humid", "prep"],
-    features_periodic=["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
+    features_periodic=["SO2", "CO", "NO2", "PM10", "PM25", "temp",
                                 "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"],
     features_nonperiodic=["prep"],
     transform=True):
@@ -119,7 +120,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 144
+    n_trials = 72
     # fast_dev_run = True
     # n_trials = 1
 
@@ -162,10 +163,10 @@ def ml_mlp_mul_ms(station_name="종로구"):
     assert test_fdate > train_dates[-1][1]
     assert test_fdate > valid_dates[-1][1]
 
-    train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+    train_features = ["SO2", "CO", "NO2", "PM10", "PM25",
                       "temp", "wind_spd", "wind_cdir", "wind_sdir",
                       "pres", "humid", "prep"]
-    train_features_periodic = ["SO2", "CO", "O3", "NO2", "PM10", "PM25", "temp",
+    train_features_periodic = ["SO2", "CO", "NO2", "PM10", "PM25", "temp",
                                 "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid"]
     train_features_nonperiodic = ["prep"]
 
@@ -175,6 +176,8 @@ def ml_mlp_mul_ms(station_name="종로구"):
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
+        log_dir = output_dir / "log"
+        Path.mkdir(log_dir, parents=True, exist_ok=True)
 
         _df_h = data.load_imputed(HOURLY_DATA_PATH)
         df_h = _df_h.query('stationCode == "' +
@@ -187,6 +190,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
             df_h.to_csv("/input/python/input_jongno_imputed_hourly_pandas.csv")
 
         # construct dataset for seasonality
+        print("Construct Train/Validation Sets...", flush=True)
         train_valid_dataset = construct_dataset(train_valid_fdate, train_valid_tdate,
             filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
             sample_size=sample_size, output_size=output_size, transform=False)
@@ -196,6 +200,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
          # For Block Cross Validation..
         # load dataset in given range dates and transform using scaler from train_valid_set
         # all dataset are saved in tuple
+        print("Construct Training Sets...", flush=True)
         train_datasets = tuple(construct_dataset(td[0], td[1],
                                                 scaler_X=train_valid_dataset.scaler_X,
                                                 scaler_Y=train_valid_dataset.scaler_Y,
@@ -206,6 +211,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
                                                 features_nonperiodic=train_features_nonperiodic,
                                                 transform=True) for td in train_dates)
 
+        print("Construct Validation Sets...", flush=True)
         valid_datasets = tuple(construct_dataset(vd[0], vd[1],
                                                 scaler_X=train_valid_dataset.scaler_X,
                                                 scaler_Y=train_valid_dataset.scaler_Y,
@@ -217,6 +223,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
                                                 transform=True) for vd in valid_dates)
 
         # just single test set
+        print("Construct Test Sets...", flush=True)
         test_dataset = construct_dataset(test_fdate, test_tdate,
                                         scaler_X=train_valid_dataset.scaler_X,
                                         scaler_Y=train_valid_dataset.scaler_Y,
@@ -273,13 +280,10 @@ def ml_mlp_mul_ms(station_name="종로구"):
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
                               min_epochs=1, max_epochs=20,
-                              early_stop_callback=PyTorchLightningPruningCallback(
-                                  trial, monitor="val_loss"),
                               default_root_dir=output_dir,
                               fast_dev_run=fast_dev_run,
-                              logger=model.logger,
-                              row_log_interval=10,
-                              checkpoint_callback=checkpoint_callback,
+                              logger=False,
+                              checkpoint_callback=False,
                               callbacks=[metrics_callback, PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss")])
 
@@ -382,21 +386,27 @@ def ml_mlp_mul_ms(station_name="종로구"):
             verbose=True,
             mode='min')
 
+        log_version = dt.date.today().strftime("%y%m%d-%H-%M")
+        loggers = [ \
+            TensorBoardLogger(log_dir, version=log_version),
+            CSVLogger(log_dir, version=log_version)]
+
         # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                           precision=32,
                           min_epochs=1, max_epochs=epoch_size,
-                          early_stop_callback=early_stop_callback,
                           default_root_dir=output_dir,
                           fast_dev_run=fast_dev_run,
-                          logger=model.logger,
-                          row_log_interval=10,
+                          logger=loggers,
+                          log_every_n_steps=5,
+                          flush_logs_every_n_steps=10,
+                          callbacks=[early_stop_callback],
                           checkpoint_callback=checkpoint_callback)
 
         trainer.fit(model)
 
         # run test set
-        trainer.test()
+        trainer.test(ckpt_path=None)
 
         shutil.rmtree(model_dir)
 
@@ -411,11 +421,11 @@ class BaseMLPModel(LightningModule):
 
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
-        self.features = kwargs.get('features', ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+        self.features = kwargs.get('features', ["SO2", "CO", "NO2", "PM10", "PM25",
                                         "temp", "wind_spd", "wind_cdir", "wind_sdir",
                                         "pres", "humid", "prep"])
         self.features_periodic = kwargs.get('features_periodic',
-                                            ["SO2", "CO", "O3", "NO2", "PM10", "PM25"])
+                                            ["SO2", "CO", "NO2", "PM10", "PM25"])
         self.features_nonperiodic = kwargs.get('features_nonperiodic',
                                             ["temp", "wind_spd", "wind_cdir", "wind_sdir",
                                             "pres", "humid", "prep"])
@@ -423,8 +433,6 @@ class BaseMLPModel(LightningModule):
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
             'output_dir', Path('/mnt/data/MLPMS2Multivariate/'))
-        self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
-        Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.png_dir = kwargs.get(
             'plot_dir', self.output_dir / Path('png/'))
         Path.mkdir(self.png_dir, parents=True, exist_ok=True)
@@ -439,10 +447,6 @@ class BaseMLPModel(LightningModule):
         self.val_dataset = kwargs.get('val_dataset', None)
         self.test_dataset = kwargs.get('test_dataset', None)
 
-        # Set ColumnTransformer if provided
-        self._scaler_X = kwargs.get('scaler_X', None)
-        self._scaler_Y = kwargs.get('scaler_Y', None)
-
         self.trial = kwargs.get('trial', None)
         self.sample_size = kwargs.get('sample_size', 48)
         self.output_size = kwargs.get('output_size', 24)
@@ -453,11 +457,11 @@ class BaseMLPModel(LightningModule):
         self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
             self.hparams.sigma = self.trial.suggest_float(
-                "sigma", 0.5, 1.5)
+                "sigma", 0.8, 1.5, step=0.05)
             self.hparams.num_layers = self.trial.suggest_int(
                 "num_layers", 2, 8)
             self.hparams.layer_size = self.trial.suggest_int(
-                "layer_size", 8, 512)
+                "layer_size", 8, 1024)
 
         for l in range(self.hparams.num_layers):
             # insert another layer_size to end of list of layer_size
@@ -489,13 +493,12 @@ class BaseMLPModel(LightningModule):
         self.loss = nn.MSELoss()
         # self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
-        # self.loss2 = nn.KLDivLoss(reduction='batchmean')
-
-        log_name = self.target + "_" + dt.date.today().strftime("%y%m%d-%H-%M")
-        self.logger = TensorBoardLogger(self.log_dir, name=log_name)
 
         self.train_logs = {}
         self.valid_logs = {}
+
+        self.df_obs = pd.DataFrame()
+        self.df_sim = pd.DataFrame()
 
     def forward(self, x, x1d):
         # vectorize
@@ -552,7 +555,10 @@ class BaseMLPModel(LightningModule):
 
         self.train_logs[self.current_epoch] = _log
 
-        return {'train_loss': avg_loss, 'log': tensorboard_logs}
+        self.log('train/loss', tensorboard_logs['train/loss'], prog_bar=True)
+        self.log('train/MSE', tensorboard_logs['train/MSE'], on_epoch=True, logger=self.logger)
+        self.log('train/MAE', tensorboard_logs['train/MAE'], on_epoch=True, logger=self.logger)
+        self.log('train/avg_loss', _log['loss'], on_epoch=True, logger=self.logger)
 
     def validation_step(self, batch, batch_idx):
         x, x1d, _y, _y_raw, dates = batch
@@ -590,7 +596,9 @@ class BaseMLPModel(LightningModule):
 
         self.valid_logs[self.current_epoch] = _log
 
-        return {'val_loss': avg_loss, 'log': tensorboard_logs}
+        self.log('valid/MSE', tensorboard_logs['valid/MSE'], on_epoch=True, logger=self.logger)
+        self.log('valid/MAE', tensorboard_logs['valid/MAE'], on_epoch=True, logger=self.logger)
+        self.log('valid/loss', _log['loss'], on_epoch=True, logger=self.logger)
 
     def test_step(self, batch, batch_idx):
         x, x1d, _y, _y_raw, dates = batch
@@ -664,12 +672,12 @@ class BaseMLPModel(LightningModule):
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean()
         tensorboard_logs['step'] = self.current_epoch
 
-        return {
-            'test_loss': avg_loss,
-            'log': tensorboard_logs,
-            'obs': df_obs,
-            'sim': df_sim,
-        }
+        self.log('test/MSE', tensorboard_logs['test/MSE'], on_epoch=True, logger=self.logger)
+        self.log('test/MAE', tensorboard_logs['test/MAE'], on_epoch=True, logger=self.logger)
+        self.log('test/loss', avg_loss, on_epoch=True, logger=self.logger)
+
+        self.df_obs = df_obs
+        self.df_sim = df_sim
 
     def single_batch_to_df(self, ys, y_hats, dates, cols):
         # single batch to dataframe
