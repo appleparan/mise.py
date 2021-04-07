@@ -53,17 +53,6 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-class MetricsCallback(Callback):
-    """PyTorch Lightning metric callback."""
-
-    def __init__(self):
-        super().__init__()
-        self.metrics = []
-
-    def on_validation_end(self, trainer, pl_module):
-        self.metrics.append(trainer.callback_metrics)
-
-
 def construct_dataset(fdate, tdate,
     scaler_X=None, scaler_Y=None,
     filepath=HOURLY_DATA_PATH, station_name='종로구', target='PM10',
@@ -246,11 +235,6 @@ def ml_mlp_mul_ms(station_name="종로구"):
             learning_rate=learning_rate,
             batch_size=batch_size)
 
-        # The default logger in PyTorch Lightning writes to event files to be consumed by
-        # TensorBoard. We don't use any logger here as it requires us to implement several abstract
-        # methods. Instead we setup a simple callback, that saves metrics from each validation step.
-        metrics_callback = MetricsCallback()
-
         def objective(trial):
             # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
             # filenames match. Therefore, the filenames for each trial must be made unique.
@@ -284,12 +268,16 @@ def ml_mlp_mul_ms(station_name="종로구"):
                               fast_dev_run=fast_dev_run,
                               logger=False,
                               checkpoint_callback=False,
-                              callbacks=[metrics_callback, PyTorchLightningPruningCallback(
+                              callbacks=[PyTorchLightningPruningCallback(
                                   trial, monitor="val_loss")])
 
             trainer.fit(model)
 
-            return metrics_callback.metrics[-1]["val_loss"].item()
+            # Don't Log
+            # hyperparameters = model.hparams
+            # trainer.logger.log_hyperparams(hyperparameters)
+
+            return trainer.callback_metrics["valid/MSE"].item()
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")

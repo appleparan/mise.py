@@ -48,16 +48,6 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-class MetricsCallback(Callback):
-    """PyTorch Lightning metric callback."""
-
-    def __init__(self):
-        super().__init__()
-        self.metrics = []
-
-    def on_validation_end(self, trainer, pl_module):
-        self.metrics.append(trainer.callback_metrics)
-
 def construct_dataset(fdate, tdate,
     scaler_X=None, scaler_Y=None,
     filepath=HOURLY_DATA_PATH, station_name='종로구', target='PM10',
@@ -102,7 +92,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
     fast_dev_run = False
     n_trials = 16
     # fast_dev_run = True
-    # n_trials = 1
+    # n_trials = 3
 
     # Hyper parameter
     epoch_size = 500
@@ -201,17 +191,12 @@ def ml_rnn_uni_attn(station_name="종로구"):
         train_dataset = ConcatDataset(train_datasets)
         val_dataset = ConcatDataset(valid_datasets)
 
+        # Dummy hyperparameters
         hparams = Namespace(
             sigma=1.0,
             hidden_size=32,
             learning_rate=learning_rate,
             batch_size=batch_size)
-
-        # The default logger in PyTorch Lightning writes to event files to be consumed by
-        # TensorBoard. We don't use any logger here as it requires us to implement several abstract
-        # methods. Instead we setup a simple callback, that saves metrics from each validation step.
-        # metrics_callback = [MetricsCallback() for _ in range(len(train_dates_opt))]
-        metrics_callback = MetricsCallback()
 
         def objective(trial):
             model = BaseAttentionModel(trial=trial,
@@ -238,12 +223,16 @@ def ml_rnn_uni_attn(station_name="종로구"):
                               fast_dev_run=fast_dev_run,
                               logger=False,
                               checkpoint_callback=False,
-                              callbacks=[metrics_callback, PyTorchLightningPruningCallback(
+                              callbacks=[PyTorchLightningPruningCallback(
                                     trial, monitor="val_loss")])
 
             trainer.fit(model)
 
-            return metrics_callback.metrics[-1]["val_loss"].item()
+            # Don't Log
+            # hyperparameters = model.hparams
+            # trainer.logger.log_hyperparams(hyperparameters)
+
+            return trainer.callback_metrics["valid/MSE"].item()
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
