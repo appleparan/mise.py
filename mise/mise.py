@@ -13,20 +13,15 @@ from stats.analysis import stats_analysis
 #from ml.dnn import ml_dnn
 from ml.mlp_uni import ml_mlp_uni
 from ml.mlp_uni_ms import ml_mlp_uni_ms
-from ml.rnn_uni_seq2seq import ml_rnn_uni_seq2seq
 from ml.rnn_uni_attn import ml_rnn_uni_attn
 
-from ml.mlp_mul import ml_mlp_mul
+from ml.xgboost import ml_xgboost
 from ml.mlp_mul_ms import ml_mlp_mul_ms
 from ml.mlp_mul_ms_mccr import ml_mlp_mul_ms_mccr
-from ml.rnn_mul_lstnet_attn import ml_rnn_mul_lstnet_attn
 from ml.rnn_mul_lstnet_skip import ml_rnn_mul_lstnet_skip
 from ml.rnn_mul_lstnet_skip_mccr import ml_rnn_mul_lstnet_skip_mccr
-from ml.rnn_mul_tpa_attn import ml_rnn_mul_tpa_attn
-from ml.rnn_mul_tpa_attn_general import ml_rnn_mul_tpa_attn_general
 from ml.mlp_mul_transformer import ml_mlp_mul_transformer
 from ml.mlp_mul_transformer_mccr import ml_mlp_mul_transformer_mccr
-from ml.xgboost import ml_xgboost
 
 """
     plot(args)
