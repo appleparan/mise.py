@@ -594,8 +594,8 @@ class BaseAttentionModel(LightningModule):
             self.hparams.hidden_size = self.trial.suggest_int(
                 "hidden_size", 4, 32)
 
-        self.loss = nn.MSELoss()
-        # self.loss = MCCRLoss(sigma=self.hparams.sigma)
+        # self.loss = nn.MSELoss()
+        self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
 
         self._train_set = None
