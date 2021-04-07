@@ -99,7 +99,7 @@ def construct_dataset(fdate, tdate,
     return data_set
 
 def ml_mlp_mul_ms_mccr(station_name="종로구"):
-    print("Start Multivariate MLP Mean Seasonality Decomposition Model")
+    print("Start Multivariate MLP Mean Seasonality Decomposition (MCCR) Model")
     targets = ["PM10", "PM25"]
     # targets = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
     #                   "temp", "u", "v", "pres", "humid", "prep", "snow"]

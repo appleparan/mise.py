@@ -52,15 +52,6 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-class MetricsCallback(Callback):
-    """PyTorch Lightning metric callback."""
-
-    def __init__(self):
-        super().__init__()
-        self.metrics = []
-
-    def on_validation_end(self, trainer, pl_module):
-        self.metrics.append(trainer.callback_metrics)
 
 def construct_dataset(fdate, tdate,
     scaler_X=None, scaler_Y=None,
@@ -110,7 +101,7 @@ def construct_dataset(fdate, tdate,
     return data_set
 
 def ml_mlp_mul_transformer(station_name="종로구"):
-    print("Start Multivariate Transformer + Seasonality Embedding Model")
+    print("Start Multivariate Transformer Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
     sample_size = 24*2

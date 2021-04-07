@@ -101,7 +101,7 @@ def construct_dataset(fdate, tdate,
     return data_set
 
 def ml_mlp_mul_transformer_mccr(station_name="종로구"):
-    print("Start Multivariate Transformer + Seasonality Embedding Model")
+    print("Start Multivariate Transformer (MCCR) Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
     sample_size = 24*2
@@ -163,7 +163,7 @@ def ml_mlp_mul_transformer_mccr(station_name="종로구"):
 
     for target in targets:
         print("Training " + target + "...")
-        output_dir = Path(f"/mnt/data/MLPTransformerMultivariate/{station_name}/{target}/")
+        output_dir = Path(f"/mnt/data/MLPTransformerMCCRMultivariate/{station_name}/{target}/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
