@@ -112,19 +112,18 @@ def ml_rnn_uni_attn_mccr(station_name="종로구"):
         (dt.datetime(2012, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 12, 31, 23).astimezone(SEOULTZ)),
         (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
         (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
-
-    # Debug
-    # train_dates = [
-    #     (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
-    #     (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
-    # valid_dates = [
-    #     (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
-    #     (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
-    # train_valid_fdate = dt.datetime(2013, 1, 1, 1).astimezone(SEOULTZ)
-    # train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
-
     train_valid_fdate = dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ)
     train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+
+    # Debug
+    if fast_dev_run:
+        train_dates = [
+            (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
+        valid_dates = [
+            (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
+        train_valid_fdate = dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ)
+        train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
 
@@ -220,10 +219,10 @@ def ml_rnn_uni_attn_mccr(station_name="종로구"):
                               min_epochs=1, max_epochs=20,
                               default_root_dir=output_dir,
                               fast_dev_run=fast_dev_run,
-                              logger=False,
+                              logger=True,
                               checkpoint_callback=False,
                               callbacks=[PyTorchLightningPruningCallback(
-                                    trial, monitor="val_loss")])
+                                    trial, monitor="valid/MSE")])
 
             trainer.fit(model)
 
@@ -231,13 +230,13 @@ def ml_rnn_uni_attn_mccr(station_name="종로구"):
             # hyperparameters = model.hparams
             # trainer.logger.log_hyperparams(hyperparameters)
 
-            return trainer.callback_metrics["valid/MSE"]
+            return trainer.callback_metrics.get("valid/MSE")
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
             # timeout = 3600*36 = 36h
-            study.optimize(lambda trial: objective(
-                trial), n_trials=n_trials, timeout=3600*36)
+            study.optimize(objective,
+                n_trials=n_trials, timeout=3600*36)
 
             trial = study.best_trial
 
@@ -674,10 +673,10 @@ class BaseAttentionModel(LightningModule):
 
         self.train_logs[self.current_epoch] = _log
 
-        self.log('train/loss', tensorboard_logs['train/loss'].item(), prog_bar=True)
+        # self.log('train/loss', tensorboard_logs['train/loss'].item(), prog_bar=True)
         self.log('train/MSE', tensorboard_logs['train/MSE'].item(), on_epoch=True, logger=self.logger)
         self.log('train/MAE', tensorboard_logs['train/MAE'].item(), on_epoch=True, logger=self.logger)
-        self.log('train/avg_loss', _log['loss'].item(), on_epoch=True, logger=self.logger)
+        self.log('train/loss', _log['loss'], on_epoch=True, logger=self.logger)
 
     def validation_step(self, batch, batch_idx):
         # x, _y0, _y, dates = batch
