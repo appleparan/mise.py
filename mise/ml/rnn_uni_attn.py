@@ -215,7 +215,6 @@ def ml_rnn_uni_attn(station_name="종로구"):
                                        output_dir=output_dir)
 
             # most basic trainer, uses good defaults
-            # TODO: PytorchLightningPruningCallback wheree to put?
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
                               min_epochs=1, max_epochs=20,
