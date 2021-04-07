@@ -52,15 +52,6 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-class MetricsCallback(Callback):
-    """PyTorch Lightning metric callback."""
-
-    def __init__(self):
-        super().__init__()
-        self.metrics = []
-
-    def on_validation_end(self, trainer, pl_module):
-        self.metrics.append(trainer.callback_metrics)
 
 def construct_dataset(fdate, tdate,
     scaler_X=None, scaler_Y=None,
@@ -109,7 +100,7 @@ def construct_dataset(fdate, tdate,
 
     return data_set
 
-def ml_mlp_mul_transformer(station_name="종로구"):
+def ml_mlp_mul_transformer_mccr(station_name="종로구"):
     print("Start Multivariate Transformer + Seasonality Embedding Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
@@ -244,6 +235,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
 
         # Dummy hyperparameters
         hparams = Namespace(
+            sigma=0.6,
             nhead=8,
             head_dim=128,
             d_feedforward=256,
@@ -354,6 +346,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
+            hparams.sigma = trial.params['sigma']
             hparams.nhead = trial.params['nhead']
             hparams.head_dim = trial.params['head_dim']
             hparams.d_feedforward = trial.params['d_feedforward']
@@ -553,6 +546,8 @@ class BaseTransformerModel(LightningModule):
         self.output_size = kwargs.get('output_size', 24)
 
         if self.trial:
+            self.hparams.sigma = self.trial.suggest_float(
+                "sigma", 0.8, 1.5, step=0.05)
             self.hparams.head_dim = self.trial.suggest_int(
                 "head_dim", 8, 128)
             self.hparams.nhead = self.trial.suggest_int(
@@ -598,7 +593,8 @@ class BaseTransformerModel(LightningModule):
 
         self.act = nn.ReLU()
 
-        self.loss = nn.MSELoss()
+        # self.loss = nn.MSELoss()
+        self.loss = MCCRLoss(sigma=self.hparams.sigma)
         #self.loss = nn.L1Loss()
 
         self.train_logs = {}
@@ -1280,6 +1276,30 @@ def swish(_input, beta=1.0):
     return _input * beta * torch.sigmoid(_input)
 
 
+
+class MCCRLoss(nn.Module):
+    def __init__(self, sigma=1.0):
+        super().__init__()
+        # save sigma
+        assert sigma > 0
+        self.sigma2 = sigma**2
+
+    def forward(self, _input: torch.Tensor, _target: torch.Tensor) -> torch.Tensor:
+        """
+        Implement maximum correntropy criterion for regression
+
+        loss(y, t) = sigma^2 * (1.0 - exp(-(y-t)^2/sigma^2))
+
+        where sigma > 0 (parameter)
+
+        Reference:
+            * Feng, Yunlong, et al. "Learning with the maximum correntropy criterion induced losses for regression." J. Mach. Learn. Res. 16.1 (2015): 993-1034.
+        """
+
+        return torch.mean(
+            self.sigma2 * (1-torch.exp(-(_input - _target)**2 / self.sigma2)))
+
+
 class LogCoshLoss(nn.Module):
     __constants__ = ['reduction']
 
@@ -1304,16 +1324,6 @@ class LogCoshLoss(nn.Module):
 
         return torch.mean(_log_cosh(input - target))
 
-
-class RMSELoss(nn.Module):
-    def __init__(self, eps=1e-16):
-        super().__init__()
-        self.mse = nn.MSELoss()
-        self.eps = eps
-
-    def forward(self, yhat, y):
-        loss = torch.sqrt(self.mse(yhat, y) + self.eps)
-        return loss
 
 class RMSLELoss(nn.Module):
     def __init__(self, eps=1e-16):
