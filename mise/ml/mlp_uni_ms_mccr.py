@@ -54,7 +54,7 @@ def construct_dataset(fdate, tdate,
     sample_size=48, output_size=24,
     transform=True):
     if scaler_X == None or scaler_Y == None:
-        data_set = data.UnivariateRNNMeanSeasonalityDataset(
+        data_set = data.UnivariateMeanSeasonalityDataset(
             station_name=station_name,
             target=target,
             filepath=filepath,
@@ -64,7 +64,7 @@ def construct_dataset(fdate, tdate,
             sample_size=sample_size,
             output_size=output_size)
     else:
-        data_set = data.UnivariateRNNMeanSeasonalityDataset(
+        data_set = data.UnivariateMeanSeasonalityDataset(
             station_name=station_name,
             target=target,
             filepath=filepath,
@@ -81,8 +81,8 @@ def construct_dataset(fdate, tdate,
 
     return data_set
 
-def ml_rnn_uni_attn(station_name="종로구"):
-    print("Start Univariate Attention Model")
+def ml_mlp_uni_ms_mccr(station_name="종로구"):
+    print("Start Univariate MLP Mean Seasonality Decomposition (MCCR) Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
     #sample_size = 336
@@ -90,7 +90,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 16
+    n_trials = 24
     # fast_dev_run = True
     # n_trials = 3
 
@@ -135,9 +135,12 @@ def ml_rnn_uni_attn(station_name="종로구"):
     assert test_fdate > train_dates[-1][1]
     assert test_fdate > valid_dates[-1][1]
 
+    train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+                      "temp", "u", "v", "pres", "humid", "prep", "snow"]
+
     for target in targets:
         print("Training " + target + "...", flush=True)
-        output_dir = Path(f"/mnt/data/RNNAttentionUnivariate/{station_name}/{target}/")
+        output_dir = Path(f"/mnt/data/MLPMSMCCRUnivariate/{station_name}/{target}/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
@@ -192,28 +195,33 @@ def ml_rnn_uni_attn(station_name="종로구"):
         val_dataset = ConcatDataset(valid_datasets)
 
         # Dummy hyperparameters
+        # num_layer == number of hidden layer
         hparams = Namespace(
-            hidden_size=32,
+            sigma=1.0,
+            num_layers=2,
+            layer_size=64,
             learning_rate=learning_rate,
             batch_size=batch_size)
 
         def objective(trial):
-            model = BaseAttentionModel(trial=trial,
-                                       hparams=hparams,
-                                       input_size=1,
-                                       sample_size=sample_size,
-                                       output_size=output_size,
-                                       station_name=station_name,
-                                       target=target,
-                                       features=[target],
-                                       train_dataset=train_dataset,
-                                       val_dataset=val_dataset,
-                                       test_dataset=test_dataset,
-                                       scaler_X=train_valid_dataset.scaler_X,
-                                       scaler_Y=train_valid_dataset.scaler_Y,
-                                       output_dir=output_dir)
+            # models are independent from dataset and dates
+            model = BaseMLPModel(trial=trial,
+                                 hparams=hparams,
+                                 input_size=sample_size,
+                                 sample_size=sample_size,
+                                 output_size=output_size,
+                                 station_name=station_name,
+                                 target=target,
+                                 features=[target],
+                                 train_dataset=train_dataset,
+                                 val_dataset=val_dataset,
+                                 test_dataset=test_dataset,
+                                 scaler_X=train_valid_dataset.scaler_X,
+                                 scaler_Y=train_valid_dataset.scaler_Y,
+                                 output_dir=output_dir)
 
             # most basic trainer, uses good defaults
+            # TODO: PytorchLightningPruningCallback wheree to put?
             trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                               precision=32,
                               min_epochs=1, max_epochs=20,
@@ -249,6 +257,13 @@ def ml_rnn_uni_attn(station_name="종로구"):
             print("output_size : ", output_size)
 
             # plot optmization results
+            fig_cont1 = optv.plot_contour(
+                study, params=['num_layers', 'layer_size'])
+            fig_cont1.write_image(
+                str(output_dir / "contour_num_layers_layer_size.png"))
+            fig_cont1.write_image(
+                str(output_dir / "contour_num_layers_layer_size.svg"))
+
             fig_edf = optv.plot_edf(study)
             fig_edf.write_image(str(output_dir / "edf.png"))
             fig_edf.write_image(str(output_dir / "edf.svg"))
@@ -262,17 +277,19 @@ def ml_rnn_uni_attn(station_name="종로구"):
             fig_his.write_image(str(output_dir / "opt_history.svg"))
 
             fig_pcoord = optv.plot_parallel_coordinate(
-                study, params=['hidden_size'])
+                study, params=['num_layers', 'layer_size'])
             fig_pcoord.write_image(str(output_dir / "parallel_coord.png"))
             fig_pcoord.write_image(str(output_dir / "parallel_coord.svg"))
 
             fig_slice = optv.plot_slice(
-                study, params=['hidden_size'])
+                study, params=['num_layers', 'layer_size'])
             fig_slice.write_image(str(output_dir / "slice.png"))
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
-            hparams.hidden_size = trial.params['hidden_size']
+            hparams.sigma = trial.params['sigma']
+            hparams.num_layers = trial.params['num_layers']
+            hparams.layer_size = trial.params['layer_size']
 
             dict_hparams = copy.copy(vars(hparams))
             dict_hparams["sample_size"] = sample_size
@@ -282,19 +299,19 @@ def ml_rnn_uni_attn(station_name="종로구"):
             with open(output_dir / 'hparams.csv', 'w') as f:
                 print(pd.DataFrame.from_dict(dict_hparams, orient='index'), file=f)
 
-        model = BaseAttentionModel(hparams=hparams,
-                                   input_size=1,
-                                   sample_size=sample_size,
-                                   output_size=output_size,
-                                   station_name=station_name,
-                                   target=target,
-                                   features=[target],
-                                   train_dataset=train_dataset,
-                                   val_dataset=val_dataset,
-                                   test_dataset=test_dataset,
-                                   scaler_X=train_valid_dataset.scaler_X,
-                                   scaler_Y=train_valid_dataset.scaler_Y,
-                                   output_dir=output_dir)
+        model = BaseMLPModel(hparams=hparams,
+                             input_size=sample_size,
+                             sample_size=sample_size,
+                             output_size=output_size,
+                             station_name=station_name,
+                             target=target,
+                             features=[target],
+                             train_dataset=train_dataset,
+                             val_dataset=val_dataset,
+                             test_dataset=test_dataset,
+                             scaler_X=train_valid_dataset.scaler_X,
+                             scaler_Y=train_valid_dataset.scaler_Y,
+                             output_dir=output_dir)
 
         # record input
         for i, _train_set in enumerate(train_datasets):
@@ -321,6 +338,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
             TensorBoardLogger(log_dir, version=log_version),
             CSVLogger(log_dir, version=log_version)]
 
+        # most basic trainer, uses good defaults
         trainer = Trainer(gpus=1 if torch.cuda.is_available() else None,
                           precision=32,
                           min_epochs=1, max_epochs=epoch_size,
@@ -340,218 +358,22 @@ def ml_rnn_uni_attn(station_name="종로구"):
         shutil.rmtree(model_dir)
 
 
-class EncoderRNN(nn.Module):
-    """Encoder for Attention model
-
-    Args:
-        input_size : The number of expected features in the input x
-        hidden_size : The number of features in the hidden state h
-
-    Reference:
-        * Neural Machine Translation by Jointly Learning to Align and Translate, Bahdanau et al.
-        * https://github.com/bentrevett/pytorch-seq2seq
-    """
-    def __init__(self, input_size, hidden_size):
-        super().__init__()
-        self.hidden_size = hidden_size
-        # usually input_size == 1
-        # hidden_size is given at hparams
-
-        # GRU input 1 : (L, N, H_in)
-        #       where L : seq_len, N : batch_size, H_in : input_size (usually 1), the number of input feature
-        #       however, batch_first=True, (N, L, H_in)
-        # GRU output 1 : (L, N, H_all) where H_all = num_directions (== 1 now) * hidden_size
-        # GRU output 2 : (S, N, H_out) wehre S : num_layers * num_directions, H_out : hidden_size
-        self.gru = nn.GRU(input_size, hidden_size, batch_first=True)
-
-        self.fc = nn.Linear(hidden_size, hidden_size)
-
-    def forward(self, _input):
-        """Encode _input
-
-        Args:
-            _input: [batch_size, sample_size, input_size]
-
-        Returns:
-            outputs: [batch_size, sample_size, hidden]
-            hidden: [batch_size, num_layers * num_direction, hidden_size]
-        """
-        # no embedding
-        # _input: [batch_size, sample_size, input_size]
-        outputs, _hidden = self.gru(_input)
-
-        # create context vector for attention by simple linear layer
-        # _hidden: [batch_size, num_layers * num_direction, hidden_size]
-        # hidden: [batch_size, num_layers * num_direction, hidden_size]
-        hidden = torch.tanh(self.fc(_hidden))
-
-        # outputs: [batch_size, sample_size, num_directions*hidden_size]
-        # hidden: [num_layers * num_direction, batch_size, hidden_size]
-        return outputs, hidden
-
-
-class Attention(nn.Module):
-    """ Attention Layer merging Encoder and Decoder
-
-
-    Args:
-        hidden_size
-        hidden_size
-
-    Reference:
-        * https://github.com/bentrevett/pytorch-seq2seq
-    """
-    def __init__(self, hidden_size):
-        super().__init__()
-        # input: previous hidden state of decoder +
-        #   hidden state of encoder
-        # output: attention vector; length of source sentence
-        self.attn = nn.Linear(hidden_size +
-                              hidden_size, hidden_size)
-        self.v = nn.Linear(hidden_size, 1, bias=False)
-
-    def forward(self, hidden, encoder_outputs):
-        """
-        Args:
-            hidden: previous hidden state of the decoder [batch_size, hidden_size]
-            encoder_outputs: outputs of encoder  [batch_size, sample_size, num_directions*hidden_size]
-        """
-        # hidden: [num_layers * num_direction, batch_size, hidden_size]
-        # encoder_outputs = [batch_size, sample_size, num_directions*hidden_size]
-        # encoder_outputs: tensor containing the output features h_t from the 'last layer' of the GRU
-        batch_size = encoder_outputs.shape[0]
-        sample_size = encoder_outputs.shape[1]
-
-        # repeat decoder hidden state to sample_size times to compute energy with encoder_outputs
-        # hidden = [num_layers * num_direction, batch_size, hidden_size]
-        # ignore num_layers and num_direction (already 1)
-        hidden = hidden.squeeze(0)
-
-        # hidden = [batch size, sample_size, hidden_size]
-        hidden = hidden.unsqueeze(1).repeat(1, sample_size, 1)
-
-        # encoder_outputs = [batch size, sample_size, num_directions*hidden_size]
-        # energy: [batch size, sample_size, hidden_size]
-        energy = torch.tanh(
-            self.attn(torch.cat((hidden, encoder_outputs), dim=2)))
-
-        # energy = [batch size, sample_size, hidden_size]
-        attention = self.v(energy).squeeze(2)
-
-        # attention = [batch size, sample_size]
-        return F.softmax(attention, dim=1)
-
-
-class DecoderRNN(nn.Module):
-    """
-        Reference: https://github.com/bentrevett/pytorch-seq2seq
-    """
-
-    def __init__(self, output_size, hidden_size, attention):
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.output_size = output_size
-        self.attention = attention
-
-        # no embedding -> GRU input size is 1
-        self.gru = nn.GRU(hidden_size + 1, hidden_size)
-        self.out = nn.Linear(hidden_size + 1 + hidden_size, 1)
-
-    def forward(self, _input, hidden, encoder_outputs):
-        """
-        Args:
-            _input: [L, N, H_in] : (seq_len, batch_size, hidden_size)
-            hidden: previous hidden state of the decoder [batch_size, hidden_size]
-            encoder_outputs: outputs of encoder  [batch_size, sample_size, num_directions*hidden_size]
-
-        https://github.com/bentrevett/pytorch-seq2seq
-        Decoder : hidden state + context vector as input
-        """
-        # first input is output of key_date (where output starts)
-        # so actual output size is output_size + 1,
-        # we just truncated to output_size
-
-        # no embeding
-        # [batch_size, hidden_size] -> [1, batch_size, hidden_size]
-        _input = _input.unsqueeze(0)
-
-        # [batch size, sample_size]
-        a = self.attention(hidden, encoder_outputs)
-
-        # [batch size, 1, sample_size]
-        a = a.unsqueeze(1)
-
-        # encoder_outputs: [batch size, sample_size, hidden_size]
-        #encoder_outputs = encoder_outputs.permute(1, 0, 2)
-
-        # batch matrix multiplication for score function
-        # a = [batch size, 1, sample_size]
-        # encoder_outputs = [batch size, sample_size, hidden_size]
-        # matrix multiplication -> 1xsample_size * sample_sizexhidden_size
-        # weighted: [batch_size, 1, hidden_size]
-        weighted = torch.bmm(a, encoder_outputs)
-
-        # weighted: [1, batch size, hidden_size]
-        weighted = weighted.permute(1, 0, 2)
-
-        # _input: [1, batch_size, hidden_size]
-        # weighted: [1, batch size, hidden_size]
-        # rnn_input: [1, batch_size, hidden_size + hidden_size]
-        rnn_input = torch.cat((_input, weighted), dim = 2)
-
-        # do rnn with hidden state (initial hidden state = hidden state from encoder)
-        # rnn_input: [1, batch_size, hidden_size + hidden_size]
-        # output: [1, batch_size, hidden_size]
-        # hidden: [1, batch_size, hidden_size]
-        output, hidden = self.gru(rnn_input, hidden)
-
-        assert (output == hidden).all()
-
-        # prediction: [batch size, 1]
-        # swish
-        #cat_vec = torch.cat((output.squeeze(0), weighted.squeeze(0), _input.squeeze(0)), dim=1)
-        #prediction = self.out(swish(cat_vec))
-
-        # sigmoid
-        # cat_vec = torch.cat((output.squeeze(0), weighted.squeeze(0), _input.squeeze(0)), dim=1)
-        # prediction = self.out(torch.sigmoid(cat_vec))
-
-        # no activation
-        cat_vec = torch.cat((output.squeeze(0), weighted.squeeze(0), _input.squeeze(0)), dim=1)
-        prediction = self.out(cat_vec)
-
-        # current hidden state is a input of next hidden state
-        return prediction, hidden
-
-
-class BaseAttentionModel(LightningModule):
+class BaseMLPModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get('hparams', Namespace(
-            hidden_size=16,
+            sigma=1.0,
+            num_layers=1,
             learning_rate=1e-3,
-            batch_size=32
-        ))
+            batch_size=32))
 
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', [self.target])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
-        self.train_fdate = kwargs.get('train_fdate', dt.datetime(
-            2012, 1, 1, 0).astimezone(SEOULTZ))
-        self.train_tdate = kwargs.get('train_tdate', dt.datetime(
-            2016, 12, 31, 23).astimezone(SEOULTZ))
-        self.valid_fdate = kwargs.get('valid_fdate', dt.datetime(
-            2017, 1, 1, 0).astimezone(SEOULTZ))
-        self.valid_tdate = kwargs.get('valid_tdate', dt.datetime(
-            2018, 12, 31, 23).astimezone(SEOULTZ))
-        self.test_fdate = kwargs.get('test_fdate', dt.datetime(
-            2019, 1, 1, 0).astimezone(SEOULTZ))
-        self.test_tdate = kwargs.get('test_tdate', dt.datetime(
-            2020, 10, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
-            'output_dir', Path('/mnt/data/RNNAttnUnivariate/'))
+            'output_dir', Path('/mnt/data/MLPMS2Univariate/'))
         self.log_dir = kwargs.get('log_dir', self.output_dir / Path('log'))
         Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.png_dir = kwargs.get(
@@ -574,19 +396,43 @@ class BaseAttentionModel(LightningModule):
         self.input_size = kwargs.get(
             'input_size', self.sample_size)
 
+        # select layer sizes
+        # num_layer == number of hidden layer
+        self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
-            self.hparams.hidden_size = self.trial.suggest_int(
-                "hidden_size", 4, 64)
+            self.hparams.sigma = self.trial.suggest_float(
+                "sigma", 0.8, 1.5, step=0.05)
+            self.hparams.num_layers = self.trial.suggest_int(
+                "num_layers", 2, 6)
+            self.hparams.layer_size = self.trial.suggest_int(
+                "layer_size", 8, 72)
 
-        self.encoder = EncoderRNN(
-            self.input_size, self.hparams.hidden_size)
-        self.attention = Attention(
-            self.hparams.hidden_size)
-        self.decoder = DecoderRNN(
-            self.output_size, self.hparams.hidden_size, self.attention)
+        for l in range(self.hparams.num_layers):
+            # insert another layer_size to end of list of layer_size
+            # initial self.layer_sizes = [input_size, output_size]
+            self.layer_sizes.insert(
+                len(self.layer_sizes)-1, self.hparams.layer_size)
 
-        self.loss = nn.MSELoss()
-        # self.loss = MCCRLoss(sigma=self.hparams.sigma)
+        # because of input_size and output_size,
+        # total length of layer_sizes is num_layers + 2
+        # num_layer == number of hidden layer
+        assert len(self.layer_sizes) == self.hparams.num_layers + 2
+
+        # construct Layers
+        # if n_layers == 0 -> (in, out)
+        # if n_layers > 1 -> (in, tmp0), (tmp0, tmp2), ..., (tmpN, out)
+        # layer size are pair from slef.layer_sizes
+        self.linears = nn.ModuleList()
+        for i in range(self.hparams.num_layers + 1):
+            self.linears.append(
+                nn.Linear(self.layer_sizes[i], self.layer_sizes[i + 1]))
+        print("Linear Layers :")
+        print(self.linears)
+
+        self.dropout = nn.Dropout(p=0.2)
+
+        # self.loss = nn.MSELoss()
+        self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
 
         self.train_logs = {}
@@ -595,48 +441,26 @@ class BaseAttentionModel(LightningModule):
         self.df_obs = pd.DataFrame()
         self.df_sim = pd.DataFrame()
 
-    def forward(self, x, y0, y):
-        # x  : [batch_size, sample_size]
-        # y0 : [batch_size, 1]
-        # y  : [batch_size, output_size]
+    def forward(self, x):
+        # vectorize
+        x = x.view(-1, self.input_size).to(device)
 
-        # _x : [batch_size, sample_size, 1]
-        batch_size = x.shape[0]
-        _x = x.unsqueeze(2)
-        # last hidden state of the encoder is the context
-        # hidden : [num_layers * num_direction, batch_size, hidden_size]
-        encoder_outputs, hidden = self.encoder(_x)
+        for (i, layer) in enumerate(self.linears):
+            if i != len(self.linears) - 1:
+                x = F.leaky_relu(layer(x))
+            else:
+                x = layer(x)
 
-        # first input to the decoder is the first output of y
-        _input = y0
-
-        # x  : [batch_size, sample_size, 1]
-        # y0 : [batch_size, 1]
-        # y  : [batch_size, output_size]
-        outputs = torch.zeros(batch_size, self.output_size).to(device)
-
-        # iterate sequence
-        # x[ei] : single value of PM10 or PM25
-        for t in range(self.output_size + 1):
-            output, hidden = self.decoder(_input, hidden, encoder_outputs)
-
-            if t > 0:
-                # skip initial result
-                outputs[:, t - 1] = output[:, 0]
-
-            _input = output
-
-        return outputs
+        return x
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(),
             lr=self.hparams.learning_rate,
-            weight_decay=0.01)
+            weight_decay=0.001)
 
     def training_step(self, batch, batch_idx):
-        # x, _y0, _y, dates = batch
-        x, _y, _y0, _y_raw, y_dates = batch
-        _y_hat = self(x, _y0, _y)
+        x, _y, _y_raw, dates = batch
+        _y_hat = self(x)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
@@ -665,19 +489,17 @@ class BaseAttentionModel(LightningModule):
             _log[name] = float(torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
-        _log['loss'] = avg_loss.detach().cpu().item()
+        _log['loss'] = avg_loss.detach().cpu()
 
         self.train_logs[self.current_epoch] = _log
-
         self.log('train/loss', tensorboard_logs['train/loss'].item(), prog_bar=True)
         self.log('train/MSE', tensorboard_logs['train/MSE'].item(), on_epoch=True, logger=self.logger)
         self.log('train/MAE', tensorboard_logs['train/MAE'].item(), on_epoch=True, logger=self.logger)
         self.log('train/avg_loss', _log['loss'].item(), on_epoch=True, logger=self.logger)
 
     def validation_step(self, batch, batch_idx):
-        # x, _y0, _y, dates = batch
-        x, _y, _y0, _y_raw, y_dates = batch
-        _y_hat = self(x, _y0, _y)
+        x, _y, _y_raw, dates = batch
+        _y_hat = self(x)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
@@ -709,31 +531,30 @@ class BaseAttentionModel(LightningModule):
         _log['loss'] = avg_loss.detach().cpu()
 
         self.valid_logs[self.current_epoch] = _log
-
         self.log('valid/MSE', tensorboard_logs['valid/MSE'].item(), on_epoch=True, logger=self.logger)
         self.log('valid/MAE', tensorboard_logs['valid/MAE'].item(), on_epoch=True, logger=self.logger)
         self.log('valid/loss', _log['loss'].item(), on_epoch=True, logger=self.logger)
 
     def test_step(self, batch, batch_idx):
-        # x, _y0, _y, dates = batch
-        x, _y, _y0, _y_raw, y_dates = batch
-        _y_hat = self(x, _y0, _y)
+        x, _y, _y_raw, dates = batch
+        _y_hat = self(x)
         _loss = self.loss(_y_hat, _y)
 
+        # transformed y might be smoothed
         y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, y_dates))
+        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
 
-        _mae = mean_absolute_error(y, y_hat)
-        _mse = mean_squared_error(y, y_hat)
-        _r2 = r2_score(y, y_hat)
+        _mae = mean_absolute_error(y_raw, y_hat_inv)
+        _mse = mean_squared_error(y_raw, y_hat_inv)
+        _r2 = r2_score(y_raw, y_hat_inv)
 
         return {
             'loss': _loss,
             'obs': y_raw,
             'sim': y_hat_inv,
-            'dates': y_dates,
+            'dates': dates,
             'metric': {
                 'MSE': _mse,
                 'MAE': _mae,
@@ -835,9 +656,6 @@ class BaseAttentionModel(LightningModule):
         Path.mkdir(self.data_dir / "seasonality", parents=True, exist_ok=True)
 
     def train_dataloader(self):
-        """ dataloader for train_dataset (ConcatDataset)
-        * TODO: Type Checking for ConcatDataset
-        """
         return DataLoader(self.train_dataset,
                           batch_size=self.hparams.batch_size,
                           shuffle=True,
@@ -845,9 +663,6 @@ class BaseAttentionModel(LightningModule):
                           collate_fn=self.collate_fn)
 
     def val_dataloader(self):
-        """ dataloader for val_dataset (ConcatDataset)
-        * TODO: Type Checking for ConcatDataset
-        """
         return DataLoader(self.val_dataset,
                           batch_size=self.hparams.batch_size,
                           shuffle=False,
@@ -855,8 +670,6 @@ class BaseAttentionModel(LightningModule):
                           collate_fn=self.collate_fn)
 
     def test_dataloader(self):
-        """ dataloader for test_dataset (Dataset)
-        """
         return DataLoader(self.test_dataset,
                           batch_size=self.hparams.batch_size,
                           shuffle=False,
@@ -868,7 +681,7 @@ class BaseAttentionModel(LightningModule):
 
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
-            batch: list of tuple  (x, y, y_raw, date).
+            batch: list of tuple  (x, y, y_raw, dates).
                 - x: pandas DataFrame or numpy of shape (input_size, num_features);
                 - y: pandas DataFrame or numpy of shape (output_size);
                 - y_raw: pandas DataFrame or numpy of shape (output_size);
@@ -883,13 +696,12 @@ class BaseAttentionModel(LightningModule):
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, ys, ys0, ys_raw, y_dates = zip(*batch)
+        xs, ys, ys_raw, dates = zip(*batch)
 
         return torch.as_tensor(xs), \
-               torch.as_tensor(ys), \
-               torch.as_tensor(ys0), \
-               torch.as_tensor(ys_raw), \
-               y_dates
+            torch.as_tensor(ys), \
+            torch.as_tensor(ys_raw), \
+            dates
 
 def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
@@ -1181,3 +993,52 @@ def swish(_input, beta=1.0):
     """
     return _input * beta * torch.sigmoid(_input)
 
+
+class MCCRLoss(nn.Module):
+    def __init__(self, sigma=1.0):
+        super().__init__()
+        # save sigma
+        assert sigma > 0
+        self.sigma2 = sigma**2
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Implement maximum correntropy criterion for regression
+
+        loss(y, t) = sigma^2 * (1.0 - exp(-(y-t)^2/sigma^2))
+
+        where sigma > 0 (parameter)
+
+        Reference:
+            * Feng, Yunlong, et al. "Learning with the maximum correntropy criterion induced losses for regression." J. Mach. Learn. Res. 16.1 (2015): 993-1034.
+        """
+        # not to compute log(0), add 1e-24 (small value)
+        def _mccr(x):
+            return self.sigma2 * (1-torch.exp(-x**2 / self.sigma2))
+
+        return torch.mean(_mccr(input - target))
+
+
+class LogCoshLoss(nn.Module):
+    __constants__ = ['reduction']
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Implement numerically stable log-cosh which is used in Keras
+
+        log(cosh(x)) = logaddexp(x, -x) - log(2)
+                = abs(x) + log1p(exp(-2 * abs(x))) - log(2)
+
+        Reference:
+            * https://stackoverflow.com/a/57786270
+        """
+        # not to compute log(0), add 1e-24 (small value)
+        def _log_cosh(x):
+            return torch.abs(x) + \
+                torch.log1p(torch.exp(-2 * torch.abs(x))) + \
+                torch.log(torch.full_like(x, 2, dtype=x.dtype))
+
+        return torch.mean(_log_cosh(input - target))

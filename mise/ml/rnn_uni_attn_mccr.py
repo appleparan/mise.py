@@ -81,8 +81,8 @@ def construct_dataset(fdate, tdate,
 
     return data_set
 
-def ml_rnn_uni_attn(station_name="종로구"):
-    print("Start Univariate Attention Model")
+def ml_rnn_uni_attn_mccr(station_name="종로구"):
+    print("Start Univariate Attention (MCCR) Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
     #sample_size = 336
@@ -137,7 +137,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
 
     for target in targets:
         print("Training " + target + "...", flush=True)
-        output_dir = Path(f"/mnt/data/RNNAttentionUnivariate/{station_name}/{target}/")
+        output_dir = Path(f"/mnt/data/RNNAttentionMCCRUnivariate/{station_name}/{target}/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
@@ -193,6 +193,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
 
         # Dummy hyperparameters
         hparams = Namespace(
+            sigma=1.0,
             hidden_size=32,
             learning_rate=learning_rate,
             batch_size=batch_size)
@@ -272,6 +273,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
+            hparams.sigma = trial.params['sigma']
             hparams.hidden_size = trial.params['hidden_size']
 
             dict_hparams = copy.copy(vars(hparams))
@@ -528,6 +530,7 @@ class BaseAttentionModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get('hparams', Namespace(
+            sigma=1.0,
             hidden_size=16,
             learning_rate=1e-3,
             batch_size=32
@@ -575,6 +578,8 @@ class BaseAttentionModel(LightningModule):
             'input_size', self.sample_size)
 
         if self.trial:
+            self.hparams.sigma = self.trial.suggest_float(
+                "sigma", 0.8, 1.5, step=0.05)
             self.hparams.hidden_size = self.trial.suggest_int(
                 "hidden_size", 4, 64)
 
@@ -585,8 +590,8 @@ class BaseAttentionModel(LightningModule):
         self.decoder = DecoderRNN(
             self.output_size, self.hparams.hidden_size, self.attention)
 
-        self.loss = nn.MSELoss()
-        # self.loss = MCCRLoss(sigma=self.hparams.sigma)
+        # self.loss = nn.MSELoss()
+        self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
 
         self.train_logs = {}
@@ -1181,3 +1186,27 @@ def swish(_input, beta=1.0):
     """
     return _input * beta * torch.sigmoid(_input)
 
+
+class MCCRLoss(nn.Module):
+    def __init__(self, sigma=1.0):
+        super().__init__()
+        # save sigma
+        assert sigma > 0
+        self.sigma2 = sigma**2
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Implement maximum correntropy criterion for regression
+
+        loss(y, t) = sigma^2 * (1.0 - exp(-(y-t)^2/sigma^2))
+
+        where sigma > 0 (parameter)
+
+        Reference:
+            * Feng, Yunlong, et al. "Learning with the maximum correntropy criterion induced losses for regression." J. Mach. Learn. Res. 16.1 (2015): 993-1034.
+        """
+        # not to compute log(0), add 1e-24 (small value)
+        def _mccr(x):
+            return self.sigma2 * (1-torch.exp(-x**2 / self.sigma2))
+
+        return torch.mean(_mccr(input - target))

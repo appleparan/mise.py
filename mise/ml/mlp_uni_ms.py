@@ -197,7 +197,6 @@ def ml_mlp_uni_ms(station_name="종로구"):
         # Dummy hyperparameters
         # num_layer == number of hidden layer
         hparams = Namespace(
-            sigma=1.0,
             num_layers=2,
             layer_size=64,
             learning_rate=learning_rate,
@@ -287,7 +286,6 @@ def ml_mlp_uni_ms(station_name="종로구"):
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
-            hparams.sigma = trial.params['sigma']
             hparams.num_layers = trial.params['num_layers']
             hparams.layer_size = trial.params['layer_size']
 
@@ -362,7 +360,6 @@ class BaseMLPModel(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get('hparams', Namespace(
-            sigma=1.0,
             num_layers=1,
             learning_rate=1e-3,
             batch_size=32))
@@ -390,10 +387,6 @@ class BaseMLPModel(LightningModule):
         self.val_dataset = kwargs.get('val_dataset', None)
         self.test_dataset = kwargs.get('test_dataset', None)
 
-        # Set ColumnTransformer if provided
-        self._scaler_X = kwargs.get('scaler_X', None)
-        self._scaler_Y = kwargs.get('scaler_Y', None)
-
         self.trial = kwargs.get('trial', None)
         self.sample_size = kwargs.get('sample_size', 48)
         self.output_size = kwargs.get('output_size', 24)
@@ -404,8 +397,6 @@ class BaseMLPModel(LightningModule):
         # num_layer == number of hidden layer
         self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
-            self.hparams.sigma = self.trial.suggest_float(
-                "sigma", 0.8, 1.5, step=0.05)
             self.hparams.num_layers = self.trial.suggest_int(
                 "num_layers", 2, 6)
             self.hparams.layer_size = self.trial.suggest_int(
@@ -435,8 +426,8 @@ class BaseMLPModel(LightningModule):
 
         self.dropout = nn.Dropout(p=0.2)
 
-        # self.loss = nn.MSELoss()
-        self.loss = MCCRLoss(sigma=self.hparams.sigma)
+        self.loss = nn.MSELoss()
+        # self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
 
         self.train_logs = {}
@@ -996,53 +987,3 @@ def swish(_input, beta=1.0):
         output: Activated tensor
     """
     return _input * beta * torch.sigmoid(_input)
-
-
-class MCCRLoss(nn.Module):
-    def __init__(self, sigma=1.0):
-        super().__init__()
-        # save sigma
-        assert sigma > 0
-        self.sigma2 = sigma**2
-
-    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        Implement maximum correntropy criterion for regression
-
-        loss(y, t) = sigma^2 * (1.0 - exp(-(y-t)^2/sigma^2))
-
-        where sigma > 0 (parameter)
-
-        Reference:
-            * Feng, Yunlong, et al. "Learning with the maximum correntropy criterion induced losses for regression." J. Mach. Learn. Res. 16.1 (2015): 993-1034.
-        """
-        # not to compute log(0), add 1e-24 (small value)
-        def _mccr(x):
-            return self.sigma2 * (1-torch.exp(-x**2 / self.sigma2))
-
-        return torch.mean(_mccr(input - target))
-
-
-class LogCoshLoss(nn.Module):
-    __constants__ = ['reduction']
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        Implement numerically stable log-cosh which is used in Keras
-
-        log(cosh(x)) = logaddexp(x, -x) - log(2)
-                = abs(x) + log1p(exp(-2 * abs(x))) - log(2)
-
-        Reference:
-            * https://stackoverflow.com/a/57786270
-        """
-        # not to compute log(0), add 1e-24 (small value)
-        def _log_cosh(x):
-            return torch.abs(x) + \
-                torch.log1p(torch.exp(-2 * torch.abs(x))) + \
-                torch.log(torch.full_like(x, 2, dtype=x.dtype))
-
-        return torch.mean(_log_cosh(input - target))
