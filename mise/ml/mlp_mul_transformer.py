@@ -118,8 +118,8 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 192
-    fast_dev_run = True
-    n_trials = 1
+    # fast_dev_run = True
+    # n_trials = 3
 
     # Hyper parameter
     epoch_size = 500
@@ -144,14 +144,14 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
 
     # Debug
-    train_dates = [
-        (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
-        (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
-    valid_dates = [
-        (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
-        (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
-    train_valid_fdate = dt.datetime(2013, 1, 1, 1).astimezone(SEOULTZ)
-    train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+    # train_dates = [
+    #     (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
+    #     (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
+    # valid_dates = [
+    #     (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
+    #     (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
+    # train_valid_fdate = dt.datetime(2013, 1, 1, 1).astimezone(SEOULTZ)
+    # train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
 
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
@@ -291,7 +291,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
             # hyperparameters = model.hparams
             # trainer.logger.log_hyperparams(hyperparameters)
 
-            return trainer.callback_metrics["valid/MSE"].item()
+            return trainer.callback_metrics["valid/MSE"]
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
@@ -742,14 +742,14 @@ class BaseTransformerModel(LightningModule):
             _log[name] = float(torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
-        _log['loss'] = float(avg_loss.detach().cpu())
+        _log['loss'] = avg_loss.detach().cpu()
 
         self.train_logs[self.current_epoch] = _log
 
-        self.log('train/loss', tensorboard_logs['train/loss'], prog_bar=True)
-        self.log('train/MSE', tensorboard_logs['train/MSE'], on_epoch=True, logger=self.logger)
-        self.log('train/MAE', tensorboard_logs['train/MAE'], on_epoch=True, logger=self.logger)
-        self.log('train/avg_loss', _log['loss'], on_epoch=True, logger=self.logger)
+        self.log('train/loss', tensorboard_logs['train/loss'].item(), prog_bar=True)
+        self.log('train/MSE', tensorboard_logs['train/MSE'].item(), on_epoch=True, logger=self.logger)
+        self.log('train/MAE', tensorboard_logs['train/MAE'].item(), on_epoch=True, logger=self.logger)
+        self.log('train/avg_loss', _log['loss'].item(), on_epoch=True, logger=self.logger)
 
     def validation_step(self, batch, batch_idx):
         # without seasonality
@@ -789,13 +789,13 @@ class BaseTransformerModel(LightningModule):
             _log[name] = float(torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean())
         tensorboard_logs['step'] = self.current_epoch
-        _log['loss'] = float(avg_loss.detach().cpu())
+        _log['loss'] = avg_loss.detach().cpu()
 
         self.valid_logs[self.current_epoch] = _log
 
-        self.log('valid/MSE', tensorboard_logs['valid/MSE'], on_epoch=True, logger=self.logger)
-        self.log('valid/MAE', tensorboard_logs['valid/MAE'], on_epoch=True, logger=self.logger)
-        self.log('valid/loss', _log['loss'], on_epoch=True, logger=self.logger)
+        self.log('valid/MSE', tensorboard_logs['valid/MSE'].item(), on_epoch=True, logger=self.logger)
+        self.log('valid/MAE', tensorboard_logs['valid/MAE'].item(), on_epoch=True, logger=self.logger)
+        self.log('valid/loss', _log['loss'].item(), on_epoch=True, logger=self.logger)
 
     def test_step(self, batch, batch_idx):
         # without seasonality
@@ -874,9 +874,9 @@ class BaseTransformerModel(LightningModule):
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean()
         tensorboard_logs['step'] = self.current_epoch
 
-        self.log('test/MSE', tensorboard_logs['test/MSE'], on_epoch=True, logger=self.logger)
-        self.log('test/MAE', tensorboard_logs['test/MAE'], on_epoch=True, logger=self.logger)
-        self.log('test/loss', avg_loss, on_epoch=True, logger=self.logger)
+        self.log('test/MSE', tensorboard_logs['test/MSE'].item(), on_epoch=True, logger=self.logger)
+        self.log('test/MAE', tensorboard_logs['test/MAE'].item(), on_epoch=True, logger=self.logger)
+        self.log('test/loss', avg_loss.item(), on_epoch=True, logger=self.logger)
 
         self.df_obs = df_obs
         self.df_sim = df_sim
