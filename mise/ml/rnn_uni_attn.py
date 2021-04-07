@@ -130,6 +130,8 @@ def ml_rnn_uni_attn(station_name="종로구"):
     # valid_dates = [
     #     (dt.datetime(2015, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2015, 6, 30, 23).astimezone(SEOULTZ)),
     #     (dt.datetime(2018, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ))]
+    # train_valid_fdate = dt.datetime(2013, 1, 1, 1).astimezone(SEOULTZ)
+    # train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
 
     train_valid_fdate = dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ)
     train_valid_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
@@ -163,6 +165,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
             df_h.to_csv("/input/python/input_jongno_imputed_hourly_pandas.csv")
 
         # construct dataset for seasonality
+        print("Construct Train/Validation Sets...", flush=True)
         train_valid_dataset = construct_dataset(train_valid_fdate, train_valid_tdate,
             filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
             sample_size=sample_size, output_size=output_size, transform=False)
@@ -172,12 +175,14 @@ def ml_rnn_uni_attn(station_name="종로구"):
         # For Block Cross Validation..
         # load dataset in given range dates and transform using scaler from train_valid_set
         # all dataset are saved in tuple
+        print("Construct Training Sets...", flush=True)
         train_datasets = tuple(construct_dataset(td[0], td[1],
                                                 scaler_X=train_valid_dataset.scaler_X,
                                                 scaler_Y=train_valid_dataset.scaler_Y,
                                                 filepath=HOURLY_DATA_PATH, station_name=station_name, target=target,
                                                 sample_size=sample_size, output_size=output_size, transform=True) for td in train_dates)
 
+        print("Construct Validation Sets...", flush=True)
         valid_datasets = tuple(construct_dataset(vd[0], vd[1],
                                                 scaler_X=train_valid_dataset.scaler_X,
                                                 scaler_Y=train_valid_dataset.scaler_Y,
@@ -185,6 +190,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
                                                 sample_size=sample_size, output_size=output_size, transform=True) for vd in valid_dates)
 
         # just single test set
+        print("Construct Test Sets...", flush=True)
         test_dataset = construct_dataset(test_fdate, test_tdate,
                                         scaler_X=train_valid_dataset.scaler_X,
                                         scaler_Y=train_valid_dataset.scaler_Y,
@@ -343,7 +349,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
         trainer.fit(model)
 
         # run test set
-        trainer.test()
+        trainer.test(ckpt_path=None)
 
         shutil.rmtree(model_dir)
 
@@ -577,10 +583,6 @@ class BaseAttentionModel(LightningModule):
         self.val_dataset = kwargs.get('val_dataset', None)
         self.test_dataset = kwargs.get('test_dataset', None)
 
-        # Set ColumnTransformer if provided
-        self._scaler_X = kwargs.get('scaler_X', None)
-        self._scaler_Y = kwargs.get('scaler_Y', None)
-
         self.trial = kwargs.get('trial', None)
         self.sample_size = kwargs.get('sample_size', 48)
         self.output_size = kwargs.get('output_size', 24)
@@ -593,6 +595,13 @@ class BaseAttentionModel(LightningModule):
             self.hparams.hidden_size = self.trial.suggest_int(
                 "hidden_size", 4, 64)
 
+        self.encoder = EncoderRNN(
+            self.input_size, self.hparams.hidden_size)
+        self.attention = Attention(
+            self.hparams.hidden_size)
+        self.decoder = DecoderRNN(
+            self.output_size, self.hparams.hidden_size, self.attention)
+
         # self.loss = nn.MSELoss()
         self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
@@ -600,12 +609,8 @@ class BaseAttentionModel(LightningModule):
         self.train_logs = {}
         self.valid_logs = {}
 
-        self.encoder = EncoderRNN(
-            self.input_size, self.hparams.hidden_size)
-        self.attention = Attention(
-            self.hparams.hidden_size)
-        self.decoder = DecoderRNN(
-            self.output_size, self.hparams.hidden_size, self.attention)
+        self.df_obs = pd.DataFrame()
+        self.df_sim = pd.DataFrame()
 
     def forward(self, x, y0, y):
         # x  : [batch_size, sample_size]
@@ -680,9 +685,11 @@ class BaseAttentionModel(LightningModule):
         _log['loss'] = float(avg_loss.detach().cpu())
 
         self.train_logs[self.current_epoch] = _log
-        self.log('train_loss', avg_loss)
 
-        return {'train_loss': avg_loss, 'log': tensorboard_logs}
+        self.log('train/loss', tensorboard_logs['train/loss'], prog_bar=True)
+        self.log('train/MSE', tensorboard_logs['train/MSE'], on_epoch=True, logger=self.logger)
+        self.log('train/MAE', tensorboard_logs['train/MAE'], on_epoch=True, logger=self.logger)
+        self.log('train/avg_loss', _log['loss'], on_epoch=True, logger=self.logger)
 
     def validation_step(self, batch, batch_idx):
         # x, _y0, _y, dates = batch
@@ -719,9 +726,10 @@ class BaseAttentionModel(LightningModule):
         _log['loss'] = float(avg_loss.detach().cpu())
 
         self.valid_logs[self.current_epoch] = _log
-        self.log('valid_loss', avg_loss)
 
-        return {'val_loss': avg_loss, 'log': tensorboard_logs}
+        self.log('valid/MSE', tensorboard_logs['valid/MSE'], on_epoch=True, logger=self.logger)
+        self.log('valid/MAE', tensorboard_logs['valid/MAE'], on_epoch=True, logger=self.logger)
+        self.log('valid/loss', _log['loss'], on_epoch=True, logger=self.logger)
 
     def test_step(self, batch, batch_idx):
         # x, _y0, _y, dates = batch
@@ -793,13 +801,14 @@ class BaseAttentionModel(LightningModule):
             tensorboard_logs['test/{}'.format(name)] = torch.stack(
                 [torch.tensor(x['metric'][name]) for x in outputs]).mean()
         tensorboard_logs['step'] = self.current_epoch
+        avg_loss = float(avg_loss.detach().cpu())
 
-        return {
-            'test_loss': avg_loss,
-            'log': tensorboard_logs,
-            'obs': df_obs,
-            'sim': df_sim,
-        }
+        self.log('test/MSE', tensorboard_logs['test/MSE'], on_epoch=True, logger=self.logger)
+        self.log('test/MAE', tensorboard_logs['test/MAE'], on_epoch=True, logger=self.logger)
+        self.log('test/loss', avg_loss, on_epoch=True, logger=self.logger)
+
+        self.df_obs = df_obs
+        self.df_sim = df_sim
 
     def single_batch_to_df(self, ys, y_hats, dates, cols):
         # single batch to dataframe
