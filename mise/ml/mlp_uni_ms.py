@@ -25,7 +25,8 @@ from torch.utils.tensorboard import SummaryWriter
 import pytorch_lightning as pl
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import Callback, EarlyStopping
+from pytorch_lightning.callbacks import Callback
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import sklearn.metrics
@@ -212,13 +213,6 @@ def ml_mlp_uni_ms(station_name="종로구"):
         metrics_callback = MetricsCallback()
 
         def objective(trial):
-            # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
-            # filenames match. Therefore, the filenames for each trial must be made unique.
-            checkpoint_callback = pl.callbacks.ModelCheckpoint(
-                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss",
-                period=10
-            )
-
             # models are independent from dataset and dates
             model = BaseMLPModel(trial=trial,
                                  hparams=hparams,
@@ -242,8 +236,8 @@ def ml_mlp_uni_ms(station_name="종로구"):
                               min_epochs=1, max_epochs=20,
                               default_root_dir=output_dir,
                               fast_dev_run=fast_dev_run,
-                              row_log_interval=10,
-                              checkpoint_callback=checkpoint_callback,
+                              logger=False,
+                              checkpoint_callback=False,
                               callbacks=[metrics_callback, PyTorchLightningPruningCallback(
                                     trial, monitor="val_loss")])
 
@@ -357,7 +351,8 @@ def ml_mlp_uni_ms(station_name="종로구"):
                           default_root_dir=output_dir,
                           fast_dev_run=fast_dev_run,
                           logger=loggers,
-                          row_log_interval=10,
+                          log_every_n_steps=5,
+                          flush_logs_every_n_steps=10,
                           callbacks=[early_stop_callback],
                           checkpoint_callback=checkpoint_callback)
 

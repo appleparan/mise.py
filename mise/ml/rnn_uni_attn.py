@@ -208,13 +208,6 @@ def ml_rnn_uni_attn(station_name="종로구"):
         metrics_callback = MetricsCallback()
 
         def objective(trial):
-            # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
-            # filenames match. Therefore, the filenames for each trial must be made unique.
-            checkpoint_callback = pl.callbacks.ModelCheckpoint(
-                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss",
-                period=10
-            )
-
             model = BaseAttentionModel(trial=trial,
                                        hparams=hparams,
                                        input_size=1,
@@ -237,6 +230,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
                               min_epochs=1, max_epochs=20,
                               default_root_dir=output_dir,
                               fast_dev_run=fast_dev_run,
+                              logger=False,
                               checkpoint_callback=False,
                               callbacks=[metrics_callback, PyTorchLightningPruningCallback(
                                     trial, monitor="val_loss")])
@@ -341,7 +335,8 @@ def ml_rnn_uni_attn(station_name="종로구"):
                           default_root_dir=output_dir,
                           fast_dev_run=fast_dev_run,
                           logger=loggers,
-                          row_log_interval=10,
+                          log_every_n_steps=5,
+                          flush_logs_every_n_steps=10,
                           callbacks=[early_stop_callback],
                           checkpoint_callback=checkpoint_callback)
 
