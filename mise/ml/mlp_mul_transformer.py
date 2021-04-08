@@ -381,13 +381,13 @@ def ml_mlp_mul_transformer(station_name="종로구"):
         test_dataset.to_csv(model.data_dir / ("df_testset_" + target + ".csv"))
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            os.path.join(model_dir, "train"), monitor="val_loss",
+            os.path.join(model_dir, "train_{epoch}_{valid/MSE:.2f}"), monitor="valid/MSE",
             period=10
         )
 
         early_stop_callback = EarlyStopping(
-            monitor='val_loss',
-            min_delta=0.00001,
+            monitor='valid/MSE',
+            min_delta=0.001,
             patience=30,
             verbose=True,
             mode='min')

@@ -321,13 +321,13 @@ def ml_mlp_uni_ms_mccr(station_name="종로구"):
         test_dataset.to_csv(model.data_dir / ("df_testset_" + target + ".csv"))
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            os.path.join(model_dir, "train_{epoch}_{val_loss:.2f}"), monitor="val_loss",
+            os.path.join(model_dir, "train_{epoch}_{valid/MSE:.2f}"), monitor="valid/MSE",
             period=10
         )
 
         early_stop_callback = EarlyStopping(
-            monitor='val_loss',
-            min_delta=0.00001,
+            monitor='valid/MSE',
+            min_delta=0.001,
             patience=30,
             verbose=True,
             mode='min')
@@ -400,7 +400,7 @@ class BaseMLPModel(LightningModule):
         self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
             self.hparams.sigma = self.trial.suggest_float(
-                "sigma", 0.8, 1.5, step=0.05)
+                "sigma", 0.5, 1.5, step=0.05)
             self.hparams.num_layers = self.trial.suggest_int(
                 "num_layers", 2, 6)
             self.hparams.layer_size = self.trial.suggest_int(

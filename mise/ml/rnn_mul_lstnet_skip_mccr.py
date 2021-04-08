@@ -380,13 +380,14 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
         test_dataset.to_csv(model.data_dir / ("df_testset_" + target + ".csv"))
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            os.path.join(model_dir, "train"), monitor="val_loss",
+            os.path.join(model_dir, "train_{epoch}_{valid/MSE:.2f}"), monitor="valid/MSE",
             period=10
         )
 
+
         early_stop_callback = EarlyStopping(
-            monitor='val_loss',
-            min_delta=0.00001,
+            monitor='valid/MSE',
+            min_delta=0.001,
             patience=30,
             verbose=True,
             mode='min')
@@ -478,7 +479,7 @@ class BaseLSTNetModel(LightningModule):
 
         if self.trial:
             self.hparams.sigma = self.trial.suggest_float(
-                "sigma", 0.8, 1.5, step=0.05)
+                "sigma", 0.5, 1.5, step=0.05)
             self.hparams.filter_size = self.trial.suggest_int(
                 "filter_size", 1, 5, step=2)
             self.hparams.hidRNN = self.trial.suggest_int(

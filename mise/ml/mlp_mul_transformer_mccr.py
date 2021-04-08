@@ -242,13 +242,6 @@ def ml_mlp_mul_transformer_mccr(station_name="종로구"):
             batch_size=batch_size)
 
         def objective(trial):
-            # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
-            # filenames match. Therefore, the filenames for each trial must be made unique.
-            checkpoint_callback = pl.callbacks.ModelCheckpoint(
-                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss",
-                period=10
-            )
-
             model = BaseTransformerModel(trial=trial,
                                         hparams=hparams,
                                         sample_size=sample_size,
@@ -383,13 +376,13 @@ def ml_mlp_mul_transformer_mccr(station_name="종로구"):
         test_dataset.to_csv(model.data_dir / ("df_testset_" + target + ".csv"))
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            os.path.join(model_dir, "train"), monitor="val_loss",
+            os.path.join(model_dir, "train_{epoch}_{valid/MSE:.2f}"), monitor="valid/MSE",
             period=10
         )
 
         early_stop_callback = EarlyStopping(
-            monitor='val_loss',
-            min_delta=0.00001,
+            monitor='valid/MSE',
+            min_delta=0.001,
             patience=30,
             verbose=True,
             mode='min')
@@ -545,7 +538,7 @@ class BaseTransformerModel(LightningModule):
 
         if self.trial:
             self.hparams.sigma = self.trial.suggest_float(
-                "sigma", 0.8, 1.5, step=0.05)
+                "sigma", 0.5, 1.5, step=0.05)
             self.hparams.head_dim = self.trial.suggest_int(
                 "head_dim", 8, 128)
             self.hparams.nhead = self.trial.suggest_int(
