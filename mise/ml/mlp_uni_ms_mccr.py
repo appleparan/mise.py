@@ -91,8 +91,8 @@ def ml_mlp_uni_ms_mccr(station_name="종로구"):
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
     n_trials = 24
-    fast_dev_run = True
-    n_trials = 3
+    # fast_dev_run = True
+    # n_trials = 3
 
     # Hyper parameter
     epoch_size = 500

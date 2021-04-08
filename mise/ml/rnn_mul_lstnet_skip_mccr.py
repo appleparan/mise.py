@@ -106,7 +106,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 128
+    n_trials = 96
     # fast_dev_run = True
     # n_trials = 1
 
