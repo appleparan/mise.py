@@ -276,8 +276,8 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
             # timeout = 3600*36 = 36h
-            study.optimize(lambda trial: objective(
-                trial), n_trials=n_trials, timeout=3600*36)
+            study.optimize(objective,
+                n_trials=n_trials, timeout=3600*36)
 
             trial = study.best_trial
 
