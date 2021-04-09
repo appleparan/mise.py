@@ -231,7 +231,6 @@ def ml_mlp_mul_ms(station_name="종로구"):
 
         # num_layer == number of hidden layer
         hparams = Namespace(
-            sigma=1.0,
             num_layers=1,
             layer_size=128,
             learning_rate=learning_rate,
@@ -321,7 +320,6 @@ def ml_mlp_mul_ms(station_name="종로구"):
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
-            hparams.sigma = trial.params['sigma']
             hparams.num_layers = trial.params['num_layers']
             hparams.layer_size = trial.params['layer_size']
 
@@ -439,12 +437,10 @@ class BaseMLPModel(LightningModule):
         # num_layer == number of hidden layer
         self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
-            self.hparams.sigma = self.trial.suggest_float(
-                "sigma", 0.5, 1.5, step=0.05)
             self.hparams.num_layers = self.trial.suggest_int(
                 "num_layers", 2, 8)
             self.hparams.layer_size = self.trial.suggest_int(
-                "layer_size", 8, 1024)
+                "layer_size", 8, 512)
 
         for l in range(self.hparams.num_layers):
             # insert another layer_size to end of list of layer_size
@@ -500,7 +496,7 @@ class BaseMLPModel(LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(),
                 lr=self.hparams.learning_rate,
-                weight_decay=0.001)
+                weight_decay=0.01)
 
     def training_step(self, batch, batch_idx):
         x, x1d, _y, _y_raw, dates = batch

@@ -497,6 +497,7 @@ class BaseTransformerModel(LightningModule):
         super().__init__()
 
         self.hparams = kwargs.get('hparams', Namespace(
+            sigma=1.0,
             nhead=16,
             head_dim=128,
             d_feedforward=256,
