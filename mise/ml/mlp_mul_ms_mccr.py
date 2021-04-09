@@ -264,7 +264,7 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
                               logger=True,
                               checkpoint_callback=False,
                               callbacks=[PyTorchLightningPruningCallback(
-                                    trial, monitor="valid/MAD")])
+                                    trial, monitor="valid/MSE")])
 
             trainer.fit(model)
 
@@ -272,7 +272,7 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
             # hyperparameters = model.hparams
             # trainer.logger.log_hyperparams(hyperparameters)
 
-            return trainer.callback_metrics.get("valid/MAD")
+            return trainer.callback_metrics.get("valid/MSE")
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
@@ -358,12 +358,12 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
         test_dataset.to_csv(model.data_dir / ("df_testset_" + target + ".csv"))
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            os.path.join(model_dir, "train_{epoch}_{valid/MAD:.2f}"), monitor="valid/MAD",
+            os.path.join(model_dir, "train_{epoch}_{valid/MSE:.2f}"), monitor="valid/MSE",
             period=10
         )
 
         early_stop_callback = EarlyStopping(
-            monitor='valid/MAD',
+            monitor='valid/MSE',
             min_delta=0.001,
             patience=30,
             verbose=True,
