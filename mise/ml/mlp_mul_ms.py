@@ -28,6 +28,8 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
+
+from scipy.stats import median_abs_deviation
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import sklearn.metrics
 
@@ -236,13 +238,6 @@ def ml_mlp_mul_ms(station_name="종로구"):
             batch_size=batch_size)
 
         def objective(trial):
-            # PyTorch Lightning will try to restore model parameters from previous trials if checkpoint
-            # filenames match. Therefore, the filenames for each trial must be made unique.
-            checkpoint_callback = pl.callbacks.ModelCheckpoint(
-                os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss",
-                period=10
-            )
-
             model = BaseMLPModel(trial=trial,
                                  hparams=hparams,
                                  input_size=sample_size * len(train_features),
@@ -269,7 +264,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
                               logger=True,
                               checkpoint_callback=False,
                               callbacks=[PyTorchLightningPruningCallback(
-                                    trial, monitor="valid/MSE")])
+                                    trial, monitor="valid/MAD")])
 
             trainer.fit(model)
 
@@ -277,7 +272,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
             # hyperparameters = model.hparams
             # trainer.logger.log_hyperparams(hyperparameters)
 
-            return trainer.callback_metrics.get("valid/MSE")
+            return trainer.callback_metrics.get("valid/MAD")
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
@@ -363,12 +358,12 @@ def ml_mlp_mul_ms(station_name="종로구"):
         test_dataset.to_csv(model.data_dir / ("df_testset_" + target + ".csv"))
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            os.path.join(model_dir, "train_{epoch}_{valid/MSE:.2f}"), monitor="valid/MSE",
+            os.path.join(model_dir, "train_{epoch}_{valid/MAD:.2f}"), monitor="valid/MAD",
             period=10
         )
 
         early_stop_callback = EarlyStopping(
-            monitor='valid/MSE',
+            monitor='valid/MAD',
             min_delta=0.001,
             patience=30,
             verbose=True,
@@ -417,7 +412,7 @@ class BaseMLPModel(LightningModule):
         self.features_nonperiodic = kwargs.get('features_nonperiodic',
                                             ["temp", "wind_spd", "wind_cdir", "wind_sdir",
                                             "pres", "humid", "prep"])
-        self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
+        self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2', 'MAD'])
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
             'output_dir', Path('/mnt/data/MLPMS2Multivariate/'))
@@ -516,15 +511,17 @@ class BaseMLPModel(LightningModule):
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
 
-        _mae = mean_absolute_error(y_hat, y)
-        _mse = mean_squared_error(y_hat, y)
-        _r2 = r2_score(y_hat, y)
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
+        _mad = median_abs_deviation(y - y_hat)
 
         return {
             'loss': _loss,
             'metric': {
                 'MSE': _mse,
                 'MAE': _mae,
+                'MAD': _mad,
                 'R2': _r2
             }
         }
@@ -546,6 +543,7 @@ class BaseMLPModel(LightningModule):
         # self.log('train/loss', tensorboard_logs['train/loss'].item(), prog_bar=True)
         self.log('train/MSE', tensorboard_logs['train/MSE'].item(), on_epoch=True, logger=self.logger)
         self.log('train/MAE', tensorboard_logs['train/MAE'].item(), on_epoch=True, logger=self.logger)
+        self.log('train/MAD', tensorboard_logs['train/MAD'].item(), on_epoch=True, logger=self.logger)
         self.log('train/avg_loss', _log['loss'], on_epoch=True, logger=self.logger)
 
     def validation_step(self, batch, batch_idx):
@@ -557,15 +555,17 @@ class BaseMLPModel(LightningModule):
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
 
-        _mae = mean_absolute_error(y_hat, y)
-        _mse = mean_squared_error(y_hat, y)
-        _r2 = r2_score(y_hat, y)
+        _mae = mean_absolute_error(y, y_hat)
+        _mse = mean_squared_error(y, y_hat)
+        _r2 = r2_score(y, y_hat)
+        _mad = median_abs_deviation(y - y_hat)
 
         return {
             'loss': _loss,
             'metric': {
                 'MSE': _mse,
                 'MAE': _mae,
+                'MAD': _mad,
                 'R2': _r2
             }
         }
@@ -586,6 +586,7 @@ class BaseMLPModel(LightningModule):
 
         self.log('valid/MSE', tensorboard_logs['valid/MSE'].item(), on_epoch=True, logger=self.logger)
         self.log('valid/MAE', tensorboard_logs['valid/MAE'].item(), on_epoch=True, logger=self.logger)
+        self.log('valid/MAD', tensorboard_logs['valid/MAD'].item(), on_epoch=True, logger=self.logger)
         self.log('valid/loss', _log['loss'], on_epoch=True, logger=self.logger)
 
     def test_step(self, batch, batch_idx):
@@ -598,11 +599,12 @@ class BaseMLPModel(LightningModule):
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_hat2 = relu_mul(
             np.array(self.test_dataset.inverse_transform(y_hat, dates)))
-        _loss = self.loss(torch.as_tensor(y_hat2).to(device), _y_raw)
+        _loss = self.loss(_y_raw, torch.as_tensor(y_hat2).to(device))
 
-        _mae = mean_absolute_error(y_hat2, y_raw)
-        _mse = mean_squared_error(y_hat2, y_raw)
-        _r2 = r2_score(y_hat2, y_raw)
+        _mae = mean_absolute_error(y_raw, y_hat2)
+        _mse = mean_squared_error(y_raw, y_hat2)
+        _r2 = r2_score(y_raw, y_hat2)
+        _mad = median_abs_deviation(y_raw - y_hat2)
 
         return {
             'loss': _loss,
@@ -612,6 +614,7 @@ class BaseMLPModel(LightningModule):
             'metric': {
                 'MSE': _mse,
                 'MAE': _mae,
+                'MAD': _mad,
                 'R2': _r2
             }
         }
@@ -660,6 +663,7 @@ class BaseMLPModel(LightningModule):
 
         self.log('test/MSE', tensorboard_logs['test/MSE'].item(), on_epoch=True, logger=self.logger)
         self.log('test/MAE', tensorboard_logs['test/MAE'].item(), on_epoch=True, logger=self.logger)
+        self.log('test/MAD', tensorboard_logs['test/MAD'].item(), on_epoch=True, logger=self.logger)
         self.log('test/loss', avg_loss, on_epoch=True, logger=self.logger)
 
         self.df_obs = df_obs
@@ -1081,31 +1085,6 @@ class MCCRLoss(nn.Module):
             return self.sigma2 * (1-torch.exp(-x**2 / self.sigma2))
 
         return torch.mean(_mccr(input - target))
-
-
-class LogCoshLoss(nn.Module):
-    __constants__ = ['reduction']
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        Implement numerically stable log-cosh which is used in Keras
-
-        log(cosh(x)) = logaddexp(x, -x) - log(2)
-                = abs(x) + log1p(exp(-2 * abs(x))) - log(2)
-
-        Reference:
-            * https://stackoverflow.com/a/57786270
-        """
-        # not to compute log(0), add 1e-24 (small value)
-        def _log_cosh(x):
-            return torch.abs(x) + \
-                torch.log1p(torch.exp(-2 * torch.abs(x))) + \
-                torch.log(torch.full_like(x, 2, dtype=x.dtype))
-
-        return torch.mean(_log_cosh(input - target))
 
 
 def relu_mul(x):

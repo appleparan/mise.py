@@ -28,6 +28,8 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
+
+from scipy.stats import median_abs_deviation
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import sklearn.metrics
 
@@ -221,7 +223,7 @@ def ml_rnn_uni_attn_mccr(station_name="종로구"):
                               logger=True,
                               checkpoint_callback=False,
                               callbacks=[PyTorchLightningPruningCallback(
-                                    trial, monitor="valid/MSE")])
+                                    trial, monitor="valid/MAD")])
 
             trainer.fit(model)
 
@@ -229,7 +231,7 @@ def ml_rnn_uni_attn_mccr(station_name="종로구"):
             # hyperparameters = model.hparams
             # trainer.logger.log_hyperparams(hyperparameters)
 
-            return trainer.callback_metrics.get("valid/MSE")
+            return trainer.callback_metrics.get("valid/MAD")
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
@@ -305,12 +307,12 @@ def ml_rnn_uni_attn_mccr(station_name="종로구"):
         test_dataset.to_csv(model.data_dir / ("df_testset_" + target + ".csv"))
 
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            os.path.join(model_dir, "train_{epoch}_{valid/MSE:.2f}"), monitor="valid/MSE",
+            os.path.join(model_dir, "train_{epoch}_{valid/MAD:.2f}"), monitor="valid/MAD",
             period=10
         )
 
         early_stop_callback = EarlyStopping(
-            monitor='valid/MSE',
+            monitor='valid/MAD',
             min_delta=0.001,
             patience=30,
             verbose=True,
@@ -537,7 +539,7 @@ class BaseAttentionModel(LightningModule):
         self.station_name = kwargs.get('station_name', '종로구')
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', [self.target])
-        self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
+        self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2', 'MAD'])
         self.train_fdate = kwargs.get('train_fdate', dt.datetime(
             2012, 1, 1, 0).astimezone(SEOULTZ))
         self.train_tdate = kwargs.get('train_tdate', dt.datetime(
@@ -648,12 +650,14 @@ class BaseAttentionModel(LightningModule):
         _mae = mean_absolute_error(y, y_hat)
         _mse = mean_squared_error(y, y_hat)
         _r2 = r2_score(y, y_hat)
+        _mad = median_abs_deviation(y - y_hat)
 
         return {
             'loss': _loss,
             'metric': {
                 'MSE': _mse,
                 'MAE': _mae,
+                'MAD': _mad,
                 'R2': _r2
             }
         }
@@ -675,6 +679,7 @@ class BaseAttentionModel(LightningModule):
         # self.log('train/loss', tensorboard_logs['train/loss'].item(), prog_bar=True)
         self.log('train/MSE', tensorboard_logs['train/MSE'].item(), on_epoch=True, logger=self.logger)
         self.log('train/MAE', tensorboard_logs['train/MAE'].item(), on_epoch=True, logger=self.logger)
+        self.log('train/MAD', tensorboard_logs['train/MAD'].item(), on_epoch=True, logger=self.logger)
         self.log('train/loss', _log['loss'], on_epoch=True, logger=self.logger)
 
     def validation_step(self, batch, batch_idx):
@@ -689,12 +694,14 @@ class BaseAttentionModel(LightningModule):
         _mae = mean_absolute_error(y, y_hat)
         _mse = mean_squared_error(y, y_hat)
         _r2 = r2_score(y, y_hat)
+        _mad = median_abs_deviation(y - y_hat)
 
         return {
             'loss': _loss,
             'metric': {
                 'MSE': _mse,
                 'MAE': _mae,
+                'MAD': _mad,
                 'R2': _r2
             }
         }
@@ -715,6 +722,7 @@ class BaseAttentionModel(LightningModule):
 
         self.log('valid/MSE', tensorboard_logs['valid/MSE'].item(), on_epoch=True, logger=self.logger)
         self.log('valid/MAE', tensorboard_logs['valid/MAE'].item(), on_epoch=True, logger=self.logger)
+        self.log('valid/MAD', tensorboard_logs['valid/MAD'].item(), on_epoch=True, logger=self.logger)
         self.log('valid/loss', _log['loss'].item(), on_epoch=True, logger=self.logger)
 
     def test_step(self, batch, batch_idx):
@@ -728,9 +736,10 @@ class BaseAttentionModel(LightningModule):
         y_hat = _y_hat.detach().cpu().clone().numpy()
         y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, y_dates))
 
-        _mae = mean_absolute_error(y, y_hat)
-        _mse = mean_squared_error(y, y_hat)
-        _r2 = r2_score(y, y_hat)
+        _mae = mean_absolute_error(y_raw, y_hat_inv)
+        _mse = mean_squared_error(y_raw, y_hat_inv)
+        _r2 = r2_score(y_raw, y_hat_inv)
+        _mad = median_abs_deviation(y_raw - y_hat_inv)
 
         return {
             'loss': _loss,
@@ -740,6 +749,7 @@ class BaseAttentionModel(LightningModule):
             'metric': {
                 'MSE': _mse,
                 'MAE': _mae,
+                'MAD': _mad,
                 'R2': _r2
             }
         }
@@ -789,6 +799,7 @@ class BaseAttentionModel(LightningModule):
 
         self.log('test/MSE', tensorboard_logs['test/MSE'].item(), on_epoch=True, logger=self.logger)
         self.log('test/MAE', tensorboard_logs['test/MAE'].item(), on_epoch=True, logger=self.logger)
+        self.log('test/MAD', tensorboard_logs['test/MAD'].item(), on_epoch=True, logger=self.logger)
         self.log('test/loss', avg_loss.item(), on_epoch=True, logger=self.logger)
 
         self.df_obs = df_obs
