@@ -515,7 +515,7 @@ class BaseTransformerModel(LightningModule):
         self.features_nonperiodic = kwargs.get('features_nonperiodic',
                                             ["temp", "wind_spd", "wind_cdir", "wind_sdir",
                                             "pres", "humid", "prep"])
-        self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2'])
+        self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2', 'MAD'])
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
             'output_dir', Path('/mnt/data/MLPTransformerMultivariate/'))
