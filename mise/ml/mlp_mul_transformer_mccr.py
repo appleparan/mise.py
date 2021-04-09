@@ -1012,7 +1012,7 @@ def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
         df_line.to_csv(csv_path)
 
         # plot
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(8, 6))
 
         ax.plot(dates, obs, color="tab:blue", alpha=0.7, label="obs")
         ax.plot(dates, sim, color="tab:orange", alpha=0.7, label="sim")
@@ -1057,7 +1057,7 @@ def plot_logs(train_logs, valid_logs, target,
         png_path = png_dir / ("log_train_" + col + ".png")
         svg_path = svg_dir / ("log_train_" + col + ".svg")
 
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(8, 6))
         ax.plot(epochs, df_train_logs[col].to_numpy(), color="tab:blue")
 
         # leg = plt.legend()
@@ -1078,7 +1078,7 @@ def plot_logs(train_logs, valid_logs, target,
         svg_path = svg_dir / ("log_valid_" + col + ".svg")
 
         # plot
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(8, 6))
         ax.plot(epochs, df_valid_logs[col].to_numpy(), color="tab:blue")
 
         # leg = plt.legend()
@@ -1098,9 +1098,12 @@ def plot_logs(train_logs, valid_logs, target,
         svg_path = svg_dir / ("log_train_valid_" + col + ".svg")
 
         # plot
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(8, 6))
         ax.plot(epochs, df_train_logs[col].to_numpy(), color="tab:blue", label="train")
         ax.plot(epochs, df_valid_logs[col].to_numpy(), color="tab:orange", label="valid")
+
+        leg = plt.legend()
+        ax.get_legend().remove()
 
         ax.set_xlabel('epoch')
         ax.set_ylabel(col1)
@@ -1134,8 +1137,9 @@ def plot_scatter(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir
         df_scatter.to_csv(csv_path)
 
         # plot
-        fig, ax = plt.subplots()
-        ax.scatter(obs, sim, color="tab:blue", alpha=0.8)
+        fig, ax = plt.subplots(figsize=(10, 10))
+        ax.scatter(obs, sim, color="tab:blue", alpha=0.8, s=(1.0,))
+        ax.set_aspect(1.0)
 
         ax.set_xlabel('target')
         ax.set_ylabel('predicted')
@@ -1255,7 +1259,7 @@ def plot_metrics(metric, output_size, df_obs, df_sim, data_dir, png_dir, svg_dir
     df_metric.set_index('time', inplace=True)
     df_metric.to_csv(csv_path)
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(8, 6))
     ax.plot(times, metric_vals, color="tab:blue")
 
     if title:
