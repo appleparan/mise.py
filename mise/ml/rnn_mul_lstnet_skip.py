@@ -877,11 +877,8 @@ def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
         fig.autofmt_xdate()
 
         ax.set_xlabel('dates')
+        ax.set_ylabel(target)
         ax.set_title('OBS & Model')
-        if target == 'PM10':
-            ax.set_ylabel(r'\mathrm{\mathsf{PM}}_{10}')
-        elif target == 'PM25':
-            ax.set_ylabel(r'\mathrm{\mathsf{PM}}_{2.5}')
         plt.savefig(png_path, dpi=600)
         plt.savefig(svg_path)
         plt.close()
