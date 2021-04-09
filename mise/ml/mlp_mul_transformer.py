@@ -37,9 +37,8 @@ import optuna
 from optuna.integration import PyTorchLightningPruningCallback, TensorBoardCallback
 import optuna.visualization as optv
 
-from bokeh.models import Range1d, DatetimeTickFormatter
-from bokeh.plotting import figure, output_file, show
-from bokeh.io import export_png, export_svgs
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 import matplotlib.pyplot as plt
 
@@ -846,15 +845,13 @@ class BaseTransformerModel(LightningModule):
 
         plot_line(self.output_size, df_obs, df_sim, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
-        plot_scatter(self.output_size, df_obs, df_sim,
+        plot_scatter(self.output_size, df_obs, df_sim, self.target,
                      self.data_dir, self.png_dir, self.svg_dir)
-        for metric in ['MAPE', 'PCORR', 'SCORR', 'R2', 'FB', 'NMSE', 'MG', 'VG', 'FAC2']:
-            plot_metrics(metric, self.output_size, df_obs, df_sim,
-                    self.data_dir, self.png_dir, self.svg_dir)
-        plot_rmse(self.output_size, df_obs, df_sim,
-                  self.data_dir, self.png_dir, self.svg_dir)
         plot_logs(self.train_logs, self.valid_logs, self.target,
                   self.data_dir, self.png_dir, self.svg_dir)
+        for metric in ['MAPE', 'PCORR', 'SCORR', 'R2', 'FB', 'NMSE', 'MG', 'VG', 'FAC2']:
+            plot_metrics(metric, self.output_size, df_obs, df_sim,
+                         self.data_dir, self.png_dir, self.svg_dir)
 
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean().cpu().item()
         tensorboard_logs = {'test/loss': avg_loss}
@@ -995,17 +992,7 @@ def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
         obs = df_obs[str(t)].to_numpy()
         sim = df_sim[str(t)].to_numpy()
 
-        p = figure(title="OBS & Model")
-        p.toolbar.logo = None
-        p.toolbar_location = None
-        p.xaxis.axis_label = "dates"
-        p.xaxis.formatter = DatetimeTickFormatter()
-        p.line(dates, obs, line_color="dodgerblue", legend_label="obs")
-        p.line(dates, sim, line_color="lightcoral", legend_label="sim")
-        export_png(p, filename=png_path)
-        p.output_backend = "svg"
-        export_svgs(p, filename=str(svg_path))
-
+        # save data first
         data_dir_h = data_dir / str(t).zfill(2)
         Path.mkdir(data_dir_h, parents=True, exist_ok=True)
         csv_path = data_dir_h / ("line_" + str(t).zfill(2) + "h.csv")
@@ -1013,6 +1000,31 @@ def plot_line(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
             {'date': dates, 'obs': obs, 'sim': sim})
         df_line.set_index('date', inplace=True)
         df_line.to_csv(csv_path)
+
+        # plot
+        fig, ax = plt.subplots()
+
+        ax.plot(dates, obs, color="tab:blue", alpha=0.7, label="obs")
+        ax.plot(dates, sim, color="tab:orange", alpha=0.7, label="sim")
+        ax.legend()
+
+        # Major ticks every 3 months.
+        fmt_half_year = mdates.MonthLocator(interval=3)
+        fmt_month = mdates.MonthLocator()
+        ax.xaxis.set_major_locator(fmt_half_year)
+        ax.xaxis.set_minor_locator(fmt_month)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        fig.autofmt_xdate()
+
+        ax.set_xlabel('dates')
+        ax.set_title('OBS & Model')
+        if target == 'PM10':
+            ax.set_ylabel(r'\mathrm{\mathsf{PM}}_{10}')
+        elif target == 'PM25':
+            ax.set_ylabel(r'\mathrm{\mathsf{PM}}_{2.5}')
+        plt.savefig(png_path, dpi=600)
+        plt.savefig(svg_path)
+        plt.close()
 
 def plot_logs(train_logs, valid_logs, target,
               data_dir, png_dir, svg_dir):
@@ -1030,19 +1042,25 @@ def plot_logs(train_logs, valid_logs, target,
 
     csv_path = data_dir / ("log_train.csv")
     df_train_logs.to_csv(csv_path)
+    csv_path = data_dir / ("log_valid.csv")
+    df_valid_logs.to_csv(csv_path)
 
     epochs = df_train_logs.index.to_numpy()
     for col in df_train_logs.columns:
         png_path = png_dir / ("log_train_" + col + ".png")
         svg_path = svg_dir / ("log_train_" + col + ".svg")
-        p = figure(title=col)
-        p.toolbar.logo = None
-        p.toolbar_location = None
-        p.xaxis.axis_label = "epoch"
-        p.line(epochs, df_train_logs[col].to_numpy(), line_color="dodgerblue")
-        export_png(p, filename=png_path)
-        p.output_backend = "svg"
-        export_svgs(p, filename=str(svg_path))
+
+        fig, ax = plt.subplots()
+        ax.plot(epochs, df_train_logs[col].to_numpy(), color="tab:blue")
+
+        # leg = plt.legend()
+        # ax.get_legend().remove()
+
+        ax.set_xlabel('epoch')
+        ax.set_ylabel(col)
+        plt.savefig(png_path, dpi=600)
+        plt.savefig(svg_path)
+        plt.close()
 
     csv_path = data_dir / ("log_valid.csv")
     df_valid_logs.to_csv(csv_path)
@@ -1051,16 +1069,39 @@ def plot_logs(train_logs, valid_logs, target,
     for col in df_valid_logs.columns:
         png_path = png_dir / ("log_valid_" + col + ".png")
         svg_path = svg_dir / ("log_valid_" + col + ".svg")
-        p = figure(title=col)
-        p.toolbar.logo = None
-        p.toolbar_location = None
-        p.xaxis.axis_label = "epoch"
-        p.line(epochs, df_valid_logs[col].to_numpy(), line_color="dodgerblue")
-        export_png(p, filename=png_path)
-        p.output_backend = "svg"
-        export_svgs(p, filename=str(svg_path))
 
-def plot_scatter(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
+        # plot
+        fig, ax = plt.subplots()
+        ax.plot(epochs, df_valid_logs[col].to_numpy(), color="tab:blue")
+
+        # leg = plt.legend()
+        # ax.get_legend().remove()
+
+        ax.set_xlabel('epoch')
+        ax.set_ylabel(col)
+        plt.savefig(png_path, dpi=600)
+        plt.savefig(svg_path)
+        plt.close()
+
+    for col1, col2 in zip(df_train_logs.columns, df_train_logs.columns):
+        if col1 != col2:
+            continue
+
+        png_path = png_dir / ("log_train_valid_" + col + ".png")
+        svg_path = svg_dir / ("log_train_valid_" + col + ".svg")
+
+        # plot
+        fig, ax = plt.subplots()
+        ax.plot(epochs, df_train_logs[col].to_numpy(), color="tab:blue", label="train")
+        ax.plot(epochs, df_valid_logs[col].to_numpy(), color="tab:orange", label="valid")
+
+        ax.set_xlabel('epoch')
+        ax.set_ylabel(col1)
+        plt.savefig(png_path, dpi=600)
+        plt.savefig(svg_path)
+        plt.close()
+
+def plot_scatter(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir):
     Path.mkdir(data_dir, parents=True, exist_ok=True)
     Path.mkdir(png_dir, parents=True, exist_ok=True)
     Path.mkdir(svg_dir, parents=True, exist_ok=True)
@@ -1073,29 +1114,30 @@ def plot_scatter(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
         png_path = png_dir_h / ("scatter_" + str(t).zfill(2) + "h.png")
         svg_path = svg_dir_h / ("scatter_" + str(t).zfill(2) + "h.svg")
 
-        obs = df_obs[str(t)].to_numpy()
-        sim = df_sim[str(t)].to_numpy()
-
-        p = figure(title="Model/OBS")
-        p.toolbar.logo = None
-        p.toolbar_location = None
-        p.xaxis.axis_label = "OBS"
-        p.yaxis.axis_label = "Model"
-        maxval = np.nanmax([np.nanmax(obs), np.nanmax(sim)])
-        p.xaxis.bounds = (0.0, maxval)
-        p.yaxis.bounds = (0.0, maxval)
-        p.x_range = Range1d(0.0, maxval)
-        p.y_range = Range1d(0.0, maxval)
-        p.scatter(obs, sim)
-        export_png(p, filename=png_path)
-        p.output_backend = "svg"
-        export_svgs(p, filename=str(svg_path))
-
+        # save data first
         data_dir_h = data_dir / str(t).zfill(2)
         Path.mkdir(data_dir_h, parents=True, exist_ok=True)
         csv_path = data_dir_h / ("scatter_" + str(t).zfill(2) + "h.csv")
+
+        obs = df_obs[str(t)].to_numpy()
+        sim = df_sim[str(t)].to_numpy()
+        maxval = np.nanmax([np.nanmax(obs), np.nanmax(sim)])
+
         df_scatter = pd.DataFrame({'obs': obs, 'sim': sim})
         df_scatter.to_csv(csv_path)
+
+        # plot
+        fig, ax = plt.subplots()
+        ax.scatter(obs, sim, color="tab:blue", alpha=0.8)
+
+        ax.set_xlabel('target')
+        ax.set_ylabel('predicted')
+        ax.set_title(target)
+        plt.xlim([0.0, maxval])
+        plt.ylim([0.0, maxval])
+        plt.savefig(png_path, dpi=600)
+        plt.savefig(svg_path)
+        plt.close()
 
 def plot_metrics(metric, output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
     """
@@ -1178,7 +1220,8 @@ def plot_metrics(metric, output_size, df_obs, df_sim, data_dir, png_dir, svg_dir
         # Best R2 => 1.0
         metric_vals.insert(0, 1.0)
         times = list(range(len(metric_vals)))
-        title = 'Spearman\'s rank-order correlation coefficient (p=' + str(p_val) + ')'
+        title = 'Spearman\'s rank-order correlation coefficient (p=' + str(
+            p_val) + ')'
         ylabel = 'corr'
     elif metric == 'FB':
         # Best FB => 0.0
@@ -1201,58 +1244,27 @@ def plot_metrics(metric, output_size, df_obs, df_sim, data_dir, png_dir, svg_dir
         title = 'The Fraction of predictions within a factor of two of observations'
         ylabel = 'FAC2'
 
-    p = figure(title=title)
-    p.toolbar.logo = None
-    p.toolbar_location = None
-    p.xaxis.axis_label = "time"
+    df_metric = pd.DataFrame({'time': times, metric.lower(): metric_vals})
+    df_metric.set_index('time', inplace=True)
+    df_metric.to_csv(csv_path)
+
+    fig, ax = plt.subplots()
+    ax.plot(times, metric_vals, color="tab:blue")
+
+    if title:
+        ax.set_title(title)
+    ax.set_xlabel('time')
     if ylabel:
-        p.yaxis.axis_label = ylabel
+        ax.set_ylabel(ylabel)
     if metric == 'MAPE':
-        p.yaxis.bounds = (0.0, 1.0)
-        p.y_range = Range1d(0.0, 1.0)
+        plt.ylim([0.0, 1.0])
     elif metric == 'R2' or metric == 'PCORR' or metric == 'SCORR':
         ymin = min(0.0, min(metric_vals))
-        p.yaxis.bounds = (ymin, 1.0)
-        p.y_range = Range1d(ymin, 1.0)
-    p.line(times, metric_vals)
-    export_png(p, filename=png_path)
-    p.output_backend = "svg"
-    export_svgs(p, filename=str(svg_path))
+        plt.ylim([ymin, 1.0])
 
-    df_corrs = pd.DataFrame({'time': times, metric.lower(): metric_vals})
-    df_corrs.set_index('time', inplace=True)
-    df_corrs.to_csv(csv_path)
-
-def plot_rmse(output_size, df_obs, df_sim, data_dir, png_dir, svg_dir):
-    Path.mkdir(data_dir, parents=True, exist_ok=True)
-    Path.mkdir(png_dir, parents=True, exist_ok=True)
-    Path.mkdir(svg_dir, parents=True, exist_ok=True)
-
-    png_path = png_dir / ("rmse_time.png")
-    svg_path = svg_dir / ("rmse_time.svg")
-    csv_path = data_dir / ("rmse_time.csv")
-
-    times = list(range(1, output_size + 1))
-    rmses = []
-    for t in range(output_size):
-        obs = df_obs[str(t)].to_numpy()
-        sim = df_sim[str(t)].to_numpy()
-
-        rmses.append(sqrt(mean_squared_error(obs, sim)))
-
-    p = figure(title="RMSE of OBS & Model")
-    p.toolbar.logo = None
-    p.toolbar_location = None
-    p.xaxis.axis_label = "lags"
-    p.yaxis.axis_label = "RMSE"
-    p.line(times, rmses)
-    export_png(p, filename=png_path)
-    p.output_backend = "svg"
-    export_svgs(p, filename=str(svg_path))
-
-    df_rmses = pd.DataFrame({'time': times, 'rmse': rmses})
-    df_rmses.set_index('time', inplace=True)
-    df_rmses.to_csv(csv_path)
+    plt.savefig(png_path, dpi=600)
+    plt.savefig(svg_path)
+    plt.close()
 
 
 def swish(_input, beta=1.0):
