@@ -99,7 +99,8 @@ def construct_dataset(fdate, tdate,
 
 def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
     print("Start Multivariate LSTNet (Skip Layer) + MCCR Model")
-    targets = ["PM10", "PM25"]
+    # targets = ["PM10", "PM25"]
+    targets = ["PM25"]
     # 24*14 = 336
     sample_size = 48
     output_size = 24
@@ -1005,8 +1006,8 @@ def plot_scatter(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir
         df_scatter.to_csv(csv_path)
 
         # plot
-        fig, ax = plt.subplots(figsize=(10, 10))
-        ax.scatter(obs, sim, color="tab:blue", alpha=0.8, s=(1.0,))
+        fig, ax = plt.subplots(figsize=(7, 7))
+        ax.scatter(obs, sim, color="tab:blue", alpha=0.8, s=(10.0,))
         ax.set_aspect(1.0)
 
         ax.set_xlabel('target')

@@ -908,8 +908,8 @@ def plot_scatter(output_size, df_obs, df_sim, target, data_dir, png_dir, svg_dir
         df_scatter.to_csv(csv_path)
 
         # plot
-        fig, ax = plt.subplots(figsize=(10, 10))
-        ax.scatter(obs, sim, color="tab:blue", alpha=0.8, s=(1.0,))
+        fig, ax = plt.subplots(figsize=(7, 7))
+        ax.scatter(obs, sim, color="tab:blue", alpha=0.8, s=(10.0,))
         ax.set_aspect(1.0)
 
         ax.set_xlabel('target')
