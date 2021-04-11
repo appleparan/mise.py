@@ -99,8 +99,7 @@ def construct_dataset(fdate, tdate,
 
 def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
     print("Start Multivariate LSTNet (Skip Layer) + MCCR Model")
-    # targets = ["PM10", "PM25"]
-    targets = ["PM25"]
+    targets = ["PM10", "PM25"]
     # 24*14 = 336
     sample_size = 48
     output_size = 24
