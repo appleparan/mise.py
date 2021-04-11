@@ -1565,12 +1565,14 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         X_h['key_h'] = X_h.index.map(key_h)
 
         ## compute hourly populated seasonality from daily residuals
-        X_h_spop = df_sea_annual.merge(X_h, how='left',
-                                         on='key_md', left_index=True, validate="1:m").dropna()
+        X_h_spop = df_sea_annual.merge(X_h, how='right',
+                                         on='key_md', validate="1:m").dropna()
         X_h_spop = X_h_spop.rename(columns={'sea': 'sea_annual'})
-        X_h_spop = df_sea_weekly.merge(X_h_spop, how='left',
-                                         on='key_w', left_index=True, validate="1:m").dropna()
+        X_h_spop.set_index(X_h.index, inplace=True)
+        X_h_spop = df_sea_weekly.merge(X_h_spop, how='right',
+                                         on='key_w', validate="1:m").dropna()
         X_h_spop = X_h_spop.rename(columns={'sea': 'sea_weekly'})
+        X_h_spop.set_index(X_h.index, inplace=True)
 
         ## new hourly residual column from daily residuals
         X_h_spop['resid_d'] = X_h_spop['raw'] - X_h_spop['sea_annual'] - X_h_spop['sea_weekly']
@@ -1588,9 +1590,10 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
         df_sea_hourly['key_h'] = df_sea_hourly.index
 
         ## merge hourly seasonality to orignal hourly DataFram
-        X_h_hourly = df_sea_hourly.merge(X_h, how='left',
-                                         on='key_h', left_index=True, validate="1:m").dropna()
+        X_h_hourly = df_sea_hourly.merge(X_h, how='right',
+                                         on='key_h', validate="1:m").dropna()
         X_h_hourly = X_h_hourly.rename(columns={'sea': 'sea_hourly'})
+        X_h_hourly.set_index(X_h.index, inplace=True)
         ## Subtract annual and weekly seasonality
         X_h_spop['sea_hourly']= X_h_hourly['sea_hourly']
         X_h_spop['resid'] = X_h_spop['resid_d'] - X_h_hourly['sea_hourly']
