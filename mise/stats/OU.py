@@ -95,10 +95,7 @@ def stats_ou(station_name="종로구"):
             output_size=output_size,
             train_valid_ratio=0.8)
 
-        train_valid_set.preprocess(
-            data_dir / "seasonality_fused",
-            png_dir / "seasonality_fused",
-            svg_dir / "seasonality_fused")
+        train_valid_set.preprocess()
 
         test_set = data.MultivariateRNNMeanSeasonalityDataset(
             station_name=station_name,
