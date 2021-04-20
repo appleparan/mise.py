@@ -520,6 +520,11 @@ class UnivariateRNNMeanSeasonalityDataset(BaseDataset):
 
         return _inv_transYs
 
+    def plot_seasonality(self, data_dir, png_dir, svg_dir):
+        p = self._scaler_Y.named_transformers_['num']
+        p['seasonalitydecompositor'].plot(self._xs_raw, self.target,
+                                          self.fdate, self.tdate, data_dir, png_dir, svg_dir)
+
     def to_csv(self, fpath):
         self._df.to_csv(fpath)
 
