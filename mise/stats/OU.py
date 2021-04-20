@@ -47,8 +47,8 @@ def stats_ou(station_name="종로구"):
     print("Data loading complete")
     targets = ["PM10", "PM25"]
     intT = {
-        "PM10": 8.73062775,
-        "PM25": 8.636373132
+        "PM10": 19.01883611948326,
+        "PM25": 20.4090132600871
     }
     sample_size = 48
     output_size = 24
@@ -79,7 +79,7 @@ def stats_ou(station_name="종로구"):
         #         ('num', numeric_pipeline_X, [target])])
 
         # prepare dataset
-        train_valid_set = data.UnivariateRNNMeanSeasonalityDataset(
+        train_set = data.UnivariateRNNMeanSeasonalityDataset(
             station_name=station_name,
             target=target,
             filepath=HOURLY_DATA_PATH,
@@ -94,7 +94,7 @@ def stats_ou(station_name="종로구"):
             output_size=output_size,
             train_valid_ratio=0.8)
 
-        train_valid_set.preprocess()
+        train_set.preprocess()
 
         test_set = data.UnivariateRNNMeanSeasonalityDataset(
             station_name=station_name,
@@ -109,11 +109,13 @@ def stats_ou(station_name="종로구"):
             tdate=test_tdate,
             sample_size=sample_size,
             output_size=output_size,
-            scaler_X=train_valid_set.scaler_X,
-            scaler_Y=train_valid_set.scaler_Y)
+            scaler_X=train_set.scaler_X,
+            scaler_Y=train_set.scaler_Y)
 
         test_set.transform()
+        test_set.plot_seasonality(data_dir, png_dir, svg_dir)
 
+        df_train = train_set.ys.copy()
         df_test = test_set.ys.loc[test_fdate:test_tdate, :].copy()
         df_test_org = test_set.ys_raw.loc[test_fdate:test_tdate, :].copy()
 
@@ -123,7 +125,7 @@ def stats_ou(station_name="종로구"):
             df_obs = mw_df(df_test_org, target, output_size,
                            test_fdate, test_tdate)
             dates = df_obs.index
-            df_sim = sim_OU(df_test, dates, target, \
+            df_sim = sim_OU(df_test, dates, target, np.mean(df_test.to_numpy()), np.std(df_test.to_numpy()),\
                             _intT[target], test_set.scaler_Y, output_size)
             assert df_obs.shape == df_sim.shape
 
@@ -174,7 +176,7 @@ def mw_df(df_org, target, output_size, fdate, tdate):
     return df_obs
 
 
-def sim_OU(df_test, dates, target, intT, scaler, output_size):
+def sim_OU(df_test, dates, target, m, s, intT, scaler, output_size):
     """
     Mean Reverting term + white noise term
     Reference:
@@ -186,6 +188,8 @@ def sim_OU(df_test, dates, target, intT, scaler, output_size):
 
     values = np.zeros((len(dates), output_size), dtype=df_test[target].dtype)
     assert df_test.index[0] == dates[0]
+    print(f"MEAN: {m}", flush=True)
+    print(f"STD: {s}", flush=True)
 
     for i, (index, row) in tqdm.tqdm(enumerate(df_test.iterrows()), total=len(dates)-1):
         if i > len(dates) - 1:
@@ -197,8 +201,8 @@ def sim_OU(df_test, dates, target, intT, scaler, output_size):
         Theta = 1.0 / T
 
         # becuase it's zscored, original μ and σ is 0 and 1.
-        mu = 0.0
-        sigma = sqrt(1.0 * 2.0 / T)
+        mu = m
+        sigma = sqrt(s**2 * 2.0 / T)
         delta_t = 1.0
 
         dW = np.random.normal(loc=0.0, scale=np.sqrt(delta_t), size=output_size)
