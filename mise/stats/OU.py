@@ -34,16 +34,15 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 
 def stats_ou(station_name="종로구"):
     print("Data loading start...")
-    if Path("/input/python/input_jongro_imputed_hourly_pandas.csv").is_file():
-        df_h = data.load_imputed(
-            "/input/python/input_jongro_imputed_hourly_pandas.csv")
-    else:
-        # load imputed result
-        _df_h = data.load_imputed(HOURLY_DATA_PATH)
-        df_h = _df_h.query('stationCode == "' +
-                           str(SEOUL_STATIONS[station_name]) + '"')
+    _df_h = data.load_imputed(HOURLY_DATA_PATH)
+    df_h = _df_h.query('stationCode == "' +
+                        str(SEOUL_STATIONS[station_name]) + '"')
 
-        df_h.to_csv("/input/python/input_jongro_imputed_hourly_pandas.csv")
+    if station_name == '종로구' and \
+        not Path("/input/python/input_jongno_imputed_hourly_pandas.csv").is_file():
+        # load imputed result
+
+        df_h.to_csv("/input/python/input_jongno_imputed_hourly_pandas.csv")
 
     print("Data loading complete")
     targets = ["PM10", "PM25"]
@@ -80,7 +79,7 @@ def stats_ou(station_name="종로구"):
         #         ('num', numeric_pipeline_X, [target])])
 
         # prepare dataset
-        train_valid_set = data.MultivariateRNNMeanSeasonalityDataset(
+        train_valid_set = data.UnivariateRNNMeanSeasonalityDataset(
             station_name=station_name,
             target=target,
             filepath=HOURLY_DATA_PATH,
@@ -97,7 +96,7 @@ def stats_ou(station_name="종로구"):
 
         train_valid_set.preprocess()
 
-        test_set = data.MultivariateRNNMeanSeasonalityDataset(
+        test_set = data.UnivariateRNNMeanSeasonalityDataset(
             station_name=station_name,
             target=target,
             filepath=HOURLY_DATA_PATH,
@@ -115,15 +114,13 @@ def stats_ou(station_name="종로구"):
 
         test_set.transform()
 
-        df_ta = train_valid_set.ys_raw.copy()
-        df_ta_norm = train_valid_set.ys.copy()
-
-        df_test = test_set.ys.copy()
+        df_test = test_set.ys.loc[test_fdate:test_tdate, :].copy()
+        df_test_org = test_set.ys_raw.loc[test_fdate:test_tdate, :].copy()
 
         print("Simulate by Ornstein–Uhlenbeck process for " + target + "...")
 
         def run_OU(_intT):
-            df_obs = mw_df(test_set.ys_raw.copy(), target, output_size,
+            df_obs = mw_df(df_test_org, target, output_size,
                            test_fdate, test_tdate)
             dates = df_obs.index
             df_sim = sim_OU(df_test, dates, target, \
@@ -157,10 +154,14 @@ def mw_df(df_org, target, output_size, fdate, tdate):
 
     values, indicies = [], []
 
-    for i, (_index, _row) in enumerate(df.iterrows()):
+    for i, (index, row) in enumerate(df.iterrows()):
+        # skip prediction before fdate
+        if index < fdate:
+            continue
+
         # findex ~ tindex = output_size
-        findex = _index
-        tindex = _index + dt.timedelta(hours=(output_size - 1))
+        findex = index
+        tindex = index + dt.timedelta(hours=(output_size - 1))
         if tindex > tdate - dt.timedelta(hours=output_size):
             break
 
@@ -184,6 +185,7 @@ def sim_OU(df_test, dates, target, intT, scaler, output_size):
     df_sim = pd.DataFrame(columns=cols)
 
     values = np.zeros((len(dates), output_size), dtype=df_test[target].dtype)
+    assert df_test.index[0] == dates[0]
 
     for i, (index, row) in tqdm.tqdm(enumerate(df_test.iterrows()), total=len(dates)-1):
         if i > len(dates) - 1:
@@ -213,7 +215,6 @@ def sim_OU(df_test, dates, target, intT, scaler, output_size):
         value = scaler.named_transformers_['num'].inverse_transform(
             pd.DataFrame(data=ys, index=_dates, columns=[target]))
 
-        _date = index
         values[i, :] = value.squeeze()
 
     df_sim = pd.DataFrame(data=values, index=dates, columns=cols)

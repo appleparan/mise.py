@@ -82,7 +82,7 @@ def stats_arima(station_name = "종로구"):
             norm_values, norm_maxlog = boxcox(df_h[target])
             norm_target = "norm_" + target
 
-            train_set = data.MultivariateRNNMeanSeasonalityDataset(
+            train_set = data.UnivariateRNNMeanSeasonalityDataset(
                 station_name=station_name,
                 target=target,
                 filepath=HOURLY_DATA_PATH,
@@ -100,7 +100,7 @@ def stats_arima(station_name = "종로구"):
             train_set.preprocess()
 
             # set fdate=test_fdate,
-            test_set = data.MultivariateRNNMeanSeasonalityDataset(
+            test_set = data.UnivariateRNNMeanSeasonalityDataset(
                 station_name=station_name,
                 target=target,
                 filepath=HOURLY_DATA_PATH,
