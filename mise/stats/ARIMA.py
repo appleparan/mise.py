@@ -58,11 +58,11 @@ def stats_arima(station_name = "종로구"):
     # orders = [(_p, 0, _q) for _q, _p in itertools.product(range(0, 48, 6), range(0, 48, 6)) if not (_p == 0 and _q == 0)]
     # orders = [(_p, 0, _q) for _q, _p in itertools.product([0], [24, 48]) if not (_p == 0 and _q == 0)]
     # orders = [(8, 0, 0), (9, 0, 0)]
-    orders = [(8, 0, 0)]
+    orders = [(2, 0, 0)]
 
     sample_size = 48
     output_size = 24
-    train_fdate = dt.datetime(2008, 1, 3, 0).astimezone(SEOULTZ)
+    train_fdate = dt.datetime(2008, 1, 4, 0).astimezone(SEOULTZ)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
     test_fdate = dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
     test_tdate = dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
