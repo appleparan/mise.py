@@ -101,11 +101,11 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
     print("Start Multivariate LSTNet (Skip Layer) + MCCR Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
-    sample_size = 48
+    sample_size = 72
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 96
+    n_trials = 120
     # fast_dev_run = True
     # n_trials = 1
 
@@ -118,7 +118,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
     # neglect small overlap between train_dates and valid_dates
     # 11y = ((2y, 0.5y), (2y, 0.5y), (2y, 0.5y), (2.5y, 1y))
     train_dates = [
-        (dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2008, 1, 4, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
         (dt.datetime(2010, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 6, 30, 23).astimezone(SEOULTZ)),
         (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
         (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
@@ -276,6 +276,85 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
+            study.enqueue_trial({
+                'sigma': 1.0,
+                'filter_size': 1,
+                'hidCNN': 32,
+                'hidSkip': 16,
+                'hidRNN': 16,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 1.0,
+                'filter_size': 3,
+                'hidCNN': 32,
+                'hidSkip': 16,
+                'hidRNN': 16,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 1.0,
+                'filter_size': 5,
+                'hidCNN': 32,
+                'hidSkip': 16,
+                'hidRNN': 16,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 1.0,
+                'filter_size': 3,
+                'hidCNN': 64,
+                'hidSkip': 16,
+                'hidRNN': 16,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'filter_size': 3,
+                'hidCNN': 32,
+                'hidSkip': 32,
+                'hidRNN': 16,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 1.0,
+                'filter_size': 3,
+                'hidCNN': 32,
+                'hidSkip': 128,
+                'hidRNN': 16,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 1.0,
+                'filter_size': 3,
+                'hidCNN': 32,
+                'hidSkip': 32,
+                'hidRNN': 128,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 0.7,
+                'filter_size': 3,
+                'hidCNN': 32,
+                'hidSkip': 64,
+                'hidRNN': 16,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 1.0,
+                'filter_size': 3,
+                'hidCNN': 32,
+                'hidSkip': 64,
+                'hidRNN': 16,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 1.3,
+                'filter_size': 3,
+                'hidCNN': 32,
+                'hidSkip': 64,
+                'hidRNN': 16,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
             # timeout = 3600*36 = 36h
             study.optimize(objective,
                 n_trials=n_trials, timeout=3600*36)

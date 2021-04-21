@@ -105,11 +105,11 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     print("Start Multivariate Transformer Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
-    sample_size = 24*2
+    sample_size = 72
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 144
+    n_trials = 180
     # fast_dev_run = True
     # n_trials = 3
 
@@ -122,7 +122,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     # neglect small overlap between train_dates and valid_dates
     # 11y = ((2y, 0.5y), (2y, 0.5y), (2y, 0.5y), (2.5y, 1y))
     train_dates = [
-        (dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2008, 1, 4, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
         (dt.datetime(2010, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 6, 30, 23).astimezone(SEOULTZ)),
         (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
         (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
@@ -285,6 +285,55 @@ def ml_mlp_mul_transformer(station_name="종로구"):
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
+            study.enqueue_trial({
+                'nhead': 8,
+                'head_dim': 64,
+                'd_feedforward': 256,
+                'num_layers': 3,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'nhead': 4,
+                'head_dim': 64,
+                'd_feedforward': 256,
+                'num_layers': 3,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'nhead': 2,
+                'head_dim': 64,
+                'd_feedforward': 256,
+                'num_layers': 3,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'nhead': 8,
+                'head_dim': 32,
+                'd_feedforward': 256,
+                'num_layers': 3,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'nhead': 8,
+                'head_dim': 256,
+                'd_feedforward': 256,
+                'num_layers': 3,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'nhead': 8,
+                'head_dim': 64,
+                'd_feedforward': 1024,
+                'num_layers': 3,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'nhead': 8,
+                'head_dim': 64,
+                'd_feedforward': 256,
+                'num_layers': 8,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
             # timeout = 3600*36 = 36h
             study.optimize(objective,
                 n_trials=n_trials, timeout=3600*36)
@@ -543,14 +592,14 @@ class BaseTransformerModel(LightningModule):
         self.output_size = kwargs.get('output_size', 24)
 
         if self.trial:
-            self.hparams.head_dim = self.trial.suggest_int(
-                "head_dim", 8, 128)
             self.hparams.nhead = self.trial.suggest_int(
-                "nhead", 1, 12)
+                "nhead", 1, 16)
+            self.hparams.head_dim = self.trial.suggest_int(
+                "head_dim", 8, 256)
             self.hparams.d_feedforward = self.trial.suggest_int(
-                "d_feedforward", 128, 2048)
+                "d_feedforward", 32, 1024)
             self.hparams.num_layers = self.trial.suggest_int(
-                "num_layers", 3, 12)
+                "num_layers", 2, 10)
 
         self.d_model = self.hparams.nhead * self.hparams.head_dim
 

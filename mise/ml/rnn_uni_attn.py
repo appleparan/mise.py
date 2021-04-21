@@ -87,7 +87,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
     targets = ["PM10", "PM25"]
     # 24*14 = 336
     #sample_size = 336
-    sample_size = 48
+    sample_size = 72
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
@@ -104,7 +104,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
     # neglect small overlap between train_dates and valid_dates
     # 11y = ((2y, 0.5y), (2y, 0.5y), (2y, 0.5y), (2.5y, 1y))
     train_dates = [
-        (dt.datetime(2008, 1, 3, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2008, 1, 4, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
         (dt.datetime(2010, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 6, 30, 23).astimezone(SEOULTZ)),
         (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
         (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
@@ -537,18 +537,6 @@ class BaseAttentionModel(LightningModule):
         self.target = kwargs.get('target', 'PM10')
         self.features = kwargs.get('features', [self.target])
         self.metrics = kwargs.get('metrics', ['MAE', 'MSE', 'R2', 'MAD'])
-        self.train_fdate = kwargs.get('train_fdate', dt.datetime(
-            2012, 1, 1, 0).astimezone(SEOULTZ))
-        self.train_tdate = kwargs.get('train_tdate', dt.datetime(
-            2016, 12, 31, 23).astimezone(SEOULTZ))
-        self.valid_fdate = kwargs.get('valid_fdate', dt.datetime(
-            2017, 1, 1, 0).astimezone(SEOULTZ))
-        self.valid_tdate = kwargs.get('valid_tdate', dt.datetime(
-            2018, 12, 31, 23).astimezone(SEOULTZ))
-        self.test_fdate = kwargs.get('test_fdate', dt.datetime(
-            2019, 1, 1, 0).astimezone(SEOULTZ))
-        self.test_tdate = kwargs.get('test_tdate', dt.datetime(
-            2020, 10, 31, 23).astimezone(SEOULTZ))
         self.num_workers = kwargs.get('num_workers', 1)
         self.output_dir = kwargs.get(
             'output_dir', Path('/mnt/data/RNNAttnUnivariate/'))
