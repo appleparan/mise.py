@@ -25,8 +25,17 @@ def stats_preprocess():
 
     raw_df = data.load(datecol=[1])
     dfs_h = []
+
+    impute_statistics = {}
+    stat_dir = Path("/mnt/data/impute_stats")
+    Path.mkdir(stat_dir, parents=True, exist_ok=True)
     for station_name in tqdm.tqdm(SEOUL_STATIONS.keys(), total=len(SEOUL_STATIONS.keys())):
         sdf = data.load_station(raw_df, SEOUL_STATIONS[station_name])
+
+        df_isna = sdf.isna().sum()
+        df_isnotna = sdf.notna().sum()
+        df_isna.to_csv(stat_dir / f"stats_{station_name}_isna.csv")
+        df_isnotna.to_csv(stat_dir / f"stats_{station_name}_isnotna.csv")
 
         imputer = KNNImputer(
             n_neighbors=5, weights="distance", missing_values=np.NaN)
