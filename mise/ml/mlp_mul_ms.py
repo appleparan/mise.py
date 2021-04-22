@@ -110,7 +110,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 72
+    n_trials = 128
     # fast_dev_run = True
     # n_trials = 1
 
@@ -275,6 +275,36 @@ def ml_mlp_mul_ms(station_name="종로구"):
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
+            study.enqueue_trial({
+                'num_layers': 4,
+                'layer_size': 64,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'num_layers': 4,
+                'layer_size': 256,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'num_layers': 4,
+                'layer_size': 1024,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'num_layers': 4,
+                'layer_size': 64,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'num_layers': 8,
+                'layer_size': 64,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'num_layers': 12,
+                'layer_size': 64,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
             # timeout = 3600*36 = 36h
             study.optimize(objective,
                 n_trials=n_trials, timeout=3600*36)
@@ -438,9 +468,9 @@ class BaseMLPModel(LightningModule):
         self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
             self.hparams.num_layers = self.trial.suggest_int(
-                "num_layers", 2, 8)
+                "num_layers", 2, 12)
             self.hparams.layer_size = self.trial.suggest_int(
-                "layer_size", 8, 512)
+                "layer_size", 8, 1024)
 
         for l in range(self.hparams.num_layers):
             # insert another layer_size to end of list of layer_size
