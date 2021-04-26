@@ -98,7 +98,7 @@ def ml_mlp_uni_ms(station_name="종로구"):
     # Hyper parameter
     epoch_size = 500
     batch_size = 64
-    learning_rate = 1e-4
+    learning_rate = 1e-3
 
     # Blocked Cross Validation
     # neglect small overlap between train_dates and valid_dates
