@@ -16,7 +16,6 @@ import statsmodels.api as sm
 import tqdm
 
 import data
-from constants import SEOUL_STATIONS
 
 from constants import SEOUL_STATIONS, SEOULTZ
 
@@ -27,16 +26,9 @@ def stats_preprocess():
     dfs_h = []
 
     impute_statistics = {}
-    stat_dir = Path("/mnt/data/impute_stats")
-    Path.mkdir(stat_dir, parents=True, exist_ok=True)
+
     for station_name in tqdm.tqdm(SEOUL_STATIONS.keys(), total=len(SEOUL_STATIONS.keys())):
         sdf = data.load_station(raw_df, SEOUL_STATIONS[station_name])
-
-        df_isna = sdf.isna().sum()
-        df_isnotna = sdf.notna().sum()
-        df_isna.to_csv(stat_dir / f"stats_{station_name}_isna.csv")
-        df_isnotna.to_csv(stat_dir / f"stats_{station_name}_isnotna.csv")
-        sdf.to_csv(stat_dir / f"df_{station_name}.csv")
 
         imputer = KNNImputer(
             n_neighbors=5, weights="distance", missing_values=np.NaN)
@@ -48,7 +40,6 @@ def stats_preprocess():
 
     df = pd.concat(dfs_h)
     df.to_csv("/input/python/input_seoul_imputed_hourly_pandas.csv")
-
 
 def parse_obsxlsx(obs_path, input_dir):
     """Parse observatory xlsx file
