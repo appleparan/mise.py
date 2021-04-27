@@ -277,37 +277,37 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'num_layers': 4,
                 'layer_size': 64,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'num_layers': 4,
                 'layer_size': 256,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'num_layers': 4,
                 'layer_size': 1024,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'num_layers': 4,
                 'layer_size': 64,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'num_layers': 8,
                 'layer_size': 64,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'num_layers': 12,
                 'layer_size': 64,
                 'learning_rate': learning_rate,
@@ -319,7 +319,7 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.3,
+                'sigma': 2.0,
                 'num_layers': 4,
                 'layer_size': 64,
                 'learning_rate': learning_rate,
@@ -494,7 +494,7 @@ class BaseMLPModel(LightningModule):
         self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
             self.hparams.sigma = self.trial.suggest_float(
-                "sigma", 0.8, 1.5, step=0.05)
+                "sigma", 0.5, 5.0, step=0.1)
             self.hparams.num_layers = self.trial.suggest_int(
                 "num_layers", 2, 12)
             self.hparams.layer_size = self.trial.suggest_int(

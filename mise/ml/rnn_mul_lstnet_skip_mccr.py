@@ -277,7 +277,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'filter_size': 1,
                 'hidCNN': 32,
                 'hidSkip': 16,
@@ -285,7 +285,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'filter_size': 3,
                 'hidCNN': 32,
                 'hidSkip': 16,
@@ -293,7 +293,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'filter_size': 5,
                 'hidCNN': 32,
                 'hidSkip': 16,
@@ -301,7 +301,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'filter_size': 3,
                 'hidCNN': 64,
                 'hidSkip': 16,
@@ -309,6 +309,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
+                'sigma': 1.3,
                 'filter_size': 3,
                 'hidCNN': 32,
                 'hidSkip': 32,
@@ -316,7 +317,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'filter_size': 3,
                 'hidCNN': 32,
                 'hidSkip': 128,
@@ -324,7 +325,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 1.3,
                 'filter_size': 3,
                 'hidCNN': 32,
                 'hidSkip': 32,
@@ -332,7 +333,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 0.7,
+                'sigma': 0.8,
                 'filter_size': 3,
                 'hidCNN': 32,
                 'hidSkip': 64,
@@ -340,7 +341,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
-                'sigma': 1.0,
+                'sigma': 2.0,
                 'filter_size': 3,
                 'hidCNN': 32,
                 'hidSkip': 64,
@@ -556,7 +557,7 @@ class BaseLSTNetModel(LightningModule):
 
         if self.trial:
             self.hparams.sigma = self.trial.suggest_float(
-                "sigma", 0.5, 1.5, step=0.05)
+                "sigma", 0.5, 5.0, step=0.1)
             self.hparams.filter_size = self.trial.suggest_int(
                 "filter_size", 1, 5, step=2)
             self.hparams.hidRNN = self.trial.suggest_int(
