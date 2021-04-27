@@ -36,6 +36,7 @@ def stats_preprocess():
         df_isnotna = sdf.notna().sum()
         df_isna.to_csv(stat_dir / f"stats_{station_name}_isna.csv")
         df_isnotna.to_csv(stat_dir / f"stats_{station_name}_isnotna.csv")
+        sdf.to_csv(stat_dir / f"df_{station_name}.csv")
 
         imputer = KNNImputer(
             n_neighbors=5, weights="distance", missing_values=np.NaN)

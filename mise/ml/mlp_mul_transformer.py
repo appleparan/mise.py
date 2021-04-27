@@ -102,14 +102,14 @@ def construct_dataset(fdate, tdate,
     return data_set
 
 def ml_mlp_mul_transformer(station_name="종로구"):
-    print("Start Multivariate Transformer Model")
+    print("Start Multivariate Transformer (MSE) Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
     sample_size = 72
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 180
+    n_trials = 160
     # fast_dev_run = True
     # n_trials = 3
 
@@ -122,7 +122,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     # neglect small overlap between train_dates and valid_dates
     # 11y = ((2y, 0.5y), (2y, 0.5y), (2y, 0.5y), (2.5y, 1y))
     train_dates = [
-        (dt.datetime(2008, 1, 4, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
+        (dt.datetime(2008, 1, 5, 1).astimezone(SEOULTZ), dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ)),
         (dt.datetime(2010, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2012, 6, 30, 23).astimezone(SEOULTZ)),
         (dt.datetime(2013, 1, 1, 0).astimezone(SEOULTZ), dt.datetime(2014, 12, 31, 23).astimezone(SEOULTZ)),
         (dt.datetime(2015, 7, 1, 0).astimezone(SEOULTZ), dt.datetime(2017, 12, 31, 23).astimezone(SEOULTZ))]
@@ -237,7 +237,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
             nhead=8,
             head_dim=128,
             d_feedforward=256,
-            num_layers=3,
+            num_encoder_layers=6,
             learning_rate=learning_rate,
             batch_size=batch_size)
 
@@ -289,49 +289,56 @@ def ml_mlp_mul_transformer(station_name="종로구"):
                 'nhead': 8,
                 'head_dim': 64,
                 'd_feedforward': 256,
-                'num_layers': 3,
+                'num_encoder_layers': 6,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'nhead': 4,
                 'head_dim': 64,
                 'd_feedforward': 256,
-                'num_layers': 3,
+                'num_encoder_layers': 6,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'nhead': 2,
                 'head_dim': 64,
                 'd_feedforward': 256,
-                'num_layers': 3,
+                'num_encoder_layers': 6,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'nhead': 8,
                 'head_dim': 32,
                 'd_feedforward': 256,
-                'num_layers': 3,
+                'num_encoder_layers': 6,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'nhead': 8,
                 'head_dim': 256,
                 'd_feedforward': 256,
-                'num_layers': 3,
+                'num_encoder_layers': 6,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'nhead': 8,
                 'head_dim': 64,
-                'd_feedforward': 1024,
-                'num_layers': 3,
+                'd_feedforward': 512,
+                'num_encoder_layers': 6,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'nhead': 8,
                 'head_dim': 64,
                 'd_feedforward': 256,
-                'num_layers': 8,
+                'num_encoder_layers': 2,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'nhead': 8,
+                'head_dim': 64,
+                'd_feedforward': 256,
+                'num_encoder_layers': 10,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             # timeout = 3600*36 = 36h
@@ -364,11 +371,11 @@ def ml_mlp_mul_transformer(station_name="종로구"):
                 str(output_dir / "contour_head_dim_d_feedforward.svg"))
 
             fig_cont3 = optv.plot_contour(
-                study, params=['d_feedforward', 'num_layers'])
+                study, params=['d_feedforward', 'num_encoder_layers'])
             fig_cont3.write_image(
-                str(output_dir / "contour_d_feedforward_num_layers.png"))
+                str(output_dir / "contour_d_feedforward_num_enc_layers.png"))
             fig_cont3.write_image(
-                str(output_dir / "contour_d_feedforward_num_layers.svg"))
+                str(output_dir / "contour_d_feedforward_num_enc_layers.svg"))
 
             fig_edf = optv.plot_edf(study)
             fig_edf.write_image(str(output_dir / "edf.png"))
@@ -396,7 +403,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
             hparams.nhead = trial.params['nhead']
             hparams.head_dim = trial.params['head_dim']
             hparams.d_feedforward = trial.params['d_feedforward']
-            hparams.num_layers = trial.params['num_layers']
+            hparams.num_encoder_layers = trial.params['num_encoder_layers']
 
             dict_hparams = copy.copy(vars(hparams))
             dict_hparams["sample_size"] = sample_size
@@ -467,25 +474,6 @@ def ml_mlp_mul_transformer(station_name="종로구"):
         shutil.rmtree(model_dir)
 
 
-class EmbeddingLayer(nn.Module):
-    """Embedding Time Series by Learnable Linear Projection
-    """
-    def __init__(self, input_size, embed_size):
-        super().__init__()
-        self.input_size = input_size
-        self.embed_size = embed_size
-
-        # Nonlinear term : on-periodic patterns depends on time
-        # frequency of sine function
-        self.W = nn.Linear(self.input_size, self.embed_size)
-        # phase-shift of sine function
-        self.b = nn.Linear(self.input_size, self.embed_size)
-
-    def forward(self, x):
-        # 1 <= i <= k, parallel computation by matrix
-        return torch.matmul(x, self.W) + self.b
-
-
 class Time2Vec(nn.Module):
     """Encode time information
 
@@ -528,24 +516,9 @@ class Time2Vec(nn.Module):
         return torch.cat([v1, v2], dim=2)
 
 
-class TransformerEncoderBatchNormLayer(nn.TransformerEncoderLayer):
-    r"""
-    Use BatchNorm instead of LayerNorm
-    """
-    def __init__(self, d_model, nhead, dim_features=13, dim_feedforward=2048, dropout=0.1, activation="relu"):
-        super().__init__(d_model, nhead, \
-            dim_feedforward=dim_feedforward, dropout=dropout, activation=activation)
-
-        # apply BatchNorm over C, computing statistics of (N, L) when input is (N, C, L)
-        # Our input: (batch_size, feature_size, d_model) = (N, C, L)
-        # this will normalize batch by column-wise
-        self.norm1 = nn.BatchNorm1d(dim_features)
-        self.norm2 = nn.BatchNorm1d(dim_features)
-
-
 class BaseTransformerModel(LightningModule):
     """
-    Transforemr + Seasonality Embedding model
+    Transformer model
     """
     def __init__(self, **kwargs):
         super().__init__()
@@ -554,7 +527,7 @@ class BaseTransformerModel(LightningModule):
             nhead=16,
             head_dim=128,
             d_feedforward=256,
-            num_layers=3,
+            num_encoder_layers=6,
             learning_rate=1e-3,
             batch_size=32
         ))
@@ -593,13 +566,13 @@ class BaseTransformerModel(LightningModule):
 
         if self.trial:
             self.hparams.nhead = self.trial.suggest_int(
-                "nhead", 1, 16)
+                "nhead", 1, 12)
             self.hparams.head_dim = self.trial.suggest_int(
                 "head_dim", 8, 256)
             self.hparams.d_feedforward = self.trial.suggest_int(
                 "d_feedforward", 32, 1024)
-            self.hparams.num_layers = self.trial.suggest_int(
-                "num_layers", 2, 10)
+            self.hparams.num_encoder_layers = self.trial.suggest_int(
+                "num_encoder_layers", 2, 10)
 
         self.d_model = self.hparams.nhead * self.hparams.head_dim
 
@@ -619,14 +592,18 @@ class BaseTransformerModel(LightningModule):
         # method in A Transformer-based Framework for Multivariate Time Series Representation Learning
         #self.embedding = EmbeddingLayer(self.sample_size, self.d_model)
         # also needs positional Encoding
+        # self.norm = nn.BatchNorm1d(len(self.features) * self.d_model)
+        # self.norm = nn.LayerNorm((len(self.features), self.d_model))
+        self.norm = None
 
-        self.encoder_layer = TransformerEncoderBatchNormLayer(d_model=self.d_model,
-                                                              nhead=self.hparams.nhead,
-                                                              dim_features=len(self.features),
-                                                              dim_feedforward=self.hparams.d_feedforward,
-                                                              activation="gelu")
-        self.encoder = nn.TransformerEncoder(
-            self.encoder_layer, num_layers=self.hparams.num_layers)
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=self.d_model,
+                                                        nhead=self.hparams.nhead,
+                                                        dim_feedforward=self.hparams.d_feedforward,
+                                                        activation="gelu")
+
+        self.encoder = nn.TransformerEncoder(self.encoder_layer,
+                                             num_layers=self.hparams.num_encoder_layers,
+                                             norm=self.norm)
 
         self.outW = nn.Linear((len(self.features)) * self.d_model, self.output_size)
 
