@@ -102,11 +102,7 @@ def construct_dataset(fdate, tdate,
 def ml_mlp_mul_ms_mccr(station_name="종로구"):
     print("Start Multivariate MLP Mean Seasonality Decomposition (MCCR) Model")
     targets = ["PM10", "PM25"]
-    # targets = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
-    #                   "temp", "u", "v", "pres", "humid", "prep", "snow"]
-    # 24*14 = 336
-    #sample_size = 336
-    sample_size = 72
+    sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False

@@ -102,7 +102,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
     print("Start Multivariate LSTNet (Skip Layer, MSE) Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
-    sample_size = 72
+    sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
@@ -278,51 +278,65 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             study = optuna.create_study(direction="minimize")
             study.enqueue_trial({
                 'filter_size': 1,
-                'hidCNN': 32,
-                'hidSkip': 16,
-                'hidRNN': 16,
-                'learning_rate': learning_rate,
-                'batch_size': batch_size})
-            study.enqueue_trial({
-                'filter_size': 3,
-                'hidCNN': 32,
-                'hidSkip': 16,
-                'hidRNN': 16,
-                'learning_rate': learning_rate,
-                'batch_size': batch_size})
-            study.enqueue_trial({
-                'filter_size': 5,
-                'hidCNN': 32,
-                'hidSkip': 16,
-                'hidRNN': 16,
+                'hidCNN': 64,
+                'hidSkip': 64,
+                'hidRNN': 64,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'filter_size': 3,
                 'hidCNN': 64,
-                'hidSkip': 16,
-                'hidRNN': 16,
+                'hidSkip': 64,
+                'hidRNN': 64,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'filter_size': 5,
+                'hidCNN': 64,
+                'hidSkip': 64,
+                'hidRNN': 64,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'filter_size': 3,
+                'hidCNN': 128,
+                'hidSkip': 64,
+                'hidRNN': 64,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'filter_size': 3,
                 'hidCNN': 32,
-                'hidSkip': 32,
-                'hidRNN': 16,
+                'hidSkip': 64,
+                'hidRNN': 64,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'filter_size': 3,
-                'hidCNN': 32,
+                'hidCNN': 64,
                 'hidSkip': 128,
-                'hidRNN': 16,
+                'hidRNN': 64,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'filter_size': 3,
-                'hidCNN': 32,
+                'hidCNN': 64,
+                'hidSkip': 32,
+                'hidRNN': 64,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'filter_size': 3,
+                'hidCNN': 64,
                 'hidSkip': 32,
                 'hidRNN': 128,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'filter_size': 3,
+                'hidCNN': 64,
+                'hidSkip': 64,
+                'hidRNN': 32,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             # timeout = 3600*36 = 36h
@@ -520,13 +534,13 @@ class BaseLSTNetModel(LightningModule):
 
         if self.trial:
             self.hparams.filter_size = self.trial.suggest_int(
-                "filter_size", 1, 5, step=2)
+                "filter_size", 1, 9, step=2)
             self.hparams.hidRNN = self.trial.suggest_int(
-                "hidRNN", 8, 128)
+                "hidRNN", 8, 256)
             self.hparams.hidCNN = self.trial.suggest_int(
-                "hidCNN", 8, 64)
+                "hidCNN", 8, 256)
             self.hparams.hidSkip = self.trial.suggest_int(
-                "hidSkip", 8, 128)
+                "hidSkip", 8, 256)
 
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 
