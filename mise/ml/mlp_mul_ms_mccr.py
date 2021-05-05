@@ -275,49 +275,43 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
             study.enqueue_trial({
                 'sigma': 1.3,
                 'num_layers': 4,
-                'layer_size': 64,
+                'layer_size': 8,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'sigma': 1.3,
                 'num_layers': 4,
-                'layer_size': 256,
-                'learning_rate': learning_rate,
-                'batch_size': batch_size})
-            study.enqueue_trial({
-                'sigma': 1.3,
-                'num_layers': 4,
-                'layer_size': 1024,
+                'layer_size': 32,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'sigma': 1.3,
                 'num_layers': 4,
                 'layer_size': 64,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 1.3,
+                'num_layers': 4,
+                'layer_size': 32,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'sigma': 1.3,
                 'num_layers': 8,
-                'layer_size': 64,
-                'learning_rate': learning_rate,
-                'batch_size': batch_size})
-            study.enqueue_trial({
-                'sigma': 1.3,
-                'num_layers': 12,
-                'layer_size': 64,
+                'layer_size': 32,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'sigma': 0.7,
                 'num_layers': 4,
-                'layer_size': 64,
+                'layer_size': 32,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             study.enqueue_trial({
                 'sigma': 2.0,
                 'num_layers': 4,
-                'layer_size': 64,
+                'layer_size': 32,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
             # timeout = 3600*36 = 36h
@@ -492,9 +486,9 @@ class BaseMLPModel(LightningModule):
             self.hparams.sigma = self.trial.suggest_float(
                 "sigma", 0.5, 5.0, step=0.1)
             self.hparams.num_layers = self.trial.suggest_int(
-                "num_layers", 2, 12)
+                "num_layers", 2, 8)
             self.hparams.layer_size = self.trial.suggest_int(
-                "layer_size", 8, 1024)
+                "layer_size", 8, 64)
 
         for l in range(self.hparams.num_layers):
             # insert another layer_size to end of list of layer_size

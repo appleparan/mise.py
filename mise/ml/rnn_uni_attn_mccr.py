@@ -87,7 +87,7 @@ def ml_rnn_uni_attn_mccr(station_name="종로구"):
     targets = ["PM10", "PM25"]
     # 24*14 = 336
     #sample_size = 336
-    sample_size = 72
+    sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
@@ -235,6 +235,31 @@ def ml_rnn_uni_attn_mccr(station_name="종로구"):
 
         if n_trials > 1:
             study = optuna.create_study(direction="minimize")
+            study.enqueue_trial({
+                'sigma': 1.3,
+                'hidden_size': 8,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 1.3,
+                'hidden_size': 32,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 1.3,
+                'hidden_size': 64,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 0.7,
+                'hidden_size': 32,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
+            study.enqueue_trial({
+                'sigma': 2.0,
+                'hidden_size': 32,
+                'learning_rate': learning_rate,
+                'batch_size': batch_size})
             # timeout = 3600*36 = 36h
             study.optimize(objective,
                 n_trials=n_trials, timeout=3600*36)
@@ -579,7 +604,7 @@ class BaseAttentionModel(LightningModule):
 
         if self.trial:
             self.hparams.sigma = self.trial.suggest_float(
-                "sigma", 0.5, 1.5, step=0.05)
+                "sigma", 0.5, 5.0, step=0.05)
             self.hparams.hidden_size = self.trial.suggest_int(
                 "hidden_size", 4, 64)
 

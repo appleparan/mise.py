@@ -60,7 +60,7 @@ def stats_arima(station_name = "종로구"):
     # orders = [(8, 0, 0), (9, 0, 0)]
     orders = [(2, 0, 0), (3, 0, 0)]
 
-    sample_size = 72
+    sample_size = 48
     output_size = 24
     train_fdate = dt.datetime(2008, 1, 4, 0).astimezone(SEOULTZ)
     train_tdate = dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
