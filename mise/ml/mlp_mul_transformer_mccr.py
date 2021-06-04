@@ -323,7 +323,7 @@ def ml_mlp_mul_transformer_mccr(station_name="종로구"):
                 'sigma': 1.3,
                 'nhead': 8,
                 'head_dim': 64,
-                'd_feedforward': 512,
+                'd_feedforward': 1024,
                 'num_encoder_layers': 6,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size})
@@ -596,13 +596,13 @@ class BaseTransformerModel(LightningModule):
             self.hparams.sigma = self.trial.suggest_float(
                 "sigma", 0.5, 5.0, step=0.1)
             self.hparams.nhead = self.trial.suggest_int(
-                "nhead", 1, 12)
+                "nhead", 1, 10)
             self.hparams.head_dim = self.trial.suggest_int(
                 "head_dim", 8, 256)
             self.hparams.d_feedforward = self.trial.suggest_int(
-                "d_feedforward", 32, 1024)
+                "d_feedforward", 32, 2048)
             self.hparams.num_encoder_layers = self.trial.suggest_int(
-                "num_encoder_layers", 2, 10)
+                "num_encoder_layers", 2, 8)
 
         self.d_model = self.hparams.nhead * self.hparams.head_dim
 

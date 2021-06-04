@@ -484,7 +484,7 @@ class BaseMLPModel(LightningModule):
         self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
             self.hparams.sigma = self.trial.suggest_float(
-                "sigma", 0.5, 5.0, step=0.1)
+                "sigma", 0.5, 10.0, step=0.1)
             self.hparams.num_layers = self.trial.suggest_int(
                 "num_layers", 2, 8)
             self.hparams.layer_size = self.trial.suggest_int(
