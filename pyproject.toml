@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "mise.py"
+version = "0.6.0"
+description = "Particulate Matter forecasting"
+authors = ["Jongsu Liam Kim <jongsukim8@gmail.com>"]
+license = "MIT License"
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.10"
+matplotlib = "^3.4.2"
+pandas = "^1.3.0"
+optuna = "^2.8.0"
+click = "^8.0.1"
+bokeh = "^2.3.3"
+torch = "^1.9.0"
+tqdm = "^4.61.2"
+torchvision = "^0.10.0"
+pytorch-lightning = "^1.3.8"
+pytz = "^2021.1"
+scikit-learn = "^0.24.2"
+scipy = "^1.7.0"
+statsmodels = "^0.12.2"
+seaborn = "^0.11.1"
+shap = "^0.39.0"
+xgboost = "^1.4.2"
+selenium = "^3.141.0"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
