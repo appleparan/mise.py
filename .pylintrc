@@ -1,0 +1,49 @@
+[MASTER]
+
+# Pickle collected data for later comparisons.
+persistent=no
+
+# Use multiple processes to speed up Pylint.
+jobs=4
+
+[MESSAGES CONTROL]
+
+
+# Disable the message, report, category or checker with the given id(s). You
+# can either give multiple identifiers separated by comma (,) or put this
+# option multiple times (only on the command line, not in the configuration
+# file where it should appear only once).You can also use "--disable=all" to
+# disable everything first and then reenable specific checks. For example, if
+# you want to run only the similarities checker, you can use "--disable=all
+# --enable=similarities". If you want to run only the classes checker, but have
+# no Warning level messages displayed, use"--disable=all --enable=classes
+# --disable=W"
+#
+# Kubeflow disables string-interpolation because we are starting to use f
+# style strings
+disable =
+  missing-module-docstring,
+
+[REPORTS]
+
+# Set the output format. Available formats are text, parseable, colorized, msvs
+# (visual studio) and html. You can also give a reporter class, eg
+# mypackage.mymodule.MyReporterClass.
+output-format=text
+
+# Put messages in a separate file for each module / package specified on the
+# command line instead of printing them on stdout. Reports (if any) will be
+# written in a file name "pylint_global.[txt|html]". This option is deprecated
+# and it will be removed in Pylint 2.0.
+files-output=no
+
+# Tells whether to display a full report or only the messages
+reports=no
+
+[ELIF]
+
+# Maximum number of nested blocks for function / method body
+max-nested-blocks=5
+
+# Good variable names which should always be accepted, separated by a comma.
+good-names=i, j, k, ex, Run, df, d, l, l1, l2, l3
