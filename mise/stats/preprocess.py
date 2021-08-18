@@ -1,31 +1,29 @@
 import datetime as dt
-import dateutil
-import time
-import glob
-import os
 from pathlib import Path
 import re
 
+import dateutil
+
 import numpy as np
 import pandas as pd
-from pytz import timezone
 from openpyxl import load_workbook
 from sklearn.impute import KNNImputer
-import statsmodels.api as sm
-# from statsmodels.imputation.mice import MICE
 import tqdm
 
-import data
-
-from constants import SEOUL_STATIONS, SEOULTZ
+from mise import data
+from mise.constants import SEOUL_STATIONS, SEOULTZ
 
 def stats_preprocess():
+    """impute the raw data with KNNImputer
+
+    1. Filter by station
+    2. Impute
+    3. Save to csv
+    """
     print("Data preprocessing(imputation) start...")
 
     raw_df = data.load(datecol=[1])
     dfs_h = []
-
-    impute_statistics = {}
 
     for station_name in tqdm.tqdm(SEOUL_STATIONS.keys(), total=len(SEOUL_STATIONS.keys())):
         sdf = data.load_station(raw_df, SEOUL_STATIONS[station_name])
@@ -41,7 +39,7 @@ def stats_preprocess():
     df = pd.concat(dfs_h)
     df.to_csv("/input/python/input_seoul_imputed_hourly_pandas.csv")
 
-def parse_obsxlsx(obs_path, input_dir):
+def parse_obsxlsx(obs_path):
     """Parse observatory xlsx file
 
     row[1] = state (시, 도)
@@ -58,7 +56,7 @@ def parse_obsxlsx(obs_path, input_dir):
 
     re_opened = r"신규"
     re_closed = r"폐쇄"
-    re_moved = r"이전"
+    # re_moved = r"이전"
     re_hangul = r"[가-힣]+"
     re_opened_date = r"(\d+)\.\W*(\d+)\.?"
     re_closed_date = r"(\d+)\.\W*(\d+)\.?(\W*(\d+)\.?)*"
@@ -75,7 +73,7 @@ def parse_obsxlsx(obs_path, input_dir):
         closed_date = dt.datetime(2037, 12, 31, 23).astimezone(SEOULTZ)
 
         # if stationCode is blank, skip, so no move
-        if row[3] == '측정소명' or row[2] == None or np.isnan(float(row[2])):
+        if row[3] == '측정소명' or row[2] is None or np.isnan(float(row[2])):
             continue
 
         # if there is not stationCode (i.e. wrong column), skip loop
@@ -84,8 +82,8 @@ def parse_obsxlsx(obs_path, input_dir):
         else:
             raise ValueError()
 
-        lon_X = float(row[5])
-        lat_Y = float(row[6])
+        lon_x = float(row[5])
+        lon_y = float(row[6])
 
         station_name = re.findall(re_hangul, row[3])[0]
 
@@ -104,18 +102,28 @@ def parse_obsxlsx(obs_path, input_dir):
             closed_date = dt.datetime(closed_year, closed_month, 1, 23)
 
         assert isinstance(station_code, int)
-        assert isinstance(lon_X, float)
-        assert isinstance(lat_Y, float)
-        df = df.append(pd.DataFrame([[station_code, station_name, opened_date, closed_date, lon_X, lat_Y]], \
+        assert isinstance(lon_x, float)
+        assert isinstance(lon_y, float)
+        df = df.append(pd.DataFrame( \
+                [[station_code, station_name, opened_date,
+                    closed_date, lon_x, lon_y]], \
                 columns=df.columns))
 
     df.set_index('stationCode', inplace=True)
     df.to_csv("obs.csv")
     return df
 
-def parse_weathers(wea_dir, seoul_stn_code=108):
-    re_wea_fn = r"SURFACE_ASOS_$(string(wea_stn_code))_HR_([0-9]+)_([0-9]+)_([0-9]+).csv"
-    date_str = "yyyy-mm-dd HH:MM"
+def parse_weathers(wea_dir):
+    """Parse weather data and convert to DataFrame
+
+    Args:
+        wea_dir (Path): path of weather data
+
+    Returns:
+        pd.DataFrame: DataFrame contains weather data
+    """
+    # re_wea_fn = r"SURFACE_ASOS_$(string(wea_stn_code))_HR_([0-9]+)_([0-9]+)_([0-9]+).csv"
+    # date_str = "yyyy-mm-dd HH:MM"
 
     # for tqdm, conver to list
     wea_globs = list(wea_dir.rglob('*.csv'))
@@ -124,7 +132,7 @@ def parse_weathers(wea_dir, seoul_stn_code=108):
     imputer = KNNImputer(
             n_neighbors=5, weights="distance", missing_values=np.NaN)
     for wea_path in tqdm.tqdm(wea_globs):
-        _df_raw = pd.read_csv(wea_path)
+        _df_raw: pd.Dataframe = pd.read_csv(wea_path)
         _df_raw.rename(mapper={"일시": "date",
                     "기온(°C)": "temp",
                     "강수량(mm)": "prep",
@@ -134,7 +142,8 @@ def parse_weathers(wea_dir, seoul_stn_code=108):
                     "현지기압(hPa)": "pres",
                     "적설(cm)": "snow"}, axis='columns', inplace=True)
 
-        _dates = [dateutil.parser.isoparse(str(d)).astimezone(SEOULTZ) for d in _df_raw.loc[:, 'date']]
+        _dates = \
+            [dateutil.parser.isoparse(str(d)).astimezone(SEOULTZ) for d in _df_raw.loc[:, 'date']]
 
         dict_wind_dir = {"0": 90,
             "360": 90 , "20" : 67.5 , "50" : 45 , "70" : 22.5 ,
@@ -142,8 +151,10 @@ def parse_weathers(wea_dir, seoul_stn_code=108):
             "180": 270, "200": 247.5, "230": 225, "250": 202.5,
             "270": 180, "290": 157.5, "320": 135, "340": 112.5}
 
-        _df_raw['prep'] = _df_raw['prep'].replace(np.nan, 0.0)
-        _df_raw['snow'] = _df_raw['snow'].replace(np.nan, 0.0)
+        _df_raw.loc[:, 'prep'] = \
+            _df_raw.loc[:, 'prep'].replace(np.nan, 0.0)
+        _df_raw.loc[:, 'snow'] = \
+            _df_raw.loc[:, 'snow'].replace(np.nan, 0.0)
 
         _df = pd.DataFrame({
                 'date' : _dates,
@@ -165,7 +176,16 @@ def parse_weathers(wea_dir, seoul_stn_code=108):
         # if wind direction is imputed,
         # dict key may not match -> find nearest key
         def approx_winddir(w):
-            wd = np.array([0, 20, 50, 70, 90, 110, 140, 160, 180, 200, 230, 250, 270, 290, 320, 340, 360])
+            """Convert wind scale correctly
+
+            Args:
+                w (numpy.array): contains wind direction
+
+            Returns:
+                numpy.array: corrected wind direction
+            """
+            wd = np.array( \
+                [0, 20, 50, 70, 90, 110, 140, 160, 180, 200, 230, 250, 270, 290, 320, 340, 360])
             return wd[np.argmin(np.sqrt((w - wd)**2))]
 
         _wind_dir = np.array([approx_winddir(w) for w in _df.loc[:, 'wind_dir']])
@@ -195,17 +215,25 @@ def parse_weathers(wea_dir, seoul_stn_code=108):
     return df
 
 def parse_aerosols(aes_dir):
-    re_aes_fn = r"**/([0-9]+)년\W*([0-9]+)(분기|월).csv"
-    re_ext_fn = r".*.csv"
-    date_str = "%Y%m%d%H"
+    """Parse aerosol 9PM) data and convert to DataFrame
+
+    Args:
+        aes_dir (Path): path of aerosol data
+
+    Returns:
+        pd.DataFrame: DataFrame contains aerosol data
+    """
+    # re_aes_fn = r"**/([0-9]+)년\W*([0-9]+)(분기|월).csv"
+    # re_ext_fn = r".*.csv"
+    # date_str = "%Y%m%d%H"
     re_date = "^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})$"
 
     # for tqdm, conver to list
     aes_globs = list(aes_dir.rglob('*.csv'))
 
     dfs = []
-    imputer = KNNImputer(
-            n_neighbors=5, weights="distance", missing_values=np.NaN)
+    # imputer = KNNImputer(
+    #         n_neighbors=5, weights="distance", missing_values=np.NaN)
 
     for aes_path in tqdm.tqdm(aes_globs):
         _df_raw = pd.read_csv(aes_path)
@@ -213,7 +241,7 @@ def parse_aerosols(aes_dir):
                     "측정소명": "stationName", "측정일시": "date",
                     "주소": "addr"}, axis='columns', inplace=True)
 
-        def _parse_date(dstr, date_str):
+        def _parse_date(dstr):
             m = re.match(re_date, str(dstr))
             yyyy = int(m.groups()[0])
             mm = int(m.groups()[1])
@@ -228,7 +256,7 @@ def parse_aerosols(aes_dir):
 
             return d
 
-        _dates = list(map(lambda d: _parse_date(str(d), date_str), _df_raw.loc[:, 'date'].tolist()))
+        _dates = list(map(lambda d: _parse_date(str(d)), _df_raw.loc[:, 'date'].tolist()))
 
         # Imputation on whole aerosol dataset takes too long time,
         # DataFrame for imputation
@@ -270,16 +298,18 @@ def parse_aerosols(aes_dir):
     return df
 
 def stats_parse():
-    seoul_stn_code = 108
+    """parse whole data
+    """
+    # seoul_stn_code = 108
     input_dir = Path("/input")
     obs_path = input_dir / "station" / "aerosol_observatory_2017_aironly.xlsx"
     aes_dir = input_dir / "aerosol"
     wea_dir = input_dir / "weather" / "seoul"
 
     print("Parsing Station dataset...", flush=True)
-    df_obs = parse_obsxlsx(obs_path, input_dir)
+    df_obs = parse_obsxlsx(obs_path)
     print("Parsing Weather dataset...", flush=True)
-    df_wea = parse_weathers(wea_dir, seoul_stn_code=seoul_stn_code)
+    df_wea = parse_weathers(wea_dir)
     print("Parsing Aerosol dataset...", flush=True)
     df_aes = parse_aerosols(aes_dir)
 
@@ -299,7 +329,12 @@ def stats_parse():
     # print("Finished Creating input.csv...", flush=True)
     # impute_seoul(df, input_dir)
 
-def impute_seoul(df, input_dir):
+def impute_seoul(df):
+    """impute seoul data only
+
+    Args:
+        df (pd.DataFrame): [description]
+    """
     dfs_h = []
     for station_name in tqdm.tqdm(SEOUL_STATIONS.keys(), total=len(SEOUL_STATIONS.keys())):
         print(station_name)

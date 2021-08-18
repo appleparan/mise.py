@@ -1,37 +1,39 @@
+"""Main interface to other modules
+"""
 import argparse
 
-from stats.preprocess import stats_preprocess, stats_parse
-from stats.impute import stats_imputation_stats
-from stats.msea_acf import stats_msea_acf
-from stats.analysis import stats_analysis
+from mise.stats.preprocess import stats_preprocess, stats_parse
+from mise.stats.impute import stats_imputation_stats
+from mise.stats.msea_acf import stats_msea_acf
+from mise.stats.analysis import stats_analysis
 
 # statistical models
-from stats.ARIMA import stats_arima
-from stats.OU import stats_ou
+from mise.stats.ARIMA import stats_arima
+from mise.stats.OU import stats_ou
 
 # machine learning models
 # univariate
-from ml.mlp_uni_ms import ml_mlp_uni_ms
-from ml.mlp_uni_ms_mccr import ml_mlp_uni_ms_mccr
-from ml.rnn_uni_attn import ml_rnn_uni_attn
-from ml.rnn_uni_attn_mccr import ml_rnn_uni_attn_mccr
+from mise.ml.mlp_uni_ms import ml_mlp_uni_ms
+from mise.ml.mlp_uni_ms_mccr import ml_mlp_uni_ms_mccr
+from mise.ml.rnn_uni_attn import ml_rnn_uni_attn
+from mise.ml.rnn_uni_attn_mccr import ml_rnn_uni_attn_mccr
 
 # multivariate
-from ml.xgboost import ml_xgboost
-from ml.mlp_mul_ms import ml_mlp_mul_ms
-from ml.mlp_mul_ms_mccr import ml_mlp_mul_ms_mccr
-from ml.rnn_mul_lstnet_skip import ml_rnn_mul_lstnet_skip
-from ml.rnn_mul_lstnet_skip_mccr import ml_rnn_mul_lstnet_skip_mccr
-from ml.mlp_mul_transformer import ml_mlp_mul_transformer
-from ml.mlp_mul_transformer_mccr import ml_mlp_mul_transformer_mccr
+from mise.ml.dt_xgboost import ml_xgboost
+from mise.ml.mlp_mul_ms import ml_mlp_mul_ms
+from mise.ml.mlp_mul_ms_mccr import ml_mlp_mul_ms_mccr
+from mise.ml.rnn_mul_lstnet_skip import ml_rnn_mul_lstnet_skip
+from mise.ml.rnn_mul_lstnet_skip_mccr import ml_rnn_mul_lstnet_skip_mccr
+from mise.ml.mlp_mul_transformer import ml_mlp_mul_transformer
+from mise.ml.mlp_mul_transformer_mccr import ml_mlp_mul_transformer_mccr
 
-"""
-    plot(args)
+def compute_plot(_args):
+    """
+        plot(_args)
 
-Plot figures from args
-"""
-def plot(args):
-    figs = args["plot"]
+    Plot figures from args
+    """
+    figs = _args["plot"]
 
     if len(figs) == 0:
         # specify all simulation name
@@ -44,15 +46,14 @@ def plot(args):
     for f in funcs:
         globals()[f]()
 
-    pass
 
-"""
-    stats(args)
+def compute_stats(_args):
+    """
+        stats(_args)
 
-Run statistical models
-"""
-def stats(args):
-    sims = args['stats']
+    Run statistical models
+    """
+    sims = _args['stats']
 
     if len(sims) == 0:
         # specify all simulation name
@@ -65,15 +66,14 @@ def stats(args):
     for f in funcs:
         globals()[f]()
 
-    pass
 
-"""
-    ml(args)
+def compute_ml(_args):
+    """
+        ml(_args)
 
-Run machine learning models
-"""
-def ml(args):
-    sims = args["ml"]
+    Run machine learning models
+    """
+    sims = _args["ml"]
 
     if len(sims) == 0:
         # specify all simulation name
@@ -86,28 +86,26 @@ def ml(args):
     for f in funcs:
         globals()[f]()
 
-    pass
-
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--plot", nargs='*',
         help="plot figures, must used with --figure")
     parser.add_argument("-s", "--stats", nargs='*',
-        help="statistics simulations, available arguments ['arima', 'sarima', 'tbats', 'stl', 'stl_acf']")
+        help="statistics simulations")
     parser.add_argument("-m", "--ml", nargs='*',
-        help="machine learning simulations, available arguments ['dnn', 'dnn_msea', 'dnn_arima_mlp']")
+        help="machine learning simulations")
 
     args = vars(parser.parse_args())
 
     # statistical models
-    if args["stats"] != None:
-        stats(args)
+    if args["stats"] is not None:
+        compute_stats(args)
 
     # machine learning
-    if args["ml"] != None:
-        ml(args)
+    if args["ml"] is not None:
+        compute_ml(args)
 
     # plot
-    if args["plot"] != None:
-        plot(args)
+    if args["plot"] is not None:
+        compute_plot(args)

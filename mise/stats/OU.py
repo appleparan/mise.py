@@ -1,38 +1,33 @@
-import copy
 import datetime as dt
-from math import sqrt, exp
-import os
+from math import sqrt
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pytz import timezone
-from sklearn.impute import KNNImputer
-from scipy.stats import boxcox
-import statsmodels.tsa.stattools as stls
 import statsmodels.graphics.tsaplots as tpl
-from statsmodels.tsa.stattools import acf, pacf
 from statsmodels.tsa.tsatools import detrend
 import tqdm
 
-from sklearn.preprocessing import StandardScaler
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline, make_pipeline
+import matplotlib.pyplot as plt
 
 from bokeh.models import Range1d, DatetimeTickFormatter
-from bokeh.plotting import figure, output_file, show
+from bokeh.plotting import figure
 from bokeh.io import export_png, export_svgs
 
-import data
-from constants import SEOUL_STATIONS
+import mise.data as data
+from mise.constants import SEOUL_STATIONS
 
 seoultz = timezone('Asia/Seoul')
 HOURLY_DATA_PATH = "/input/python/input_seoul_imputed_hourly_pandas.csv"
 DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 
 def stats_ou(station_name="종로구"):
+    """Model by OU process
+
+    Args:
+        station_name (str, optional): [description]. Defaults to "종로구".
+    """
     print("Data loading start...")
     _df_h = data.load_imputed(HOURLY_DATA_PATH)
     df_h = _df_h.query('stationCode == "' +
@@ -115,14 +110,18 @@ def stats_ou(station_name="종로구"):
         test_set.transform()
         test_set.plot_seasonality(data_dir, png_dir, svg_dir)
 
-        df_train = train_set.ys.copy()
         df_test = test_set.ys.loc[test_fdate:test_tdate, :].copy()
         df_test_org = test_set.ys_raw.loc[test_fdate:test_tdate, :].copy()
 
         print("Simulate by Ornstein–Uhlenbeck process for " + target + "...")
 
         def run_OU(_intT):
-            df_obs = mw_df(df_test_org, target, output_size,
+            """Run OU process
+
+            Args:
+                _intT (float): Time Scale
+            """
+            df_obs = mw_df(df_test_org, output_size,
                            test_fdate, test_tdate)
             dates = df_obs.index
             df_sim = sim_OU(df_test, dates, target, np.mean(df_test.to_numpy()), np.std(df_test.to_numpy()),\
@@ -142,7 +141,7 @@ def stats_ou(station_name="종로구"):
         run_OU(intT)
 
 
-def mw_df(df_org, target, output_size, fdate, tdate):
+def mw_df(df_org, output_size, fdate, tdate):
     """
     moving window
     """
@@ -318,8 +317,8 @@ def plot_line(obs, sim, test_fdate, test_tdate, target, data_dir, png_dir, svg_d
     p.xaxis.axis_label = "dates"
     p.xaxis.formatter = DatetimeTickFormatter()
     p.yaxis.axis_label = target
-    p.line(dates, obs, line_color="dodgerblue", legend_label="obs")
-    p.line(dates, sim, line_color="lightcoral", legend_label="sim")
+    p.line(x=dates, y=obs, line_color="dodgerblue", legend_label="obs")
+    p.line(x=dates, y=sim, line_color="lightcoral", legend_label="sim")
     export_png(p, filename=png_path)
     p.output_backend = "svg"
     export_svgs(p, filename=str(svg_path))
@@ -341,7 +340,7 @@ def plot_corr(times, corrs, data_dir, png_dir, svg_dir, output_name):
     p.yaxis.axis_label = "corr"
     p.yaxis.bounds = (0.0, 1.0)
     p.y_range = Range1d(0.0, 1.0)
-    p.line(times, corrs)
+    p.line(x=times, y=corrs)
     export_png(p, filename=png_path)
     p.output_backend = "svg"
     export_svgs(p, filename=str(svg_path))

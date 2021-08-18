@@ -6,6 +6,21 @@ persistent=no
 # Use multiple processes to speed up Pylint.
 jobs=4
 
+[BASIC]
+
+# Good variable names which should always be accepted, separated by a comma.
+good-names=i, j, k,
+    df, _df,
+    wb, ws, f, d, m, mm, dd, hh, yyyy,
+    w, wd,
+    ax,
+
+[TYPECHECK]
+
+# List of members which are set dynamically and missed by Pylint inference
+# system, and so shouldn't trigger E1101 when accessed.
+generated-members=torch.*
+
 [MESSAGES CONTROL]
 
 
@@ -23,6 +38,11 @@ jobs=4
 # style strings
 disable =
   missing-module-docstring,
+  cell-var-from-loop,
+  too-many-locals,
+  too-many-statement,
+  too-many-lines,
+  invalid-name,
 
 [REPORTS]
 
@@ -44,6 +64,3 @@ reports=no
 
 # Maximum number of nested blocks for function / method body
 max-nested-blocks=5
-
-# Good variable names which should always be accepted, separated by a comma.
-good-names=i, j, k, ex, Run, df, d, l, l1, l2, l3

@@ -1,28 +1,30 @@
 import datetime as dt
-import dateutil
-import time
-import glob
-import os
 from pathlib import Path
 import re
 
+import dateutil
 import numpy as np
 import pandas as pd
-from pytz import timezone
-from openpyxl import load_workbook
-from sklearn.impute import KNNImputer
-import statsmodels.api as sm
-# from statsmodels.imputation.mice import MICE
 import tqdm
 
-import data
-
-from constants import SEOUL_STATIONS, SEOULTZ
+from mise.constants import SEOUL_STATIONS, SEOULTZ
 
 def parse_raw_aerosols(aes_dir, aes_fea, fdate, tdate, station_name='종로구'):
-    re_aes_fn = r"**/([0-9]+)년\W*([0-9]+)(분기|월).csv"
-    re_ext_fn = r".*.csv"
-    date_str = "%Y%m%d%H"
+    """parse aerosol files
+
+    Args:
+        aes_dir ([type]): [description]
+        aes_fea ([type]): [description]
+        fdate ([type]): [description]
+        tdate ([type]): [description]
+        station_name (str, optional): [description]. Defaults to '종로구'.
+
+    Returns:
+        [type]: [description]
+    """
+    # re_aes_fn = r"**/([0-9]+)년\W*([0-9]+)(분기|월).csv"
+    # re_ext_fn = r".*.csv"
+    # date_str = "%Y%m%d%H"
     re_date = "^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})$"
     station_code = SEOUL_STATIONS[station_name]
 
@@ -32,12 +34,12 @@ def parse_raw_aerosols(aes_dir, aes_fea, fdate, tdate, station_name='종로구')
     dfs = []
 
     for aes_path in tqdm.tqdm(aes_globs):
-        _df_raw = pd.read_csv(aes_path)
+        _df_raw: pd.DataFrame = pd.read_csv(aes_path)
         _df_raw.rename(mapper={"지역": "region", "측정소코드": "stationCode",
                     "측정소명": "stationName", "측정일시": "date",
                     "주소": "addr"}, axis='columns', inplace=True)
 
-        def _parse_date(dstr, date_str):
+        def _parse_date(dstr):
             m = re.match(re_date, str(dstr))
             yyyy = int(m.groups()[0])
             mm = int(m.groups()[1])
@@ -52,7 +54,7 @@ def parse_raw_aerosols(aes_dir, aes_fea, fdate, tdate, station_name='종로구')
 
             return d
 
-        _dates = list(map(lambda d: _parse_date(str(d), date_str), _df_raw.loc[:, 'date'].tolist()))
+        _dates = list(map(lambda d: _parse_date(str(d)), _df_raw.loc[:, 'date'].tolist()))
 
         # imputed results to DataFrame
         _df = pd.DataFrame({
@@ -78,6 +80,18 @@ def parse_raw_aerosols(aes_dir, aes_fea, fdate, tdate, station_name='종로구')
     return df.loc[fdate:tdate, aes_fea]
 
 def parse_raw_weathers(wea_dir, wea_fea, fdate, tdate, seoul_stn_code=108):
+    """parse weather files
+
+    Args:
+        wea_dir ([type]): [description]
+        wea_fea ([type]): [description]
+        fdate ([type]): [description]
+        tdate ([type]): [description]
+        seoul_stn_code (int, optional): [description]. Defaults to 108.
+
+    Returns:
+        [type]: [description]
+    """
     re_wea_fn = r"SURFACE_ASOS_$(string(wea_stn_code))_HR_([0-9]+)_([0-9]+)_([0-9]+).csv"
     date_str = "yyyy-mm-dd HH:MM"
 
@@ -132,6 +146,8 @@ def parse_raw_weathers(wea_dir, wea_fea, fdate, tdate, seoul_stn_code=108):
     return df.loc[fdate:tdate, wea_fea]
 
 def stats_imputation_stats():
+    """Get statistics related to missing values
+    """
     seoul_stn_code = 108
     station_name = '종로구'
     input_dir = Path("/input")

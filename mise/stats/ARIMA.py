@@ -26,8 +26,8 @@ from bokeh.models import Range1d, DatetimeTickFormatter
 from bokeh.plotting import figure, output_file, show
 from bokeh.io import export_png, export_svgs
 
-import data
-from constants import SEOUL_STATIONS, SEOULTZ
+import mise.data as data
+from mise.constants import SEOUL_STATIONS, SEOULTZ
 
 HOURLY_DATA_PATH = "/input/python/input_seoul_imputed_hourly_pandas.csv"
 DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
