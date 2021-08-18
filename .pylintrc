@@ -39,10 +39,15 @@ generated-members=torch.*
 disable =
   missing-module-docstring,
   cell-var-from-loop,
-  too-many-locals,
-  too-many-statement,
+  too-many-arguments,
+  too-many-instance-attributes,
   too-many-lines,
+  too-many-locals,
+  too-many-statements,
   invalid-name,
+  unused-argument,  # ignore batch_idx in forward method
+  arguments-differ, # pytorch-lightning inheritance
+  unused-import,    # ignore mise.py import
 
 [REPORTS]
 
