@@ -4,6 +4,7 @@ from statsmodels.nonparametric.smoothers_lowess import lowess
 
 from mise.constants import SEOULTZ
 
+
 def parse_key(df, period):
     """parse DateTimeIndex to key by period
 
@@ -17,21 +18,26 @@ def parse_key(df, period):
     Returns:
         List(str): list of parsed string
     """
-    if period == 'y':
+    if period == "y":
         # %m%d%H
-        return [''.join(row) for row in zip(
-            np.char.zfill(df.index.month.to_numpy().astype(str), 2),
-            np.char.zfill(df.index.day.to_numpy().astype(str), 2))]
+        return [
+            "".join(row)
+            for row in zip(
+                np.char.zfill(df.index.month.to_numpy().astype(str), 2),
+                np.char.zfill(df.index.day.to_numpy().astype(str), 2),
+            )
+        ]
 
-    if period == 'w':
+    if period == "w":
         # %w, no padding
         return df.index.weekday.to_numpy().astype(str)
 
-    if period == 'h':
-            # %H, zero-padded 24-hour clock
+    if period == "h":
+        # %H, zero-padded 24-hour clock
         return np.char.zfill(df.index.hour.to_numpy().astype(str), 2)
     else:
         raise KeyError("KeyError: wrong period! period should be in 'y', 'w', or 'h'")
+
 
 def parse_ykey(idx: pd.DatetimeIndex):
     """parse index and convert to str
@@ -42,8 +48,8 @@ def parse_ykey(idx: pd.DatetimeIndex):
     Returns:
         str: zero padded month and day(%m%d)
     """
-    return ''.join((str(idx.month).zfill(2),
-            str(idx.day).zfill(2)))
+    return "".join((str(idx.month).zfill(2), str(idx.day).zfill(2)))
+
 
 def parse_wkey(idx: pd.DatetimeIndex):
     """parse index and convert to str
@@ -56,6 +62,7 @@ def parse_wkey(idx: pd.DatetimeIndex):
     """
     return str(idx.weekday())
 
+
 def parse_hkey(idx):
     """parse index and convert to str
 
@@ -67,7 +74,10 @@ def parse_hkey(idx):
     """
     return str(idx.hour).zfill(2)
 
-def periodic_mean(df, target, period, smoothing=False, smoothing_frac=0.05, smoothing_col='y'):
+
+def periodic_mean(
+    df, target, period, smoothing=False, smoothing_frac=0.05, smoothing_col="y"
+):
     """compute periodic mean and residuals, annual and weekly means
         are daily average, hourly means are hourly raw data
 
@@ -110,23 +120,25 @@ def periodic_mean(df, target, period, smoothing=False, smoothing_frac=0.05, smoo
             Residuals
     """
     # define function to convert datetime to key
-    if period == 'y':
+    if period == "y":
         # %m%d
         # SettingWithCopyWarning:
         # A value is trying to be set on a copy of a slice from a DataFrame.
         # from pandas 1.1.4 but no issue, why?
-        df.loc[:, 'key'] = df.index.map(parse_ykey)
-        dt2key = lambda d: str(d.astimezone(SEOULTZ).month).zfill(
-            2) + str(d.day).zfill(2)
-    elif period == 'w':
+        df.loc[:, "key"] = df.index.map(parse_ykey)
+
+        def dt2key(d): return str(d.astimezone(SEOULTZ).month).zfill(2) + str(d.day).zfill(
+            2
+        )
+    elif period == "w":
         # %w, no padding
-        df.loc[:, 'key'] = df.index.map(parse_wkey)
+        df.loc[:, "key"] = df.index.map(parse_wkey)
         # weekday() is a function, not property
-        dt2key = lambda d: str(d.astimezone(SEOULTZ).weekday())
-    elif period == 'h':
+        def dt2key(d): return str(d.astimezone(SEOULTZ).weekday())
+    elif period == "h":
         # %H, zero-padded 24-hour clock
-        df.loc[:, 'key'] = df.index.map(parse_hkey)
-        dt2key = lambda d: str(d.astimezone(SEOULTZ).hour).zfill(2)
+        df.loc[:, "key"] = df.index.map(parse_hkey)
+        def dt2key(d): return str(d.astimezone(SEOULTZ).hour).zfill(2)
     else:
         # already raised in parse_key
         raise KeyError("Wrong period! period should be in 'y', 'w', and 'h'")
@@ -135,32 +147,32 @@ def periodic_mean(df, target, period, smoothing=False, smoothing_frac=0.05, smoo
     # function periodic_mean is always executed in train/valid set (fit method)
     # if test set, dict_sea was given and will not execute this function
     # test set will use mean of train/valid set which is fed on __init__
-    grp_sea = df.groupby(by='key').mean().loc[:, target]
+    grp_sea = df.groupby(by="key").mean().loc[:, target]
     dict_sea = grp_sea.to_dict()
 
-    get_sea = lambda key: dict_sea[dt2key(key.name)]
+    def get_sea(key): return dict_sea[dt2key(key.name)]
 
     # convert dictionary to DataFrame
-    sea = pd.DataFrame.from_dict(dict_sea, orient='index', columns=['sea'])
+    sea = pd.DataFrame.from_dict(dict_sea, orient="index", columns=["sea"])
     # axis=1 in apply menas apply function `get_sea` to columns
     res = df.loc[:, target] - df.loc[:, target].to_frame().apply(get_sea, axis=1)
 
     # smoothing applies only to annual seasaonlity
     if smoothing and period == smoothing_col:
-        sea_values = sea.loc[:, 'sea'].to_numpy()
+        sea_values = sea.loc[:, "sea"].to_numpy()
         sea_smoothed = lowess(
-            sea_values, range(len(sea_values)),
-            return_sorted=False, frac=smoothing_frac)
+            sea_values, range(len(sea_values)), return_sorted=False, frac=smoothing_frac
+        )
         dict_sea = dict(zip(sea.index, sea_smoothed))
         # redefine get function due to closure
-        get_sea = lambda key: dict_sea[dt2key(key.name)]
+        def get_sea(key): return dict_sea[dt2key(key.name)]
 
-        sea = pd.DataFrame.from_dict(dict_sea, orient='index', columns=['sea'])
+        sea = pd.DataFrame.from_dict(dict_sea, orient="index", columns=["sea"])
         res = df[target] - df[target].to_frame().apply(get_sea, axis=1)
 
     # convert residual from Series to DataFrame
     res = res.to_frame()
-    res.columns = ['resid']
-    #res['key'] = parse_key(res, period)
+    res.columns = ["resid"]
+    # res['key'] = parse_key(res, period)
 
     return dict_sea, sea, res

@@ -2,30 +2,29 @@
 """
 import argparse
 
-from mise.stats.preprocess import stats_preprocess, stats_parse
-from mise.stats.impute import stats_imputation_stats
-from mise.stats.msea_acf import stats_msea_acf
-from mise.stats.analysis import stats_analysis
-
-# statistical models
-from mise.stats.ARIMA import stats_arima
-from mise.stats.OU import stats_ou
+# multivariate
+from mise.ml.dt_xgboost import ml_xgboost
+from mise.ml.mlp_mul_ms import ml_mlp_mul_ms
+from mise.ml.mlp_mul_ms_mccr import ml_mlp_mul_ms_mccr
+from mise.ml.mlp_mul_transformer import ml_mlp_mul_transformer
+from mise.ml.mlp_mul_transformer_mccr import ml_mlp_mul_transformer_mccr
 
 # machine learning models
 # univariate
 from mise.ml.mlp_uni_ms import ml_mlp_uni_ms
 from mise.ml.mlp_uni_ms_mccr import ml_mlp_uni_ms_mccr
-from mise.ml.rnn_uni_attn import ml_rnn_uni_attn
-from mise.ml.rnn_uni_attn_mccr import ml_rnn_uni_attn_mccr
-
-# multivariate
-from mise.ml.dt_xgboost import ml_xgboost
-from mise.ml.mlp_mul_ms import ml_mlp_mul_ms
-from mise.ml.mlp_mul_ms_mccr import ml_mlp_mul_ms_mccr
 from mise.ml.rnn_mul_lstnet_skip import ml_rnn_mul_lstnet_skip
 from mise.ml.rnn_mul_lstnet_skip_mccr import ml_rnn_mul_lstnet_skip_mccr
-from mise.ml.mlp_mul_transformer import ml_mlp_mul_transformer
-from mise.ml.mlp_mul_transformer_mccr import ml_mlp_mul_transformer_mccr
+from mise.ml.rnn_uni_attn import ml_rnn_uni_attn
+from mise.ml.rnn_uni_attn_mccr import ml_rnn_uni_attn_mccr
+from mise.stats.analysis import stats_analysis
+
+# statistical models
+from mise.stats.ARIMA import stats_arima
+from mise.stats.impute import stats_imputation_stats
+from mise.stats.OU import stats_ou
+from mise.stats.preprocess import stats_parse, stats_preprocess
+
 
 def compute_plot(_args):
     """
@@ -53,7 +52,7 @@ def compute_stats(_args):
 
     Run statistical models
     """
-    sims = _args['stats']
+    sims = _args["stats"]
 
     if len(sims) == 0:
         # specify all simulation name
@@ -86,15 +85,15 @@ def compute_ml(_args):
     for f in funcs:
         globals()[f]()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--plot", nargs='*',
-        help="plot figures, must used with --figure")
-    parser.add_argument("-s", "--stats", nargs='*',
-        help="statistics simulations")
-    parser.add_argument("-m", "--ml", nargs='*',
-        help="machine learning simulations")
+    parser.add_argument(
+        "-p", "--plot", nargs="*", help="plot figures, must used with --figure"
+    )
+    parser.add_argument("-s", "--stats", nargs="*", help="statistics simulations")
+    parser.add_argument("-m", "--ml", nargs="*", help="machine learning simulations")
 
     args = vars(parser.parse_args())
 
