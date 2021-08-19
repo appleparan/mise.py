@@ -7,7 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import shap
+# import shap
 import statsmodels.graphics.tsaplots as tpl
 import tqdm
 from bokeh.io import export_png, export_svgs
@@ -343,26 +343,26 @@ def sim_xgboost(
         plt.savefig(svg_path)
         plt.close()
 
-        # feature importance by SHAP values
-        explainer = shap.Explainer(models[l])
-        shap_values = explainer(X_train)
+        # # feature importance by SHAP values
+        # explainer = shap.Explainer(models[l])
+        # shap_values = explainer(X_train)
 
-        plt.figure()
-        shap.summary_plot(shap_values, X_train, show=False)
-        output_to_plot_values = "shap_values_" + str(l + 1).zfill(2) + "h"
-        output_to_model = "xgboost_model_" + str(l + 1).zfill(2) + "h"
+        # plt.figure()
+        # shap.summary_plot(shap_values, X_train, show=False)
+        # output_to_plot_values = "shap_values_" + str(l + 1).zfill(2) + "h"
+        # output_to_model = "xgboost_model_" + str(l + 1).zfill(2) + "h"
 
-        data_path = data_dir / (output_to_plot_values)
-        with open(data_path.absolute(), "wb") as f:
-            pickle.dump(shap_values, f, pickle.HIGHEST_PROTOCOL)
-        png_path = png_dir / (output_to_plot_values + ".png")
-        svg_path = svg_dir / (output_to_plot_values + ".svg")
-        plt.savefig(png_path, dpi=600)
-        plt.savefig(svg_path)
-        plt.close()
+        # data_path = data_dir / (output_to_plot_values)
+        # with open(data_path.absolute(), "wb") as f:
+        #     pickle.dump(shap_values, f, pickle.HIGHEST_PROTOCOL)
+        # png_path = png_dir / (output_to_plot_values + ".png")
+        # svg_path = svg_dir / (output_to_plot_values + ".svg")
+        # plt.savefig(png_path, dpi=600)
+        # plt.savefig(svg_path)
+        # plt.close()
 
-        model_path = model_dir / (output_to_model + ".json")
-        models[l].save_model(model_path)
+        # model_path = model_dir / (output_to_model + ".json")
+        # models[l].save_model(model_path)
 
     print("Models are fitted", flush=True)
 
