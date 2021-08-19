@@ -135,3 +135,7 @@ dmypy.json
 lightning_logs/
 *.sh
 out.*
+
+# ignore Singularity image
+*.sif
+
