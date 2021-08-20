@@ -56,6 +56,8 @@
 * MCCR (Correntropy based Loss): [JLMR link](https://www.jmlr.org/papers/volume16/feng15a/feng15a.pdf)
     - Feng, Yunlong, et al. "Learning with the maximum correntropy criterion induced losses for regression." J. Mach. Learn. Res. 16.1 (2015): 993-1034.
 
-# Paper
-* In Manuscript
+# Publication
+* Jongsu Kim and Changhoon Lee. "Deep Particulate Matter Forecasting Model Using Correntropy-Induced Loss." arXiv preprint arXiv:2106.03032 (2021). [link](https://arxiv.org/abs/2106.03032)
+    - Accepted in [Journal of Mechanical Science and Technology](https://www.springer.com/journal/12206)
+    
 
