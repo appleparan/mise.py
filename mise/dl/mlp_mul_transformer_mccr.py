@@ -626,7 +626,7 @@ def dl_mlp_mul_transformer_mccr(station_name="종로구"):
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
             os.path.join(model_dir, "train_{epoch}_{valid/MSE:.2f}"),
             monitor="valid/MSE",
-            period=10,
+            every_n_epochs=10,
         )
 
         early_stop_callback = EarlyStopping(
