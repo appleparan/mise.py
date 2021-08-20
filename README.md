@@ -42,7 +42,7 @@
     - enable nvidia devices by `--nv`
     - containers refer `requirements.txt` generated from following command
     ```
-    $ poetry -f requirements.txt --output requirements.txt --without-hashes
+    $ poetry export -f requirements.txt --output requirements.txt --without-hashes
     ```
 * Container execution example
     ```

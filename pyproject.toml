@@ -25,6 +25,7 @@ xgboost = "^1.4.2"
 selenium = "^3.141.0"
 openpyxl = "^3.0.7"
 MFDFA = "^0.4"
+plotly = "^5.2.1"
 
 [tool.poetry.dev-dependencies]
 isort = "^5.9.3"
