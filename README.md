@@ -40,6 +40,11 @@
 * Run singularity with following commands
     - bind paths (`/input` for input, `/mnt/data` for output)
     - enable nvidia devices by `--nv`
+    - containers refer `requirements.txt` generated from following command
+    ```
+    $ poetry -f requirements.txt --output requirements.txt --without-hashes
+    ```
+* Container execution example
     ```
     TORCH_IMG=my_torch_img.sif
     CASES=rnn_mul_lstnet_skip_mccr
