@@ -2241,13 +2241,15 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
 
         ## compute hourly populated seasonality from daily residuals
         X_h_spop = df_sea_annual.merge(
-            X_h, how="left", left_on="key_md", validate="1:m"
+            X_h, how="left", on="key_md", validate="1:m"
         ).dropna()
+        X_h_spop.set_index(X_h.index, inplace=True)
         X_h_spop = X_h_spop.rename(columns={"sea": "sea_annual"})
         X_h_spop = df_sea_weekly.merge(
-            X_h_spop, how="left", left_on="key_w", validate="1:m"
+            X_h_spop, how="left", on="key_w", validate="1:m"
         ).dropna()
         X_h_spop = X_h_spop.rename(columns={"sea": "sea_weekly"})
+        X_h_spop.set_index(X_h.index, inplace=True)
 
         ## new hourly residual column from daily residuals
         X_h_spop["resid_y"] = X_h_spop["raw"] - X_h_spop["sea_annual"]
@@ -2272,9 +2274,10 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
 
         ## merge hourly seasonality to orignal hourly DataFram
         X_h_hourly = df_sea_hourly.merge(
-            X_h_spop, how="left", left_on="key_h", validate="1:m"
+            X_h_spop, how="left", on="key_h", validate="1:m"
         ).dropna()
         X_h_hourly = X_h_hourly.rename(columns={"sea": "sea_hourly"})
+        X_h_spop.set_index(X_h.index, inplace=True)
         ## Subtract annual and weekly seasonality
         X_h_spop["sea_hourly"] = X_h_hourly["sea_hourly"]
         X_h_spop["resid"] = X_h_spop["resid_d"] - X_h_hourly["sea_hourly"]
@@ -3429,7 +3432,8 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
 
         # Compute Weekly seasonality
         ws = [self.sea_weekly[target][wdt2key(w)] for w in wx]
-        # wr = df_resid_weekly[(df_resid_weekly.index >= fdate) & (df_resid_weekly.index <= tdate)][target].to_numpy()
+        # wr = df_resid_weekly[(df_resid_weekly.index >= fdate) 
+        #   & (df_resid_weekly.index <= tdate)][target].to_numpy()
         df_sea_week = pd.DataFrame.from_dict({"date": wx, "ws": ws})
         df_sea_week.set_index("date", inplace=True)
         df_sea_week.to_csv(data_dir / ("sea_weekly.csv"))
@@ -3443,7 +3447,8 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
 
         # Compute Hourly seasonality
         hs = [self.sea_hourly[target][hdt2key(h)] for h in hx]
-        # hr = df_resid_hourly[(df_resid_hourly.index >= fdate) & (df_resid_hourly.index <= tdate)][target].to_numpy()
+        # hr = df_resid_hourly[(df_resid_hourly.index >= fdate) & 
+        #   (df_resid_hourly.index <= tdate)][target].to_numpy()
 
         df_sea_hour = pd.DataFrame.from_dict({"date": hx, "hs": hs})
         df_sea_hour.set_index("date", inplace=True)

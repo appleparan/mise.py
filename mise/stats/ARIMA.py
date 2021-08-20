@@ -268,7 +268,7 @@ def sim_arima(
     # TODO : Need Optimization, too slow!
     assert df_test.index[0] == dates[0]
 
-    for i, (index, row) in tqdm.tqdm(
+    for i, (index, _) in tqdm.tqdm(
         enumerate(df_test.iterrows()), total=len(dates) - 1
     ):
         if i >= len(dates):
