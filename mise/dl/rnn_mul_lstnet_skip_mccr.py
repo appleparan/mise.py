@@ -112,8 +112,8 @@ def construct_dataset(
     return data_set
 
 
-def ml_rnn_mul_lstnet_skip(station_name="종로구"):
-    """Run Multivariate LSTNet model using MSE loss
+def dl_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
+    """Run Multivariate LSTNet model with MCCR loss
 
     Args:
         station_name (str, optional): station name. Defaults to "종로구".
@@ -121,7 +121,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
     Returns:
         None
     """
-    print("Start Multivariate LSTNet (Skip Layer, MSE) Model")
+    print("Start Multivariate LSTNet (Skip Layer, MCCR) Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
     sample_size = 48
@@ -238,7 +238,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
     for target in targets:
         print("Training " + target + "...")
         output_dir = Path(
-            f"/mnt/data/RNNLSTNetSkipMultivariate/{station_name}/{target}/"
+            f"/mnt/data/RNNLSTNetSkipMCCRMultivariate/{station_name}/{target}/"
         )
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
@@ -344,12 +344,13 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
         train_dataset = ConcatDataset(train_datasets)
         val_dataset = ConcatDataset(valid_datasets)
 
-        # Dummy hyperparameters
+        # dummy hyperparameters
         hparams = Namespace(
-            filter_size=3,
+            sigma=0.6,
+            filter_size=1,
             hidCNN=16,
-            hidSkip=16,
-            hidRNN=16,
+            hidSkip=128,
+            hidRNN=128,
             learning_rate=learning_rate,
             batch_size=batch_size,
         )
@@ -397,6 +398,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             study = optuna.create_study(direction="minimize")
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "filter_size": 1,
                     "hidCNN": 64,
                     "hidSkip": 64,
@@ -407,6 +409,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             )
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "filter_size": 3,
                     "hidCNN": 64,
                     "hidSkip": 64,
@@ -417,6 +420,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             )
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "filter_size": 5,
                     "hidCNN": 64,
                     "hidSkip": 64,
@@ -427,6 +431,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             )
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "filter_size": 3,
                     "hidCNN": 128,
                     "hidSkip": 64,
@@ -437,6 +442,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             )
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "filter_size": 3,
                     "hidCNN": 32,
                     "hidSkip": 64,
@@ -447,6 +453,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             )
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "filter_size": 3,
                     "hidCNN": 64,
                     "hidSkip": 128,
@@ -457,6 +464,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             )
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "filter_size": 3,
                     "hidCNN": 64,
                     "hidSkip": 32,
@@ -467,9 +475,10 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             )
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "filter_size": 3,
                     "hidCNN": 64,
-                    "hidSkip": 32,
+                    "hidSkip": 64,
                     "hidRNN": 128,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
@@ -477,10 +486,44 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             )
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "filter_size": 3,
                     "hidCNN": 64,
                     "hidSkip": 64,
                     "hidRNN": 32,
+                    "learning_rate": learning_rate,
+                    "batch_size": batch_size,
+                }
+            )
+            study.enqueue_trial(
+                {
+                    "sigma": 0.8,
+                    "filter_size": 3,
+                    "hidCNN": 64,
+                    "hidSkip": 64,
+                    "hidRNN": 64,
+                    "learning_rate": learning_rate,
+                    "batch_size": batch_size,
+                }
+            )
+            study.enqueue_trial(
+                {
+                    "sigma": 2.0,
+                    "filter_size": 3,
+                    "hidCNN": 64,
+                    "hidSkip": 64,
+                    "hidRNN": 64,
+                    "learning_rate": learning_rate,
+                    "batch_size": batch_size,
+                }
+            )
+            study.enqueue_trial(
+                {
+                    "sigma": 4.0,
+                    "filter_size": 3,
+                    "hidCNN": 64,
+                    "hidSkip": 64,
+                    "hidRNN": 64,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
@@ -540,6 +583,7 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
+            hparams.sigma = trial.params["sigma"]
             hparams.filter_size = trial.params["filter_size"]
             hparams.hidCNN = trial.params["hidCNN"]
             hparams.hidSkip = trial.params["hidSkip"]
@@ -625,12 +669,9 @@ def ml_rnn_mul_lstnet_skip(station_name="종로구"):
 
 
 class BaseLSTNetModel(LightningModule):
-    """Lightning Moduel for Multivariate LSTNet model using MSE loss
+    """Lightning Moduel for Multivariate LSTNet model using MCCR loss
 
     LSTNet + Skip Layer
-
-    Args:
-        LightningModule (LightningModule): LightningModule
     """
 
     def __init__(self, **kwargs):
@@ -646,6 +687,7 @@ class BaseLSTNetModel(LightningModule):
         self.hparams = kwargs.get(
             "hparams",
             Namespace(
+                sigma=1.0,
                 hidCNN=4,
                 hidSkip=16,
                 hidRNN=16,
@@ -697,17 +739,22 @@ class BaseLSTNetModel(LightningModule):
         self.val_dataset = kwargs.get("val_dataset", None)
         self.test_dataset = kwargs.get("test_dataset", None)
 
+        # Set ColumnTransformer if provided
+        self._scaler_X = kwargs.get("scaler_X", None)
+        self._scaler_Y = kwargs.get("scaler_Y", None)
+
         self.trial = kwargs.get("trial", None)
         self.sample_size = kwargs.get("sample_size", 48)
         self.output_size = kwargs.get("output_size", 24)
 
         if self.trial:
+            self.hparams.sigma = self.trial.suggest_float("sigma", 0.5, 5.0, step=0.1)
             self.hparams.filter_size = self.trial.suggest_int(
                 "filter_size", 1, 9, step=2
             )
-            self.hparams.hidRNN = self.trial.suggest_int("hidRNN", 8, 256)
-            self.hparams.hidCNN = self.trial.suggest_int("hidCNN", 8, 256)
-            self.hparams.hidSkip = self.trial.suggest_int("hidSkip", 8, 256)
+            self.hparams.hidRNN = self.trial.suggest_int("hidRNN", 8, 512)
+            self.hparams.hidCNN = self.trial.suggest_int("hidCNN", 8, 512)
+            self.hparams.hidSkip = self.trial.suggest_int("hidSkip", 8, 512)
 
         self.kernel_shape = (self.hparams.filter_size, len(self.features))
 
@@ -744,7 +791,8 @@ class BaseLSTNetModel(LightningModule):
         self.proj2 = nn.Linear(self.output_size, self.output_size)
         # self.act = nn.ReLU()
 
-        self.loss = nn.MSELoss()
+        # self.loss = nn.MSELoss()
+        self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
 
         self.train_logs = {}
@@ -1552,6 +1600,35 @@ def swish(_input, beta=1.0):
         output: Activated tensor
     """
     return _input * beta * torch.sigmoid(_input)
+
+
+class MCCRLoss(nn.Module):
+    """Maximum Correntropy Criterion Induced Losses for Regression(MCCR) Loss"""
+
+    def __init__(self, sigma=1.0):
+        super().__init__()
+        # save sigma
+        assert sigma > 0
+        self.sigma2 = sigma ** 2
+
+    def forward(self, _input: torch.Tensor, _target: torch.Tensor) -> torch.Tensor:
+        """
+        Implement maximum correntropy criterion for regression
+
+        loss(y, t) = sigma^2 * (1.0 - exp(-(y-t)^2/sigma^2))
+
+        where sigma > 0 (parameter)
+
+        Reference:
+            * Feng, Yunlong, et al.
+                "Learning with the maximum correntropy criterion
+                    induced losses for regression."
+                J. Mach. Learn. Res. 16.1 (2015): 993-1034.
+        """
+
+        return torch.mean(
+            self.sigma2 * (1 - torch.exp(-((_input - _target) ** 2) / self.sigma2))
+        )
 
 
 def relu_mul(x):

@@ -33,16 +33,16 @@ from mise.constants import SEOUL_STATIONS, SEOULTZ
 HOURLY_DATA_PATH = "/input/python/input_seoul_imputed_hourly_pandas.csv"
 DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 
+plt.rcParams["font.family"] = "Arial"
+plt.rcParams["mathtext.fontset"] = "stix"
+
 # Device configuration
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def construct_dataset(
     fdate,
     tdate,
-    features,
-    features_periodic,
-    features_nonperiodic,
     scaler_X=None,
     scaler_Y=None,
     filepath=HOURLY_DATA_PATH,
@@ -57,9 +57,6 @@ def construct_dataset(
     Args:
         fdate (datetime): start date of target range
         tdate (datetime): end date of target range
-        features (list): all features.
-        features_periodic (list): periodic features.
-        features_nonperiodic (list): nonperiodic features. Defaults to ["prep"].
         scaler_X (sklearn.preprocessing.StandardScaler, optional):
             2D scaler for X. Defaults to None.
         scaler_Y (sklearn.preprocessing.StandardScaler, optional):
@@ -76,26 +73,22 @@ def construct_dataset(
         Dataset: created dataset
     """
     if scaler_X is None or scaler_Y is None:
-        data_set = data.MultivariateMeanSeasonalityDataset(
+        data_set = data.UnivariateMeanSeasonalityDataset(
             station_name=station_name,
             target=target,
             filepath=filepath,
-            features=features,
-            features_1=features_nonperiodic,
-            features_2=features_periodic,
+            features=[target],
             fdate=fdate,
             tdate=tdate,
             sample_size=sample_size,
             output_size=output_size,
         )
     else:
-        data_set = data.MultivariateMeanSeasonalityDataset(
+        data_set = data.UnivariateMeanSeasonalityDataset(
             station_name=station_name,
             target=target,
             filepath=filepath,
-            features=features,
-            features_1=features_nonperiodic,
-            features_2=features_periodic,
+            features=[target],
             fdate=fdate,
             tdate=tdate,
             sample_size=sample_size,
@@ -110,8 +103,8 @@ def construct_dataset(
     return data_set
 
 
-def ml_mlp_mul_ms(station_name="종로구"):
-    """Run Multivariate MLP model using MSE loss
+def dl_mlp_uni_ms_mccr(station_name="종로구"):
+    """Run Univariate MLP model using MCCR loss
 
     Args:
         station_name (str, optional): station name. Defaults to "종로구".
@@ -119,19 +112,17 @@ def ml_mlp_mul_ms(station_name="종로구"):
     Returns:
         None
     """
-    print("Start Multivariate MLP Mean Seasonality Decomposition (MSE) Model")
+    print("Start Univariate MLP Mean Seasonality Decomposition (MCCR) Model")
     targets = ["PM10", "PM25"]
-    # targets = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
-    #                   "temp", "u", "v", "pres", "humid", "prep", "snow"]
     # 24*14 = 336
     # sample_size = 336
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 128
+    n_trials = 48
     # fast_dev_run = True
-    # n_trials = 1
+    # n_trials = 3
 
     # Hyper parameter
     epoch_size = 500
@@ -207,38 +198,12 @@ def ml_mlp_mul_ms(station_name="종로구"):
     assert test_fdate > train_dates[-1][1]
     assert test_fdate > valid_dates[-1][1]
 
-    train_features = [
-        "SO2",
-        "CO",
-        "NO2",
-        "PM10",
-        "PM25",
-        "temp",
-        "wind_spd",
-        "wind_cdir",
-        "wind_sdir",
-        "pres",
-        "humid",
-        "prep",
-    ]
-    train_features_periodic = [
-        "SO2",
-        "CO",
-        "NO2",
-        "PM10",
-        "PM25",
-        "temp",
-        "wind_spd",
-        "wind_cdir",
-        "wind_sdir",
-        "pres",
-        "humid",
-    ]
-    train_features_nonperiodic = ["prep"]
+    # train_features = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+    #                   "temp", "u", "v", "pres", "humid", "prep", "snow"]
 
     for target in targets:
-        print("Training " + target + "...")
-        output_dir = Path(f"/mnt/data/MLPMSMultivariate/{station_name}/{target}/")
+        print("Training " + target + "...", flush=True)
+        output_dir = Path(f"/mnt/data/MLPMSMCCRUnivariate/{station_name}/{target}/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
@@ -263,9 +228,6 @@ def ml_mlp_mul_ms(station_name="종로구"):
         train_valid_dataset = construct_dataset(
             train_valid_fdate,
             train_valid_tdate,
-            train_features,
-            train_features_periodic,
-            train_features_nonperiodic,
             filepath=HOURLY_DATA_PATH,
             station_name=station_name,
             target=target,
@@ -276,14 +238,14 @@ def ml_mlp_mul_ms(station_name="종로구"):
         # compute seasonality
         train_valid_dataset.preprocess()
 
+        # For Block Cross Validation..
+        # load dataset in given range dates and transform using scaler from train_valid_set
+        # all dataset are saved in tuple
         print("Construct Training Sets...", flush=True)
         train_datasets = tuple(
             construct_dataset(
                 td[0],
                 td[1],
-                train_features,
-                train_features_periodic,
-                train_features_nonperiodic,
                 scaler_X=train_valid_dataset.scaler_X,
                 scaler_Y=train_valid_dataset.scaler_Y,
                 filepath=HOURLY_DATA_PATH,
@@ -301,9 +263,6 @@ def ml_mlp_mul_ms(station_name="종로구"):
             construct_dataset(
                 vd[0],
                 vd[1],
-                train_features,
-                train_features_periodic,
-                train_features_nonperiodic,
                 scaler_X=train_valid_dataset.scaler_X,
                 scaler_Y=train_valid_dataset.scaler_Y,
                 filepath=HOURLY_DATA_PATH,
@@ -321,9 +280,6 @@ def ml_mlp_mul_ms(station_name="종로구"):
         test_dataset = construct_dataset(
             test_fdate,
             test_tdate,
-            train_features,
-            train_features_periodic,
-            train_features_nonperiodic,
             scaler_X=train_valid_dataset.scaler_X,
             scaler_Y=train_valid_dataset.scaler_Y,
             filepath=HOURLY_DATA_PATH,
@@ -338,26 +294,27 @@ def ml_mlp_mul_ms(station_name="종로구"):
         train_dataset = ConcatDataset(train_datasets)
         val_dataset = ConcatDataset(valid_datasets)
 
+        # Dummy hyperparameters
         # num_layer == number of hidden layer
         hparams = Namespace(
-            num_layers=1,
-            layer_size=128,
+            sigma=1.0,
+            num_layers=2,
+            layer_size=64,
             learning_rate=learning_rate,
             batch_size=batch_size,
         )
 
         def objective(trial):
+            # models are independent from dataset and dates
             model = BaseMLPModel(
                 trial=trial,
                 hparams=hparams,
-                input_size=sample_size * len(train_features),
+                input_size=sample_size,
                 sample_size=sample_size,
                 output_size=output_size,
                 station_name=station_name,
                 target=target,
-                features=train_features,
-                features_periodic=train_features_periodic,
-                features_nonperiodic=train_features_nonperiodic,
+                features=[target],
                 train_dataset=train_dataset,
                 val_dataset=val_dataset,
                 test_dataset=test_dataset,
@@ -436,15 +393,6 @@ def ml_mlp_mul_ms(station_name="종로구"):
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "num_layers": 12,
-                    "layer_size": 32,
-                    "learning_rate": learning_rate,
-                    "batch_size": batch_size,
-                }
-            )
-            study.enqueue_trial(
-                {
                     "sigma": 0.7,
                     "num_layers": 4,
                     "layer_size": 32,
@@ -502,6 +450,7 @@ def ml_mlp_mul_ms(station_name="종로구"):
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
+            hparams.sigma = trial.params["sigma"]
             hparams.num_layers = trial.params["num_layers"]
             hparams.layer_size = trial.params["layer_size"]
 
@@ -515,14 +464,12 @@ def ml_mlp_mul_ms(station_name="종로구"):
 
         model = BaseMLPModel(
             hparams=hparams,
-            input_size=sample_size * len(train_features),
+            input_size=sample_size,
             sample_size=sample_size,
             output_size=output_size,
             station_name=station_name,
             target=target,
-            features=train_features,
-            features_periodic=train_features_periodic,
-            features_nonperiodic=train_features_nonperiodic,
+            features=[target],
             train_dataset=train_dataset,
             val_dataset=val_dataset,
             test_dataset=test_dataset,
@@ -587,45 +534,23 @@ def ml_mlp_mul_ms(station_name="종로구"):
 
 
 class BaseMLPModel(LightningModule):
-    """Lightning Moduel for Multivariate MLP model using MSE loss"""
+    """Lightning Moduel for Univariate MLP model using MCCR loss"""
 
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get(
-            "hparams", Namespace(num_layers=1, learning_rate=1e-3, batch_size=32)
+            "hparams",
+            Namespace(sigma=1.0, num_layers=1, learning_rate=1e-3, batch_size=32),
         )
 
         self.station_name = kwargs.get("station_name", "종로구")
         self.target = kwargs.get("target", "PM10")
-        self.features = kwargs.get(
-            "features",
-            [
-                "SO2",
-                "CO",
-                "NO2",
-                "PM10",
-                "PM25",
-                "temp",
-                "wind_spd",
-                "wind_cdir",
-                "wind_sdir",
-                "pres",
-                "humid",
-                "prep",
-            ],
-        )
-        self.features_periodic = kwargs.get(
-            "features_periodic", ["SO2", "CO", "NO2", "PM10", "PM25"]
-        )
-        self.features_nonperiodic = kwargs.get(
-            "features_nonperiodic",
-            ["temp", "wind_spd", "wind_cdir", "wind_sdir", "pres", "humid", "prep"],
-        )
+        self.features = kwargs.get("features", [self.target])
         self.metrics = kwargs.get("metrics", ["MAE", "MSE", "R2", "MAD"])
         self.num_workers = kwargs.get("num_workers", 1)
-        self.output_dir = kwargs.get(
-            "output_dir", Path("/mnt/data/MLPMS2Multivariate/")
-        )
+        self.output_dir = kwargs.get("output_dir", Path("/mnt/data/MLPMS2Univariate/"))
+        self.log_dir = kwargs.get("log_dir", self.output_dir / Path("log"))
+        Path.mkdir(self.log_dir, parents=True, exist_ok=True)
         self.png_dir = kwargs.get("plot_dir", self.output_dir / Path("png/"))
         Path.mkdir(self.png_dir, parents=True, exist_ok=True)
         self.svg_dir = kwargs.get("plot_dir", self.output_dir / Path("svg/"))
@@ -640,14 +565,13 @@ class BaseMLPModel(LightningModule):
         self.trial = kwargs.get("trial", None)
         self.sample_size = kwargs.get("sample_size", 48)
         self.output_size = kwargs.get("output_size", 24)
-        self.input_size = kwargs.get(
-            "input_size", self.sample_size * len(self.features)
-        )
+        self.input_size = kwargs.get("input_size", self.sample_size)
 
         # select layer sizes
         # num_layer == number of hidden layer
         self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
+            self.hparams.sigma = self.trial.suggest_float("sigma", 0.5, 5.0, step=0.05)
             self.hparams.num_layers = self.trial.suggest_int("num_layers", 2, 8)
             self.hparams.layer_size = self.trial.suggest_int("layer_size", 8, 64)
 
@@ -671,13 +595,10 @@ class BaseMLPModel(LightningModule):
         print("Linear Layers :")
         print(self.linears)
 
-        self.ar = nn.Linear(self.sample_size, self.output_size)
-
-        self.act = nn.ReLU()
-
         self.dropout = nn.Dropout(p=0.2)
-        self.loss = nn.MSELoss()
-        # self.loss = MCCRLoss(sigma=self.hparams.sigma)
+
+        # self.loss = nn.MSELoss()
+        self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
 
         self.train_logs = {}
@@ -696,23 +617,20 @@ class BaseMLPModel(LightningModule):
             else:
                 x = layer(x)
 
-        # y = x + self.ar(x1d)
-
         return x
 
     def configure_optimizers(self):
         return torch.optim.Adam(
-            self.parameters(), lr=self.hparams.learning_rate, weight_decay=0.01
+            self.parameters(), lr=self.hparams.learning_rate, weight_decay=0.001
         )
 
     def training_step(self, batch, batch_idx):
-        x, _, _y, _, _ = batch
+        x, _y, _, _ = batch
         _y_hat = self(x)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        # y_raw = _y_raw.detach().cpu().clone().numpy()
 
         _mae = mean_absolute_error(y, y_hat)
         _mse = mean_squared_error(y, y_hat)
@@ -759,16 +677,15 @@ class BaseMLPModel(LightningModule):
             on_epoch=True,
             logger=self.logger,
         )
-        self.log("train/avg_loss", _log["loss"], on_epoch=True, logger=self.logger)
+        self.log("train/loss", _log["loss"], on_epoch=True, logger=self.logger)
 
     def validation_step(self, batch, batch_idx):
-        x, _, _y, _, _ = batch
+        x, _y, _, _ = batch
         _y_hat = self(x)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        # y_raw = _y_raw.detach().cpu().clone().numpy()
 
         _mae = mean_absolute_error(y, y_hat)
         _mse = mean_squared_error(y, y_hat)
@@ -819,25 +736,25 @@ class BaseMLPModel(LightningModule):
         self.log("valid/loss", _log["loss"], on_epoch=True, logger=self.logger)
 
     def test_step(self, batch, batch_idx):
-        x, _, _, _y_raw, dates = batch
-
+        x, _y, _y_raw, dates = batch
         _y_hat = self(x)
+        _loss = self.loss(_y_hat, _y)
 
+        # transformed y might be smoothed
         # y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        y_hat2 = relu_mul(np.array(self.test_dataset.inverse_transform(y_hat, dates)))
-        _loss = self.loss(_y_raw, torch.as_tensor(y_hat2).to(device))
+        y_hat_inv = np.array(self.test_dataset.inverse_transform(y_hat, dates))
 
-        _mae = mean_absolute_error(y_raw, y_hat2)
-        _mse = mean_squared_error(y_raw, y_hat2)
-        _r2 = r2_score(y_raw, y_hat2)
-        _mad = median_abs_deviation(y_raw - y_hat2)
+        _mae = mean_absolute_error(y_raw, y_hat_inv)
+        _mse = mean_squared_error(y_raw, y_hat_inv)
+        _r2 = r2_score(y_raw, y_hat_inv)
+        _mad = median_abs_deviation(y_raw - y_hat_inv)
 
         return {
             "loss": _loss,
             "obs": y_raw,
-            "sim": y_hat2,
+            "sim": y_hat_inv,
             "dates": dates,
             "metric": {"MSE": _mse, "MAE": _mae, "MAD": _mad, "R2": _r2},
         }
@@ -1029,29 +946,24 @@ class BaseMLPModel(LightningModule):
 
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
-        data: list of tuple  (x, y, dates).
-            - x: pandas DataFrame or numpy of shape (input_size, num_features);
-            - y: pandas DataFrame or numpy of shape (output_size);
-            - date: pandas DateTimeIndex of shape (output_size):
+            batch: list of tuple  (x, y, y_raw, dates).
+                - x: pandas DataFrame or numpy of shape (input_size, num_features);
+                - y: pandas DataFrame or numpy of shape (output_size);
+                - y_raw: pandas DataFrame or numpy of shape (output_size);
+                - date: pandas DateTimeIndex of shape (output_size):
 
         Returns:
             - xs: torch Tensor of shape (batch_size, input_size, num_features);
             - ys: torch Tensor of shape (batch_size, output_size);
+            - ys_raw: torch Tensor of shape (batch_size, output_size);
             - dates: pandas DateTimeIndex of shape (batch_size, output_size):
         """
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, x1ds, ys, ys_raw, dates = zip(*batch)
+        xs, ys, ys_raw, dates = zip(*batch)
 
-        # return torch.as_tensor(xs.reshape(1, -1)), \
-        return (
-            torch.as_tensor(xs),
-            torch.as_tensor(x1ds),
-            torch.as_tensor(ys),
-            torch.as_tensor(ys_raw),
-            dates,
-        )
+        return torch.as_tensor(xs), torch.as_tensor(ys), torch.as_tensor(ys_raw), dates
 
 
 def plot_line(
@@ -1439,6 +1351,29 @@ def swish(_input, beta=1.0):
     return _input * beta * torch.sigmoid(_input)
 
 
-def relu_mul(x):
-    """[fastest method](https://stackoverflow.com/a/32109519/743078)"""
-    return x * (x > 0)
+class MCCRLoss(nn.Module):
+    """Maximum Correntropy Criterion Induced Losses for Regression(MCCR) Loss"""
+
+    def __init__(self, sigma=1.0):
+        super().__init__()
+        # save sigma
+        assert sigma > 0
+        self.sigma2 = sigma ** 2
+
+    def forward(self, _input: torch.Tensor, _target: torch.Tensor) -> torch.Tensor:
+        """
+        Implement maximum correntropy criterion for regression
+
+        loss(y, t) = sigma^2 * (1.0 - exp(-(y-t)^2/sigma^2))
+
+        where sigma > 0 (parameter)
+
+        Reference:
+            * Feng, Yunlong, et al.
+                "Learning with the maximum correntropy criterion
+                    induced losses for regression."
+                J. Mach. Learn. Res. 16.1 (2015): 993-1034.
+        """
+        return torch.mean(
+            self.sigma2 * (1 - torch.exp(-((_input - _target) ** 2) / self.sigma2))
+        )

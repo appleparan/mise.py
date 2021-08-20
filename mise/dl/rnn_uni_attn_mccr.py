@@ -100,8 +100,8 @@ def construct_dataset(
     return data_set
 
 
-def ml_rnn_uni_attn(station_name="종로구"):
-    """Run Univariate Attention model using MSE loss
+def dl_rnn_uni_attn_mccr(station_name="종로구"):
+    """Run Univariate Attention model using MCCR loss
 
     Args:
         station_name (str, optional): station name. Defaults to "종로구".
@@ -109,7 +109,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
     Returns:
         None
     """
-    print("Start Univariate Attention Model")
+    print("Start Univariate Attention (MCCR) Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
     # sample_size = 336
@@ -117,7 +117,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 24
+    n_trials = 32
     # fast_dev_run = True
     # n_trials = 3
 
@@ -197,7 +197,9 @@ def ml_rnn_uni_attn(station_name="종로구"):
 
     for target in targets:
         print("Training " + target + "...", flush=True)
-        output_dir = Path(f"/mnt/data/RNNAttentionUnivariate/{station_name}/{target}/")
+        output_dir = Path(
+            f"/mnt/data/RNNAttentionMCCRUnivariate/{station_name}/{target}/"
+        )
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
@@ -290,7 +292,10 @@ def ml_rnn_uni_attn(station_name="종로구"):
 
         # Dummy hyperparameters
         hparams = Namespace(
-            hidden_size=32, learning_rate=learning_rate, batch_size=batch_size
+            sigma=1.0,
+            hidden_size=32,
+            learning_rate=learning_rate,
+            batch_size=batch_size,
         )
 
         def objective(trial):
@@ -336,6 +341,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
             study = optuna.create_study(direction="minimize")
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "hidden_size": 8,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
@@ -343,6 +349,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
             )
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "hidden_size": 32,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
@@ -350,7 +357,24 @@ def ml_rnn_uni_attn(station_name="종로구"):
             )
             study.enqueue_trial(
                 {
+                    "sigma": 1.3,
                     "hidden_size": 64,
+                    "learning_rate": learning_rate,
+                    "batch_size": batch_size,
+                }
+            )
+            study.enqueue_trial(
+                {
+                    "sigma": 0.7,
+                    "hidden_size": 32,
+                    "learning_rate": learning_rate,
+                    "batch_size": batch_size,
+                }
+            )
+            study.enqueue_trial(
+                {
+                    "sigma": 2.0,
+                    "hidden_size": 32,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
@@ -390,6 +414,7 @@ def ml_rnn_uni_attn(station_name="종로구"):
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
+            hparams.sigma = trial.params["sigma"]
             hparams.hidden_size = trial.params["hidden_size"]
 
             dict_hparams = copy.copy(vars(hparams))
@@ -675,18 +700,37 @@ class DecoderRNN(nn.Module):
 
 
 class BaseAttentionModel(LightningModule):
-    """Lightning Moduel for Univariate Attention model using MSE loss"""
+    """Lightning Moduel for Univariate Attention model using MCCR loss"""
 
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.hparams = kwargs.get(
-            "hparams", Namespace(hidden_size=16, learning_rate=1e-3, batch_size=32)
+            "hparams",
+            Namespace(sigma=1.0, hidden_size=16, learning_rate=1e-3, batch_size=32),
         )
 
         self.station_name = kwargs.get("station_name", "종로구")
         self.target = kwargs.get("target", "PM10")
         self.features = kwargs.get("features", [self.target])
         self.metrics = kwargs.get("metrics", ["MAE", "MSE", "R2", "MAD"])
+        self.train_fdate = kwargs.get(
+            "train_fdate", dt.datetime(2012, 1, 1, 0).astimezone(SEOULTZ)
+        )
+        self.train_tdate = kwargs.get(
+            "train_tdate", dt.datetime(2016, 12, 31, 23).astimezone(SEOULTZ)
+        )
+        self.valid_fdate = kwargs.get(
+            "valid_fdate", dt.datetime(2017, 1, 1, 0).astimezone(SEOULTZ)
+        )
+        self.valid_tdate = kwargs.get(
+            "valid_tdate", dt.datetime(2018, 12, 31, 23).astimezone(SEOULTZ)
+        )
+        self.test_fdate = kwargs.get(
+            "test_fdate", dt.datetime(2019, 1, 1, 0).astimezone(SEOULTZ)
+        )
+        self.test_tdate = kwargs.get(
+            "test_tdate", dt.datetime(2020, 10, 31, 23).astimezone(SEOULTZ)
+        )
         self.num_workers = kwargs.get("num_workers", 1)
         self.output_dir = kwargs.get("output_dir", Path("/mnt/data/RNNAttnUnivariate/"))
         self.log_dir = kwargs.get("log_dir", self.output_dir / Path("log"))
@@ -708,6 +752,7 @@ class BaseAttentionModel(LightningModule):
         self.input_size = kwargs.get("input_size", self.sample_size)
 
         if self.trial:
+            self.hparams.sigma = self.trial.suggest_float("sigma", 0.5, 5.0, step=0.05)
             self.hparams.hidden_size = self.trial.suggest_int("hidden_size", 4, 64)
 
         self.encoder = EncoderRNN(self.input_size, self.hparams.hidden_size)
@@ -716,8 +761,8 @@ class BaseAttentionModel(LightningModule):
             self.output_size, self.hparams.hidden_size, self.attention
         )
 
-        self.loss = nn.MSELoss()
-        # self.loss = MCCRLoss(sigma=self.hparams.sigma)
+        # self.loss = nn.MSELoss()
+        self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
 
         self.train_logs = {}
@@ -847,13 +892,11 @@ class BaseAttentionModel(LightningModule):
             tensorboard_logs["valid/{}".format(name)] = torch.stack(
                 [torch.tensor(x["metric"][name]) for x in outputs]
             ).mean()
-            _log[name] = (
-                torch.stack([torch.tensor(x["metric"][name]) for x in outputs])
-                .mean()
-                .item()
+            _log[name] = float(
+                torch.stack([torch.tensor(x["metric"][name]) for x in outputs]).mean()
             )
         tensorboard_logs["step"] = self.current_epoch
-        _log["loss"] = avg_loss.detach().cpu().item()
+        _log["loss"] = avg_loss.detach().cpu()
 
         self.valid_logs[self.current_epoch] = _log
 
@@ -875,7 +918,7 @@ class BaseAttentionModel(LightningModule):
             on_epoch=True,
             logger=self.logger,
         )
-        self.log("valid/loss", _log["loss"], on_epoch=True, logger=self.logger)
+        self.log("valid/loss", _log["loss"].item(), on_epoch=True, logger=self.logger)
 
     def test_step(self, batch, batch_idx):
         # x, _y0, _y, dates = batch
@@ -975,7 +1018,7 @@ class BaseAttentionModel(LightningModule):
                 [torch.tensor(x["metric"][name]) for x in outputs]
             ).mean()
         tensorboard_logs["step"] = self.current_epoch
-        avg_loss = avg_loss.detach().cpu().item()
+        avg_loss = avg_loss.detach().cpu()
 
         self.log(
             "test/MSE",
@@ -995,7 +1038,7 @@ class BaseAttentionModel(LightningModule):
             on_epoch=True,
             logger=self.logger,
         )
-        self.log("test/loss", avg_loss, on_epoch=True, logger=self.logger)
+        self.log("test/loss", avg_loss.item(), on_epoch=True, logger=self.logger)
 
         self.df_obs = df_obs
         self.df_sim = df_sim
@@ -1505,3 +1548,31 @@ def swish(_input, beta=1.0):
         output: Activated tensor
     """
     return _input * beta * torch.sigmoid(_input)
+
+
+class MCCRLoss(nn.Module):
+    """Maximum Correntropy Criterion Induced Losses for Regression(MCCR) Loss"""
+
+    def __init__(self, sigma=1.0):
+        super().__init__()
+        # save sigma
+        assert sigma > 0
+        self.sigma2 = sigma ** 2
+
+    def forward(self, _input: torch.Tensor, _target: torch.Tensor) -> torch.Tensor:
+        """
+        Implement maximum correntropy criterion for regression
+
+        loss(y, t) = sigma^2 * (1.0 - exp(-(y-t)^2/sigma^2))
+
+        where sigma > 0 (parameter)
+
+        Reference:
+            * Feng, Yunlong, et al.
+                "Learning with the maximum correntropy criterion
+                    induced losses for regression."
+                J. Mach. Learn. Res. 16.1 (2015): 993-1034.
+        """
+        return torch.mean(
+            self.sigma2 * (1 - torch.exp(-((_input - _target) ** 2) / self.sigma2))
+        )

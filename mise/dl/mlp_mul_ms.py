@@ -16,6 +16,7 @@ import pytorch_lightning as pl
 import scipy as sp
 import sklearn.metrics
 import torch
+import torch.nn.functional as F
 from optuna.integration import PyTorchLightningPruningCallback
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
@@ -33,7 +34,7 @@ HOURLY_DATA_PATH = "/input/python/input_seoul_imputed_hourly_pandas.csv"
 DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 
 # Device configuration
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 
 def construct_dataset(
@@ -75,7 +76,7 @@ def construct_dataset(
         Dataset: created dataset
     """
     if scaler_X is None or scaler_Y is None:
-        data_set = data.MultivariateRNNMeanSeasonalityDataset(
+        data_set = data.MultivariateMeanSeasonalityDataset(
             station_name=station_name,
             target=target,
             filepath=filepath,
@@ -88,7 +89,7 @@ def construct_dataset(
             output_size=output_size,
         )
     else:
-        data_set = data.MultivariateRNNMeanSeasonalityDataset(
+        data_set = data.MultivariateMeanSeasonalityDataset(
             station_name=station_name,
             target=target,
             filepath=filepath,
@@ -105,14 +106,12 @@ def construct_dataset(
 
     if transform:
         data_set.transform()
-        # you can braodcast seasonality only if scaler was fit
-        data_set.broadcast_seasonality()
 
     return data_set
 
 
-def ml_mlp_mul_transformer(station_name="종로구"):
-    """Run Multivariate Transformer model with MSE loss
+def dl_mlp_mul_ms(station_name="종로구"):
+    """Run Multivariate MLP model using MSE loss
 
     Args:
         station_name (str, optional): station name. Defaults to "종로구".
@@ -120,16 +119,19 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     Returns:
         None
     """
-    print("Start Multivariate Transformer (MSE) Model")
+    print("Start Multivariate MLP Mean Seasonality Decomposition (MSE) Model")
     targets = ["PM10", "PM25"]
+    # targets = ["SO2", "CO", "O3", "NO2", "PM10", "PM25",
+    #                   "temp", "u", "v", "pres", "humid", "prep", "snow"]
     # 24*14 = 336
+    # sample_size = 336
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 160
+    n_trials = 128
     # fast_dev_run = True
-    # n_trials = 3
+    # n_trials = 1
 
     # Hyper parameter
     epoch_size = 500
@@ -141,7 +143,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
     # 11y = ((2y, 0.5y), (2y, 0.5y), (2y, 0.5y), (2.5y, 1y))
     train_dates = [
         (
-            dt.datetime(2008, 1, 5, 1).astimezone(SEOULTZ),
+            dt.datetime(2008, 1, 4, 1).astimezone(SEOULTZ),
             dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ),
         ),
         (
@@ -236,9 +238,7 @@ def ml_mlp_mul_transformer(station_name="종로구"):
 
     for target in targets:
         print("Training " + target + "...")
-        output_dir = Path(
-            f"/mnt/data/MLPTransformerMultivariate/{station_name}/{target}/"
-        )
+        output_dir = Path(f"/mnt/data/MLPMSMultivariate/{station_name}/{target}/")
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
@@ -273,14 +273,9 @@ def ml_mlp_mul_transformer(station_name="종로구"):
             output_size=output_size,
             transform=False,
         )
-        # scaler in trainn_valid_set is not fitted, so fit!
+        # compute seasonality
         train_valid_dataset.preprocess()
-        # then it can broadcast its seasonalities!
-        train_valid_dataset.broadcast_seasonality()
 
-        # For Block Cross Validation..
-        # load dataset in given range dates and transform using scaler from train_valid_set
-        # all dataset are saved in tuple
         print("Construct Training Sets...", flush=True)
         train_datasets = tuple(
             construct_dataset(
@@ -343,30 +338,22 @@ def ml_mlp_mul_transformer(station_name="종로구"):
         train_dataset = ConcatDataset(train_datasets)
         val_dataset = ConcatDataset(valid_datasets)
 
-        # Dummy hyperparameters
+        # num_layer == number of hidden layer
         hparams = Namespace(
-            nhead=8,
-            head_dim=128,
-            d_feedforward=256,
-            num_encoder_layers=6,
+            num_layers=1,
+            layer_size=128,
             learning_rate=learning_rate,
             batch_size=batch_size,
         )
 
         def objective(trial):
-            # PyTorch Lightning will try to restore model parameters
-            #   from previous trials if checkpoint
-            # filenames match. Therefore, the filenames for each trial must be made unique.
-            # checkpoint_callback = pl.callbacks.ModelCheckpoint(
-            #     os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss",
-            #     period=10
-            # )
-
-            model = BaseTransformerModel(
+            model = BaseMLPModel(
                 trial=trial,
                 hparams=hparams,
+                input_size=sample_size * len(train_features),
                 sample_size=sample_size,
                 output_size=output_size,
+                station_name=station_name,
                 target=target,
                 features=train_features,
                 features_periodic=train_features_periodic,
@@ -404,80 +391,72 @@ def ml_mlp_mul_transformer(station_name="종로구"):
             study = optuna.create_study(direction="minimize")
             study.enqueue_trial(
                 {
-                    "nhead": 8,
-                    "head_dim": 64,
-                    "d_feedforward": 256,
-                    "num_encoder_layers": 6,
+                    "sigma": 1.3,
+                    "num_layers": 4,
+                    "layer_size": 8,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "nhead": 4,
-                    "head_dim": 64,
-                    "d_feedforward": 256,
-                    "num_encoder_layers": 6,
+                    "sigma": 1.3,
+                    "num_layers": 4,
+                    "layer_size": 32,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "nhead": 2,
-                    "head_dim": 64,
-                    "d_feedforward": 256,
-                    "num_encoder_layers": 6,
+                    "sigma": 1.3,
+                    "num_layers": 4,
+                    "layer_size": 64,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "nhead": 8,
-                    "head_dim": 32,
-                    "d_feedforward": 256,
-                    "num_encoder_layers": 6,
+                    "sigma": 1.3,
+                    "num_layers": 4,
+                    "layer_size": 32,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "nhead": 8,
-                    "head_dim": 256,
-                    "d_feedforward": 256,
-                    "num_encoder_layers": 6,
+                    "sigma": 1.3,
+                    "num_layers": 8,
+                    "layer_size": 32,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "nhead": 8,
-                    "head_dim": 64,
-                    "d_feedforward": 512,
-                    "num_encoder_layers": 6,
+                    "sigma": 1.3,
+                    "num_layers": 12,
+                    "layer_size": 32,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "nhead": 8,
-                    "head_dim": 64,
-                    "d_feedforward": 256,
-                    "num_encoder_layers": 2,
+                    "sigma": 0.7,
+                    "num_layers": 4,
+                    "layer_size": 32,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "nhead": 8,
-                    "head_dim": 64,
-                    "d_feedforward": 256,
-                    "num_encoder_layers": 10,
+                    "sigma": 2.0,
+                    "num_layers": 4,
+                    "layer_size": 32,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
@@ -496,27 +475,9 @@ def ml_mlp_mul_transformer(station_name="종로구"):
             print("output_size : ", output_size)
 
             # plot optmization results
-            fig_cont1 = optv.plot_contour(study, params=["nhead", "head_dim"])
-            fig_cont1.write_image(str(output_dir / "contour_n_head_head_dim.png"))
-            fig_cont1.write_image(str(output_dir / "contour_n_head_head_dim.svg"))
-
-            fig_cont2 = optv.plot_contour(study, params=["head_dim", "d_feedforward"])
-            fig_cont2.write_image(
-                str(output_dir / "contour_head_dim_d_feedforward.png")
-            )
-            fig_cont2.write_image(
-                str(output_dir / "contour_head_dim_d_feedforward.svg")
-            )
-
-            fig_cont3 = optv.plot_contour(
-                study, params=["d_feedforward", "num_encoder_layers"]
-            )
-            fig_cont3.write_image(
-                str(output_dir / "contour_d_feedforward_num_enc_layers.png")
-            )
-            fig_cont3.write_image(
-                str(output_dir / "contour_d_feedforward_num_enc_layers.svg")
-            )
+            fig_cont1 = optv.plot_contour(study, params=["num_layers", "layer_size"])
+            fig_cont1.write_image(str(output_dir / "contour_num_layers_layer_size.png"))
+            fig_cont1.write_image(str(output_dir / "contour_num_layers_layer_size.svg"))
 
             fig_edf = optv.plot_edf(study)
             fig_edf.write_image(str(output_dir / "edf.png"))
@@ -531,22 +492,18 @@ def ml_mlp_mul_transformer(station_name="종로구"):
             fig_his.write_image(str(output_dir / "opt_history.svg"))
 
             fig_pcoord = optv.plot_parallel_coordinate(
-                study, params=["nhead", "head_dim", "d_feedforward"]
+                study, params=["num_layers", "layer_size"]
             )
             fig_pcoord.write_image(str(output_dir / "parallel_coord.png"))
             fig_pcoord.write_image(str(output_dir / "parallel_coord.svg"))
 
-            fig_slice = optv.plot_slice(
-                study, params=["nhead", "head_dim", "d_feedforward"]
-            )
+            fig_slice = optv.plot_slice(study, params=["num_layers", "layer_size"])
             fig_slice.write_image(str(output_dir / "slice.png"))
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
-            hparams.nhead = trial.params["nhead"]
-            hparams.head_dim = trial.params["head_dim"]
-            hparams.d_feedforward = trial.params["d_feedforward"]
-            hparams.num_encoder_layers = trial.params["num_encoder_layers"]
+            hparams.num_layers = trial.params["num_layers"]
+            hparams.layer_size = trial.params["layer_size"]
 
             dict_hparams = copy.copy(vars(hparams))
             dict_hparams["sample_size"] = sample_size
@@ -556,10 +513,12 @@ def ml_mlp_mul_transformer(station_name="종로구"):
             with open(output_dir / "hparams.csv", "w") as f:
                 print(pd.DataFrame.from_dict(dict_hparams, orient="index"), file=f)
 
-        model = BaseTransformerModel(
+        model = BaseMLPModel(
             hparams=hparams,
+            input_size=sample_size * len(train_features),
             sample_size=sample_size,
             output_size=output_size,
+            station_name=station_name,
             target=target,
             features=train_features,
             features_periodic=train_features_periodic,
@@ -627,65 +586,13 @@ def ml_mlp_mul_transformer(station_name="종로구"):
         shutil.rmtree(model_dir)
 
 
-class Time2Vec(nn.Module):
-    """Encode time information
+class BaseMLPModel(LightningModule):
+    """Lightning Moduel for Multivariate MLP model using MSE loss"""
 
-    phi and omega has k + 1 elements per each time step
-    so, from input (batch_size, sample_size) will be
-    ouptut (batch_size, sample_size, embed_size)
-
-    Reference
-    * https://arxiv.org/abs/1907.05321
-    * https://github.com/ojus1/Time2Vec-PyTorch
-    """
-
-    def __init__(self, input_size, embed_size):
+    def __init__(self, *args, **kwargs):
         super().__init__()
-        self.input_size = input_size
-        self.embed_size = embed_size
-
-        self.lin = nn.Linear(self.input_size, 1)
-        self.nonlin = nn.Linear(self.input_size, self.embed_size - 1)
-
-        # activation
-        self.F = torch.sin
-
-    def forward(self, x):
-        """Compute following equation
-
-        t2v(t)[i] = omega[i] * x[t] + phi[i] if i == 0
-        t2v(t)[i] = f(omega[i] * x[t] + phi[i]) if 1 <= i <= k
-
-        so, just applying Linear layer twice
-
-        x: (batch_size, feature_size, sample_size)
-        v1: (batch_size, feature_size, 1)
-        v2: (batch_size, feature_size, embed_size-1)
-        """
-        # batch_size = x.size(0)
-
-        v1 = self.lin(x)
-        v2 = self.F(self.nonlin(x))
-
-        return torch.cat([v1, v2], dim=2)
-
-
-class BaseTransformerModel(LightningModule):
-    """Lightning Moduel for Multivariate Transformer model using MSE loss"""
-
-    def __init__(self, **kwargs):
-        super().__init__()
-
         self.hparams = kwargs.get(
-            "hparams",
-            Namespace(
-                nhead=16,
-                head_dim=128,
-                d_feedforward=256,
-                num_encoder_layers=6,
-                learning_rate=1e-3,
-                batch_size=32,
-            ),
+            "hparams", Namespace(num_layers=1, learning_rate=1e-3, batch_size=32)
         )
 
         self.station_name = kwargs.get("station_name", "종로구")
@@ -717,7 +624,7 @@ class BaseTransformerModel(LightningModule):
         self.metrics = kwargs.get("metrics", ["MAE", "MSE", "R2", "MAD"])
         self.num_workers = kwargs.get("num_workers", 1)
         self.output_dir = kwargs.get(
-            "output_dir", Path("/mnt/data/MLPTransformerMultivariate/")
+            "output_dir", Path("/mnt/data/MLPMS2Multivariate/")
         )
         self.png_dir = kwargs.get("plot_dir", self.output_dir / Path("png/"))
         Path.mkdir(self.png_dir, parents=True, exist_ok=True)
@@ -733,61 +640,44 @@ class BaseTransformerModel(LightningModule):
         self.trial = kwargs.get("trial", None)
         self.sample_size = kwargs.get("sample_size", 48)
         self.output_size = kwargs.get("output_size", 24)
+        self.input_size = kwargs.get(
+            "input_size", self.sample_size * len(self.features)
+        )
 
+        # select layer sizes
+        # num_layer == number of hidden layer
+        self.layer_sizes = [self.input_size, self.output_size]
         if self.trial:
-            self.hparams.nhead = self.trial.suggest_int("nhead", 1, 12)
-            self.hparams.head_dim = self.trial.suggest_int("head_dim", 8, 256)
-            self.hparams.d_feedforward = self.trial.suggest_int(
-                "d_feedforward", 32, 1024
-            )
-            self.hparams.num_encoder_layers = self.trial.suggest_int(
-                "num_encoder_layers", 2, 10
-            )
+            self.hparams.num_layers = self.trial.suggest_int("num_layers", 2, 8)
+            self.hparams.layer_size = self.trial.suggest_int("layer_size", 8, 64)
 
-        self.d_model = self.hparams.nhead * self.hparams.head_dim
+        for _ in range(self.hparams.num_layers):
+            # insert another layer_size to end of list of layer_size
+            # initial self.layer_sizes = [input_size, output_size]
+            self.layer_sizes.insert(len(self.layer_sizes) - 1, self.hparams.layer_size)
 
-        # convert input vector to d_model
-        self.proj = nn.Linear(self.sample_size, self.d_model)
+        # because of input_size and output_size,
+        # total length of layer_sizes is num_layers + 2
+        # num_layer == number of hidden layer
+        assert len(self.layer_sizes) == self.hparams.num_layers + 2
 
-        # convert seasonality to d_model
-        self.proj_sx = nn.Linear(self.sample_size, self.d_model)
-        self.proj_sy = nn.Linear(self.output_size, self.d_model)
-
-        # use Time2Vec instead of positional encoding
-        # embed sample_size -> d_model by column-wise
-        self.t2v = Time2Vec(self.sample_size, self.d_model)
-        self.t2v_sx = Time2Vec(self.sample_size, self.d_model)
-        self.t2v_sy = Time2Vec(self.output_size, self.d_model)
-
-        # self.embedding = EmbeddingLayer(self.sample_size, self.d_model)
-        # also needs positional Encoding
-        # self.norm = nn.BatchNorm1d(len(self.features) * self.d_model)
-        # self.norm = nn.LayerNorm((len(self.features), self.d_model))
-        self.norm = None
-
-        self.encoder_layer = nn.TransformerEncoderLayer(
-            d_model=self.d_model,
-            nhead=self.hparams.nhead,
-            dim_feedforward=self.hparams.d_feedforward,
-            activation="gelu",
-        )
-
-        self.encoder = nn.TransformerEncoder(
-            self.encoder_layer,
-            num_layers=self.hparams.num_encoder_layers,
-            norm=self.norm,
-        )
-
-        self.outW = nn.Linear((len(self.features)) * self.d_model, self.output_size)
-
-        self.outSX = nn.Linear(self.sample_size, self.output_size)
-        self.outSY = nn.Linear(self.output_size, self.output_size)
+        # construct Layers
+        # if n_layers == 0 -> (in, out)
+        # if n_layers > 1 -> (in, tmp0), (tmp0, tmp2), ..., (tmpN, out)
+        # layer size are pair from slef.layer_sizes
+        self.linears = nn.ModuleList()
+        for i in range(self.hparams.num_layers + 1):
+            self.linears.append(nn.Linear(self.layer_sizes[i], self.layer_sizes[i + 1]))
+        print("Linear Layers :")
+        print(self.linears)
 
         self.ar = nn.Linear(self.sample_size, self.output_size)
 
         self.act = nn.ReLU()
 
+        self.dropout = nn.Dropout(p=0.2)
         self.loss = nn.MSELoss()
+        # self.loss = MCCRLoss(sigma=self.hparams.sigma)
         # self.loss = nn.L1Loss()
 
         self.train_logs = {}
@@ -796,114 +686,28 @@ class BaseTransformerModel(LightningModule):
         self.df_obs = pd.DataFrame()
         self.df_sim = pd.DataFrame()
 
-    def forward(self, x, x1d):
-        """
-        Args:
-            x  : 2D input
-            x1d : 1D input for target column
+    def forward(self, x):
+        # vectorize
+        x = x.view(-1, self.input_size).to(device)
 
-        Returns:
-            outputs: output tensor
+        for (i, layer) in enumerate(self.linears):
+            if i != len(self.linears) - 1:
+                x = F.leaky_relu(layer(x))
+            else:
+                x = layer(x)
 
-        Reference:
-            * https://arxiv.org/abs/2010.02803 :
-                A Transformer-based Framework for Multivariate Time Series Representation Learning
-            * https://arxiv.org/abs/1907.05321 :
-                Time2Vec: Learning a Vector Representation of Time
-            * https://arxiv.org/abs/2001.08317 :
-                Deep Transformer Models for Time Series Forecasting: The Influenza Prevalence Case
-        """
-        batch_size = x.shape[0]
-        # sample_size = x.shape[1]
-        feature_size = x.shape[2]
+        # y = x + self.ar(x1d)
 
-        # section 3.1
-        # to apply transformer by column-wise
-        # x: (batch_size, sample_size, feature_size)
-        # x.permute(0,2,1): (batch_size, feature_size, sample_size) d x m
-        # x_t2v: (batch_size, feature_size, d_model)
-        x_t2v = self.t2v(x.permute(0, 2, 1))
-        # u in paper
-        x_prj = self.proj(x.permute(0, 2, 1))
-
-        # (batch_size, feature_size, d_model)
-        _x = x_t2v + x_prj
-
-        # s: (batch_size, 3, sample_size) d x m
-        # sx = torch.column_stack([
-        #         x_sa.unsqueeze(2).reshape(batch_size*sample_size, 1),
-        #         x_sw.unsqueeze(2).reshape(batch_size*sample_size, 1),
-        #         x_sh.unsqueeze(2).reshape(batch_size*sample_size, 1)]) \
-        #     .reshape(batch_size, sample_size, 3) \
-        #     .permute(0, 2, 1)
-
-        # sx_t2v = self.t2v_sx(sx)
-        # sx_prj = self.proj_sx(sx)
-
-        # sy = torch.column_stack([
-        #         y_sa.unsqueeze(2).reshape(batch_size*self.output_size, 1),
-        #         y_sw.unsqueeze(2).reshape(batch_size*self.output_size, 1),
-        #         y_sh.unsqueeze(2).reshape(batch_size*self.output_size, 1)]) \
-        #     .reshape(batch_size, self.output_size, 3) \
-        #     .permute(0, 2, 1)
-
-        # sy_t2v = self.t2v_sy(sy)
-        # sy_prj = self.proj_sy(sy)
-
-        # (batch_size, 6, d_model)
-        # _s = sx_t2v + sx_prj + sy_t2v + sy_prj
-        # _sx = sx_t2v + sx_prj
-        # _sy = sy_t2v + sy_prj
-
-        # 1. convert (batch_size, features_size, d_model) ->
-        #            (batch_size, d_model, features_size)
-        # 2. convert (batch_size, 3, d_model) ->
-        #            (batch_size, d_model, 3)
-        # 3. stack arrays
-        # 4. reconvert (batch_size, d_model, features_size + *) ->
-        #              (batch_size, features_size + *, d_model)
-        # xs = torch.column_stack([
-        #             _x.permute(0, 2, 1).reshape(
-        #                   batch_size * self.d_model, feature_size),
-        #             _sx.permute(0, 2, 1).reshape(
-        #                   batch_size * self.d_model, 3)]) \
-        #         .reshape(batch_size, self.d_model, feature_size + 3) \
-        #         .permute(0, 2, 1)
-
-        # u: (batch_size, feature_size + 3, d_model)
-        u = self.encoder(_x)
-        # u = self.encoder(xs)
-
-        # z: (batch_size, feature_size + 3 * d_model)
-        # section 3.3
-        z = u.reshape(batch_size, (feature_size) * self.d_model)
-
-        # nonlinear part
-        # yhat: (batch_size, output_size)
-        # z is nonlinear information
-        # outW : add weight to tranformer processed input
-        # outSX : add weight to seasonality
-        # outSY : add weight to seasonality
-        yhat = self.outW(z)
-
-        # linear part
-        # (self.ar(x1d))
-        yhat = yhat + self.ar(x1d)
-
-        return yhat
+        return x
 
     def configure_optimizers(self):
         return torch.optim.Adam(
-            self.parameters(), lr=self.hparams.learning_rate, weight_decay=0.001
+            self.parameters(), lr=self.hparams.learning_rate, weight_decay=0.01
         )
 
     def training_step(self, batch, batch_idx):
-        # without seasonality
-        # x, _x1d, _y0, _y, _y_raw, y_dates = batch
-        # with seasonality
-        x, _x1d, _, _, _, _y, _, _, _, _, _ = batch
-
-        _y_hat = self(x, _x1d)
+        x, _, _y, _, _ = batch
+        _y_hat = self(x)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
@@ -958,12 +762,8 @@ class BaseTransformerModel(LightningModule):
         self.log("train/avg_loss", _log["loss"], on_epoch=True, logger=self.logger)
 
     def validation_step(self, batch, batch_idx):
-        # without seasonality
-        # x, _x1d, _y0, _y, _y_raw, y_dates = batch
-        # with seasonality
-        x, _x1d, _, _, _, _y, _, _, _, _, _ = batch
-
-        _y_hat = self(x, _x1d)
+        x, _, _y, _, _ = batch
+        _y_hat = self(x)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
@@ -1019,17 +819,14 @@ class BaseTransformerModel(LightningModule):
         self.log("valid/loss", _log["loss"], on_epoch=True, logger=self.logger)
 
     def test_step(self, batch, batch_idx):
-        # without seasonality
-        # x, _x1d, _y0, _y, _y_raw, y_dates = batch
-        # with seasonality
-        x, _x1d, _, _, _, _, _y_raw, _, _, _, y_dates = batch
+        x, _, _, _y_raw, dates = batch
 
-        _y_hat = self(x, _x1d)
+        _y_hat = self(x)
 
         # y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        y_hat2 = relu_mul(np.array(self.test_dataset.inverse_transform(y_hat, y_dates)))
+        y_hat2 = relu_mul(np.array(self.test_dataset.inverse_transform(y_hat, dates)))
         _loss = self.loss(_y_raw, torch.as_tensor(y_hat2).to(device))
 
         _mae = mean_absolute_error(y_raw, y_hat2)
@@ -1041,7 +838,7 @@ class BaseTransformerModel(LightningModule):
             "loss": _loss,
             "obs": y_raw,
             "sim": y_hat2,
-            "dates": y_dates,
+            "dates": dates,
             "metric": {"MSE": _mse, "MAE": _mae, "MAD": _mad, "R2": _r2},
         }
 
@@ -1169,7 +966,8 @@ class BaseTransformerModel(LightningModule):
                 values.append(_y.cpu().detach().numpy())
             elif isinstance(_y, np.ndarray):
                 values.append(_y)
-
+            else:
+                raise TypeError("Wrong type: _y")
             # just append single key date
             indicies.append(_d[0])
         _df_obs = pd.DataFrame(data=values, index=indicies, columns=cols)
@@ -1180,7 +978,8 @@ class BaseTransformerModel(LightningModule):
                 values.append(_y_hat.cpu().detach().numpy())
             elif isinstance(_y_hat, np.ndarray):
                 values.append(_y_hat)
-
+            else:
+                raise TypeError("Wrong type: _y_hat")
             # just append single key date
             indicies.append(_d[0])
         # round decimal
@@ -1191,8 +990,7 @@ class BaseTransformerModel(LightningModule):
     def setup(self, stage=None):
         """Data operations on every GPU
         Wrong usage of LightningModule. Need to Refactored
-
-        * TODO : Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
+        * TODO: Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
         """
         # first mkdir of seasonality
         Path.mkdir(self.png_dir / "seasonality", parents=True, exist_ok=True)
@@ -1212,6 +1010,7 @@ class BaseTransformerModel(LightningModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.hparams.batch_size,
+            shuffle=False,
             num_workers=self.num_workers,
             collate_fn=self.collate_fn,
         )
@@ -1220,6 +1019,7 @@ class BaseTransformerModel(LightningModule):
         return DataLoader(
             self.test_dataset,
             batch_size=self.hparams.batch_size,
+            shuffle=False,
             num_workers=self.num_workers,
             collate_fn=self.collate_fn,
         )
@@ -1229,50 +1029,28 @@ class BaseTransformerModel(LightningModule):
 
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
-        data: list of tuple  (x, x1d, y0, y, dates).
-            - x: numpy of shape (sample_size, num_features);
-            - y0: scalar
-            - y: numpy of shape (output_size);
-            - y_date: pandas DateTimeIndex of shape (output_size):
+        data: list of tuple  (x, y, dates).
+            - x: pandas DataFrame or numpy of shape (input_size, num_features);
+            - y: pandas DataFrame or numpy of shape (output_size);
+            - date: pandas DateTimeIndex of shape (output_size):
 
         Returns:
-            - xs: torch Tensor of shape (batch_size, sample_size, num_features);
-            - xs_1d: torch Tensor of shape (batch_size, 1, num_features);
+            - xs: torch Tensor of shape (batch_size, input_size, num_features);
             - ys: torch Tensor of shape (batch_size, output_size);
-            - y0: torch scalar Tensor
             - dates: pandas DateTimeIndex of shape (batch_size, output_size):
         """
-        # without seasonality
+
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        # MutlivariateRNNDataset
-        # xs, xs_1d, ys0, ys, ys_raw, y_dates = zip(*batch)
+        xs, x1ds, ys, ys_raw, dates = zip(*batch)
 
-        # return torch.as_tensor(xs), \
-        #     torch.as_tensor(xs_1d), \
-        #     torch.as_tensor(ys0), \
-        #     torch.as_tensor(ys), \
-        #     torch.as_tensor(ys_raw), \
-        #     y_dates
-
-        # with seasonality
-        # MutlivariateRNNMeanSeasonalityDataset
-        xs, xs_1d, xs_sa, xs_sw, xs_sh, ys, ys_raw, ys_sa, ys_sw, ys_sh, y_dates = zip(
-            *batch
-        )
-
+        # return torch.as_tensor(xs.reshape(1, -1)), \
         return (
             torch.as_tensor(xs),
-            torch.as_tensor(xs_1d),
-            torch.as_tensor(xs_sa),
-            torch.as_tensor(xs_sw),
-            torch.as_tensor(xs_sh),
+            torch.as_tensor(x1ds),
             torch.as_tensor(ys),
             torch.as_tensor(ys_raw),
-            torch.as_tensor(ys_sa),
-            torch.as_tensor(ys_sw),
-            torch.as_tensor(ys_sh),
-            y_dates,
+            dates,
         )
 
 

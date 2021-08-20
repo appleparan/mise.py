@@ -34,7 +34,7 @@ HOURLY_DATA_PATH = "/input/python/input_seoul_imputed_hourly_pandas.csv"
 DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 
 # Device configuration
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def construct_dataset(
@@ -76,7 +76,7 @@ def construct_dataset(
         Dataset: created dataset
     """
     if scaler_X is None or scaler_Y is None:
-        data_set = data.MultivariateMeanSeasonalityDataset(
+        data_set = data.MultivariateRNNMeanSeasonalityDataset(
             station_name=station_name,
             target=target,
             filepath=filepath,
@@ -89,7 +89,7 @@ def construct_dataset(
             output_size=output_size,
         )
     else:
-        data_set = data.MultivariateMeanSeasonalityDataset(
+        data_set = data.MultivariateRNNMeanSeasonalityDataset(
             station_name=station_name,
             target=target,
             filepath=filepath,
@@ -106,12 +106,14 @@ def construct_dataset(
 
     if transform:
         data_set.transform()
+        # you can braodcast seasonality only if scaler was fit
+        data_set.broadcast_seasonality()
 
     return data_set
 
 
-def ml_mlp_mul_ms_mccr(station_name="종로구"):
-    """Run Multivariate MLP model using MCCR loss
+def dl_rnn_mul_lstnet_skip(station_name="종로구"):
+    """Run Multivariate LSTNet model using MSE loss
 
     Args:
         station_name (str, optional): station name. Defaults to "종로구".
@@ -119,13 +121,14 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
     Returns:
         None
     """
-    print("Start Multivariate MLP Mean Seasonality Decomposition (MCCR) Model")
+    print("Start Multivariate LSTNet (Skip Layer, MSE) Model")
     targets = ["PM10", "PM25"]
+    # 24*14 = 336
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 128
+    n_trials = 120
     # fast_dev_run = True
     # n_trials = 1
 
@@ -234,7 +237,9 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
 
     for target in targets:
         print("Training " + target + "...")
-        output_dir = Path(f"/mnt/data/MLPMSMCCRMultivariate/{station_name}/{target}/")
+        output_dir = Path(
+            f"/mnt/data/RNNLSTNetSkipMultivariate/{station_name}/{target}/"
+        )
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
         Path.mkdir(model_dir, parents=True, exist_ok=True)
@@ -269,8 +274,10 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
             output_size=output_size,
             transform=False,
         )
-        # compute seasonality
+        # scaler in trainn_valid_set is not fitted, so fit!
         train_valid_dataset.preprocess()
+        # then it can broadcast its seasonalities!
+        train_valid_dataset.broadcast_seasonality()
 
         # For Block Cross Validation..
         # load dataset in given range dates and transform using scaler from train_valid_set
@@ -337,23 +344,22 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
         train_dataset = ConcatDataset(train_datasets)
         val_dataset = ConcatDataset(valid_datasets)
 
-        # num_layer == number of hidden layer
+        # Dummy hyperparameters
         hparams = Namespace(
-            sigma=1.0,
-            num_layers=4,
-            layer_size=1024,
+            filter_size=3,
+            hidCNN=16,
+            hidSkip=16,
+            hidRNN=16,
             learning_rate=learning_rate,
             batch_size=batch_size,
         )
 
         def objective(trial):
-            model = BaseMLPModel(
+            model = BaseLSTNetModel(
                 trial=trial,
                 hparams=hparams,
-                input_size=sample_size * len(train_features),
                 sample_size=sample_size,
                 output_size=output_size,
-                station_name=station_name,
                 target=target,
                 features=train_features,
                 features_periodic=train_features_periodic,
@@ -391,63 +397,90 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
             study = optuna.create_study(direction="minimize")
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "num_layers": 4,
-                    "layer_size": 8,
+                    "filter_size": 1,
+                    "hidCNN": 64,
+                    "hidSkip": 64,
+                    "hidRNN": 64,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "num_layers": 4,
-                    "layer_size": 32,
+                    "filter_size": 3,
+                    "hidCNN": 64,
+                    "hidSkip": 64,
+                    "hidRNN": 64,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "num_layers": 4,
-                    "layer_size": 64,
+                    "filter_size": 5,
+                    "hidCNN": 64,
+                    "hidSkip": 64,
+                    "hidRNN": 64,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "num_layers": 4,
-                    "layer_size": 32,
+                    "filter_size": 3,
+                    "hidCNN": 128,
+                    "hidSkip": 64,
+                    "hidRNN": 64,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "num_layers": 8,
-                    "layer_size": 32,
+                    "filter_size": 3,
+                    "hidCNN": 32,
+                    "hidSkip": 64,
+                    "hidRNN": 64,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 0.7,
-                    "num_layers": 4,
-                    "layer_size": 32,
+                    "filter_size": 3,
+                    "hidCNN": 64,
+                    "hidSkip": 128,
+                    "hidRNN": 64,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 2.0,
-                    "num_layers": 4,
-                    "layer_size": 32,
+                    "filter_size": 3,
+                    "hidCNN": 64,
+                    "hidSkip": 32,
+                    "hidRNN": 64,
+                    "learning_rate": learning_rate,
+                    "batch_size": batch_size,
+                }
+            )
+            study.enqueue_trial(
+                {
+                    "filter_size": 3,
+                    "hidCNN": 64,
+                    "hidSkip": 32,
+                    "hidRNN": 128,
+                    "learning_rate": learning_rate,
+                    "batch_size": batch_size,
+                }
+            )
+            study.enqueue_trial(
+                {
+                    "filter_size": 3,
+                    "hidCNN": 64,
+                    "hidSkip": 64,
+                    "hidRNN": 32,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
@@ -466,9 +499,21 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
             print("output_size : ", output_size)
 
             # plot optmization results
-            fig_cont1 = optv.plot_contour(study, params=["num_layers", "layer_size"])
-            fig_cont1.write_image(str(output_dir / "contour_num_layers_layer_size.png"))
-            fig_cont1.write_image(str(output_dir / "contour_num_layers_layer_size.svg"))
+            fig_cont1 = optv.plot_contour(study, params=["filter_size", "hidCNN"])
+            fig_cont1.write_image(str(output_dir / "contour_filter_size_hidCNN.png"))
+            fig_cont1.write_image(str(output_dir / "contour_filter_size_hidCNN.svg"))
+
+            fig_cont2 = optv.plot_contour(study, params=["hidCNN", "hidRNN"])
+            fig_cont2.write_image(str(output_dir / "contour_hidCNN_hidRNN.png"))
+            fig_cont2.write_image(str(output_dir / "contour_hidCNN_hidRNN.svg"))
+
+            fig_cont3 = optv.plot_contour(study, params=["filter_size", "hidRNN"])
+            fig_cont3.write_image(str(output_dir / "contour_filter_size_hidRNN.png"))
+            fig_cont3.write_image(str(output_dir / "contour_filter_size_hidRNN.svg"))
+
+            fig_cont3 = optv.plot_contour(study, params=["hidSkip", "hidRNN"])
+            fig_cont3.write_image(str(output_dir / "contour_hidSkip_hidRNN.png"))
+            fig_cont3.write_image(str(output_dir / "contour_hidSkip_hidRNN.svg"))
 
             fig_edf = optv.plot_edf(study)
             fig_edf.write_image(str(output_dir / "edf.png"))
@@ -483,19 +528,22 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
             fig_his.write_image(str(output_dir / "opt_history.svg"))
 
             fig_pcoord = optv.plot_parallel_coordinate(
-                study, params=["num_layers", "layer_size"]
+                study, params=["filter_size", "hidCNN", "hidSkip", "hidRNN"]
             )
             fig_pcoord.write_image(str(output_dir / "parallel_coord.png"))
             fig_pcoord.write_image(str(output_dir / "parallel_coord.svg"))
 
-            fig_slice = optv.plot_slice(study, params=["num_layers", "layer_size"])
+            fig_slice = optv.plot_slice(
+                study, params=["filter_size", "hidCNN", "hidSkip", "hidRNN"]
+            )
             fig_slice.write_image(str(output_dir / "slice.png"))
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
-            hparams.sigma = trial.params["sigma"]
-            hparams.num_layers = trial.params["num_layers"]
-            hparams.layer_size = trial.params["layer_size"]
+            hparams.filter_size = trial.params["filter_size"]
+            hparams.hidCNN = trial.params["hidCNN"]
+            hparams.hidSkip = trial.params["hidSkip"]
+            hparams.hidRNN = trial.params["hidRNN"]
 
             dict_hparams = copy.copy(vars(hparams))
             dict_hparams["sample_size"] = sample_size
@@ -505,12 +553,10 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
             with open(output_dir / "hparams.csv", "w") as f:
                 print(pd.DataFrame.from_dict(dict_hparams, orient="index"), file=f)
 
-        model = BaseMLPModel(
+        model = BaseLSTNetModel(
             hparams=hparams,
-            input_size=sample_size * len(train_features),
             sample_size=sample_size,
             output_size=output_size,
-            station_name=station_name,
             target=target,
             features=train_features,
             features_periodic=train_features_periodic,
@@ -578,17 +624,32 @@ def ml_mlp_mul_ms_mccr(station_name="종로구"):
         shutil.rmtree(model_dir)
 
 
-class BaseMLPModel(LightningModule):
-    """Lightning Moduel for Multivariate MLP model using MCCR loss"""
+class BaseLSTNetModel(LightningModule):
+    """Lightning Moduel for Multivariate LSTNet model using MSE loss
 
-    def __init__(self, *args, **kwargs):
+    LSTNet + Skip Layer
+
+    Args:
+        LightningModule (LightningModule): LightningModule
+    """
+
+    def __init__(self, **kwargs):
         super().__init__()
+        # h_out = (h_in + 2 * padding[0] - dilation[0]*(kernel_size[0] - 1) - 1) / stride[0] + 1
+        # to make h_out == h_in, dilation[0] == 1, stride[0] == 1,
+        # 2*padding[0] + 1 = kernel_size[0]
+
+        # w_out = (w_in + 2 * padding[1] - dilation[1]*(kernel_size[1] - 1) - 1) / stride[1] + 1
+        # to make w_out == w_in, dilation[1] == 1, stride[1] == 1,
+        # 2*padding[1] + 1 = kernel_size[1]
+
         self.hparams = kwargs.get(
             "hparams",
             Namespace(
-                sigma=1.0,
-                num_layers=4,
-                layer_size=128,
+                hidCNN=4,
+                hidSkip=16,
+                hidRNN=16,
+                filter_size=5,
                 learning_rate=1e-3,
                 batch_size=32,
             ),
@@ -623,7 +684,7 @@ class BaseMLPModel(LightningModule):
         self.metrics = kwargs.get("metrics", ["MAE", "MSE", "R2", "MAD"])
         self.num_workers = kwargs.get("num_workers", 1)
         self.output_dir = kwargs.get(
-            "output_dir", Path("/mnt/data/MLPMS2Multivariate/")
+            "output_dir", Path("/mnt/data/RNNLSTNetSkipMultivariate/")
         )
         self.png_dir = kwargs.get("plot_dir", self.output_dir / Path("png/"))
         Path.mkdir(self.png_dir, parents=True, exist_ok=True)
@@ -636,52 +697,54 @@ class BaseMLPModel(LightningModule):
         self.val_dataset = kwargs.get("val_dataset", None)
         self.test_dataset = kwargs.get("test_dataset", None)
 
-        # Set ColumnTransformer if provided
-        self._scaler_X = kwargs.get("scaler_X", None)
-        self._scaler_Y = kwargs.get("scaler_Y", None)
-
         self.trial = kwargs.get("trial", None)
         self.sample_size = kwargs.get("sample_size", 48)
         self.output_size = kwargs.get("output_size", 24)
-        self.input_size = kwargs.get(
-            "input_size", self.sample_size * len(self.features)
+
+        if self.trial:
+            self.hparams.filter_size = self.trial.suggest_int(
+                "filter_size", 1, 9, step=2
+            )
+            self.hparams.hidRNN = self.trial.suggest_int("hidRNN", 8, 256)
+            self.hparams.hidCNN = self.trial.suggest_int("hidCNN", 8, 256)
+            self.hparams.hidSkip = self.trial.suggest_int("hidSkip", 8, 256)
+
+        self.kernel_shape = (self.hparams.filter_size, len(self.features))
+
+        padding_size = int(self.hparams.filter_size - 1)
+        self.pad = nn.ZeroPad2d((0, 0, padding_size, 0))
+
+        self.conv = nn.Conv2d(1, self.hparams.hidCNN, self.kernel_shape)
+        self.dropout = nn.Dropout(p=0.1)
+
+        # normal GRU
+        self.gru_no_skip = nn.GRU(
+            self.hparams.hidCNN, self.hparams.hidRNN, batch_first=True
         )
 
-        # select layer sizes
-        # num_layer == number of hidden layer
-        self.layer_sizes = [self.input_size, self.output_size]
-        if self.trial:
-            self.hparams.sigma = self.trial.suggest_float("sigma", 0.5, 10.0, step=0.1)
-            self.hparams.num_layers = self.trial.suggest_int("num_layers", 2, 8)
-            self.hparams.layer_size = self.trial.suggest_int("layer_size", 8, 64)
+        # skip interval
+        self.p = 24
+        # total length for skip, remove remainer step
+        # i.e. if sample_size is 25, kernel_shape == (1, 3), and self.p == 24,
+        # self.pt should be (25 - 1) / 24 = 1
+        self.pt = int(self.sample_size / self.p)
 
-        for _ in range(self.hparams.num_layers):
-            # insert another layer_size to end of list of layer_size
-            # initial self.layer_sizes = [input_size, output_size]
-            self.layer_sizes.insert(len(self.layer_sizes) - 1, self.hparams.layer_size)
+        assert self.sample_size > self.p
 
-        # because of input_size and output_size,
-        # total length of layer_sizes is num_layers + 2
-        # num_layer == number of hidden layer
-        assert len(self.layer_sizes) == self.hparams.num_layers + 2
-
-        # construct Layers
-        # if n_layers == 0 -> (in, out)
-        # if n_layers > 1 -> (in, tmp0), (tmp0, tmp2), ..., (tmpN, out)
-        # layer size are pair from slef.layer_sizes
-        self.linears = nn.ModuleList()
-        for i in range(self.hparams.num_layers + 1):
-            self.linears.append(nn.Linear(self.layer_sizes[i], self.layer_sizes[i + 1]))
-        print("Linear Layers :")
-        print(self.linears)
+        # skip layer
+        self.gru_skip = nn.GRU(
+            self.hparams.hidCNN, self.hparams.hidSkip, batch_first=True
+        )
 
         self.ar = nn.Linear(self.sample_size, self.output_size)
 
-        self.act = nn.ReLU()
+        self.proj1 = nn.Linear(
+            self.hparams.hidRNN + self.p * self.hparams.hidSkip, self.output_size
+        )
+        self.proj2 = nn.Linear(self.output_size, self.output_size)
+        # self.act = nn.ReLU()
 
-        self.dropout = nn.Dropout(p=0.2)
-        # self.loss = nn.MSELoss()
-        self.loss = MCCRLoss(sigma=self.hparams.sigma)
+        self.loss = nn.MSELoss()
         # self.loss = nn.L1Loss()
 
         self.train_logs = {}
@@ -690,19 +753,64 @@ class BaseMLPModel(LightningModule):
         self.df_obs = pd.DataFrame()
         self.df_sim = pd.DataFrame()
 
-    def forward(self, x):
-        # vectorize
-        x = x.view(-1, self.input_size).to(device)
+    def forward(self, _x, _x1d):
+        """
+        Args:
+            _x  : 2D Input (with input features), shape is (batch_size, sample_size, feature_size)
+            _x1d : 1D Input (only target column), shape is (batch_size, sample_size, feature_size)
+            y0 : First step output feed to Decoder, shape is (batch_size, 1)
+            y  : Output, shape is (batch_size, output_size)
+        """
+        # _xx : [batch_size, sample_size, feature_size]
+        # use this batch_size,
+        # because batch_size could be different with hparams.batch_size on last batch
+        batch_size = _x.shape[0]
+        # sample_size = _x.shape[1]
+        # feature_size = _x.shape[2]
+        # _x.unsqueeze(1) : (batch_size, 1, sample_size, feature_size), NxC_inxH_inxW_in
+        # x: (batch_size, 1, sample_size + pad_size, feature_size), NxC_inxH_inxW_in
+        x = self.pad(_x.unsqueeze(1))
+        # c: (batch_size, hidCNN, sample_size, 1), NxC_outxH_outxW_out
+        c = self.conv(x)
+        c = self.dropout(F.relu(c))
+        # c: (batch_size, hidCNN, sample_size)
+        c = c.squeeze(3)
 
-        for (i, layer) in enumerate(self.linears):
-            if i != len(self.linears) - 1:
-                x = F.leaky_relu(layer(x))
-            else:
-                x = layer(x)
+        # Recurrent Layer
+        # x_rnn = (num_layers * num_directions, batch_size, hidRNN)
+        _, x_rnn = self.gru_no_skip(c.permute(0, 2, 1))
 
-        # y = x + self.ar(x1d)
+        # x_rnn = (batch_size, hidRNN)
+        x_rnn = self.dropout(x_rnn.squeeze(0))
 
-        return x
+        # Recurrent Skip Layer
+        # Best implementation is laiguokun/LSTNet
+        # [1, 2, 3, 4] -> [[1, 2], [3, 4]]
+        # -> [[1, 3], [2, 4]] using permute
+        s = c[:, :, (-self.pt * self.p) :].contiguous()
+        s = s.reshape(batch_size, self.hparams.hidCNN, self.pt, self.p)
+        # s.permute(0, 3, 2, 1): (batch_size, self.p, self.pt, hidCNN)
+        s = s.permute(0, 3, 2, 1)
+        # s.reshape: (batch_size * self.p, self.pt, hidCNN) == (batch, seq, input)
+        s = s.reshape(batch_size * self.p, self.pt, self.hparams.hidCNN)
+
+        # x_rnn_skip: (num_layers * num_directions, batch_size * self.p, hidSkip)
+        _, x_rnn_skip = self.gru_skip(s)
+        # x_rnn_skip: (batch_size, self.p * hidSkip)
+        x_rnn_skip = x_rnn_skip.squeeze(0)
+        x_rnn_skip = self.dropout(
+            x_rnn_skip.reshape(batch_size, self.p * self.hparams.hidSkip)
+        )
+
+        # (batch_size, hidRNN + self.p * hidSkip
+        output1 = torch.cat((x_rnn, x_rnn_skip), dim=1)
+        # (batch_first, output_size)
+        output2 = self.ar(_x1d)
+
+        # Sum Autoregressive and Recurrent Layer output
+        output = self.proj1(output1) + self.proj2(output2)
+
+        return output
 
     def configure_optimizers(self):
         return torch.optim.Adam(
@@ -710,8 +818,9 @@ class BaseMLPModel(LightningModule):
         )
 
     def training_step(self, batch, batch_idx):
-        x, _, _y, _, _ = batch
-        _y_hat = self(x)
+        x, _x1d, _y, _, _ = batch
+
+        _y_hat = self(x, _x1d)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
@@ -766,8 +875,9 @@ class BaseMLPModel(LightningModule):
         self.log("train/avg_loss", _log["loss"], on_epoch=True, logger=self.logger)
 
     def validation_step(self, batch, batch_idx):
-        x, _, _y, _, _ = batch
-        _y_hat = self(x)
+        x, _x1d, _y, _, _ = batch
+
+        _y_hat = self(x, _x1d)
         _loss = self.loss(_y_hat, _y)
 
         y = _y.detach().cpu().clone().numpy()
@@ -823,9 +933,9 @@ class BaseMLPModel(LightningModule):
         self.log("valid/loss", _log["loss"], on_epoch=True, logger=self.logger)
 
     def test_step(self, batch, batch_idx):
-        x, _, _, _y_raw, dates = batch
+        x, _x1d, _, _y_raw, dates = batch
 
-        _y_hat = self(x)
+        _y_hat = self(x, _x1d)
 
         # y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
@@ -965,13 +1075,14 @@ class BaseMLPModel(LightningModule):
             pandas.DataFrame: DataFrame contains predicted values
         """
         values, indicies = [], []
+
         for _d, _y in zip(dates, ys):
+            # values.append(_y.cpu().detach().numpy())
             if isinstance(_y, torch.Tensor):
                 values.append(_y.cpu().detach().numpy())
             elif isinstance(_y, np.ndarray):
                 values.append(_y)
-            else:
-                raise TypeError("Wrong type: _y")
+
             # just append single key date
             indicies.append(_d[0])
         _df_obs = pd.DataFrame(data=values, index=indicies, columns=cols)
@@ -982,8 +1093,7 @@ class BaseMLPModel(LightningModule):
                 values.append(_y_hat.cpu().detach().numpy())
             elif isinstance(_y_hat, np.ndarray):
                 values.append(_y_hat)
-            else:
-                raise TypeError("Wrong type: _y_hat")
+
             # just append single key date
             indicies.append(_d[0])
         # round decimal
@@ -1014,7 +1124,6 @@ class BaseMLPModel(LightningModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.hparams.batch_size,
-            shuffle=False,
             num_workers=self.num_workers,
             collate_fn=self.collate_fn,
         )
@@ -1023,7 +1132,6 @@ class BaseMLPModel(LightningModule):
         return DataLoader(
             self.test_dataset,
             batch_size=self.hparams.batch_size,
-            shuffle=False,
             num_workers=self.num_workers,
             collate_fn=self.collate_fn,
         )
@@ -1033,25 +1141,28 @@ class BaseMLPModel(LightningModule):
 
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
-        data: list of tuple  (x, y, dates).
-            - x: pandas DataFrame or numpy of shape (input_size, num_features);
+        data: list of tuple  (x, x1d, y0, y, dates).
+            - x: pandas DataFrame or numpy of shape (sample_size, num_features);
+            - x1d: pandas DataFrma or numpy of shape (sample_size)
+            - y0: scalar
             - y: pandas DataFrame or numpy of shape (output_size);
             - date: pandas DateTimeIndex of shape (output_size):
 
         Returns:
-            - xs: torch Tensor of shape (batch_size, input_size, num_features);
+            - xs: torch Tensor of shape (batch_size, sample_size, num_features);
+            - xs_1d: torch Tensor of shape (batch_size, sample_size);
             - ys: torch Tensor of shape (batch_size, output_size);
+            - y0: torch scalar Tensor
             - dates: pandas DateTimeIndex of shape (batch_size, output_size):
         """
 
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, x1ds, ys, ys_raw, dates = zip(*batch)
+        xs, xs_1d, _, _, _, ys, ys_raw, _, _, _, dates = zip(*batch)
 
-        # return torch.as_tensor(xs.reshape(1, -1)), \
         return (
             torch.as_tensor(xs),
-            torch.as_tensor(x1ds),
+            torch.as_tensor(xs_1d),
             torch.as_tensor(ys),
             torch.as_tensor(ys_raw),
             dates,
@@ -1441,34 +1552,6 @@ def swish(_input, beta=1.0):
         output: Activated tensor
     """
     return _input * beta * torch.sigmoid(_input)
-
-
-class MCCRLoss(nn.Module):
-    """Maximum Correntropy Criterion Induced Losses for Regression(MCCR) Loss"""
-
-    def __init__(self, sigma=1.0):
-        super().__init__()
-        # save sigma
-        assert sigma > 0
-        self.sigma2 = sigma ** 2
-
-    def forward(self, _input: torch.Tensor, _target: torch.Tensor) -> torch.Tensor:
-        """
-        Implement maximum correntropy criterion for regression
-
-        loss(y, t) = sigma^2 * (1.0 - exp(-(y-t)^2/sigma^2))
-
-        where sigma > 0 (parameter)
-
-        Reference:
-            * Feng, Yunlong, et al.
-                "Learning with the maximum correntropy criterion
-                    induced losses for regression."
-                J. Mach. Learn. Res. 16.1 (2015): 993-1034.
-        """
-        return torch.mean(
-            self.sigma2 * (1 - torch.exp(-((_input - _target) ** 2) / self.sigma2))
-        )
 
 
 def relu_mul(x):

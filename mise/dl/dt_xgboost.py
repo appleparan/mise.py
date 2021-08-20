@@ -23,7 +23,7 @@ HOURLY_DATA_PATH = "/input/python/input_seoul_imputed_hourly_pandas.csv"
 DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 
 
-def ml_xgboost(station_name="종로구"):
+def dl_xgboost(station_name="종로구"):
     """Run XGBoost model
 
     Args:

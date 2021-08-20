@@ -100,7 +100,7 @@ def construct_dataset(
     return data_set
 
 
-def ml_mlp_uni_ms(station_name="종로구"):
+def dl_mlp_uni_ms(station_name="종로구"):
     """Run Univariate MLP model using MSE loss
 
     Args:

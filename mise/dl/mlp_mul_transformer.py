@@ -16,7 +16,6 @@ import pytorch_lightning as pl
 import scipy as sp
 import sklearn.metrics
 import torch
-import torch.nn.functional as F
 from optuna.integration import PyTorchLightningPruningCallback
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
@@ -112,8 +111,8 @@ def construct_dataset(
     return data_set
 
 
-def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
-    """Run Multivariate LSTNet model with MCCR loss
+def dl_mlp_mul_transformer(station_name="종로구"):
+    """Run Multivariate Transformer model with MSE loss
 
     Args:
         station_name (str, optional): station name. Defaults to "종로구".
@@ -121,16 +120,16 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
     Returns:
         None
     """
-    print("Start Multivariate LSTNet (Skip Layer, MCCR) Model")
+    print("Start Multivariate Transformer (MSE) Model")
     targets = ["PM10", "PM25"]
     # 24*14 = 336
     sample_size = 48
     output_size = 24
     # If you want to debug, fast_dev_run = True and n_trials should be small number
     fast_dev_run = False
-    n_trials = 120
+    n_trials = 160
     # fast_dev_run = True
-    # n_trials = 1
+    # n_trials = 3
 
     # Hyper parameter
     epoch_size = 500
@@ -142,7 +141,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
     # 11y = ((2y, 0.5y), (2y, 0.5y), (2y, 0.5y), (2.5y, 1y))
     train_dates = [
         (
-            dt.datetime(2008, 1, 4, 1).astimezone(SEOULTZ),
+            dt.datetime(2008, 1, 5, 1).astimezone(SEOULTZ),
             dt.datetime(2009, 12, 31, 23).astimezone(SEOULTZ),
         ),
         (
@@ -238,7 +237,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
     for target in targets:
         print("Training " + target + "...")
         output_dir = Path(
-            f"/mnt/data/RNNLSTNetSkipMCCRMultivariate/{station_name}/{target}/"
+            f"/mnt/data/MLPTransformerMultivariate/{station_name}/{target}/"
         )
         Path.mkdir(output_dir, parents=True, exist_ok=True)
         model_dir = output_dir / "models"
@@ -344,19 +343,26 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
         train_dataset = ConcatDataset(train_datasets)
         val_dataset = ConcatDataset(valid_datasets)
 
-        # dummy hyperparameters
+        # Dummy hyperparameters
         hparams = Namespace(
-            sigma=0.6,
-            filter_size=1,
-            hidCNN=16,
-            hidSkip=128,
-            hidRNN=128,
+            nhead=8,
+            head_dim=128,
+            d_feedforward=256,
+            num_encoder_layers=6,
             learning_rate=learning_rate,
             batch_size=batch_size,
         )
 
         def objective(trial):
-            model = BaseLSTNetModel(
+            # PyTorch Lightning will try to restore model parameters
+            #   from previous trials if checkpoint
+            # filenames match. Therefore, the filenames for each trial must be made unique.
+            # checkpoint_callback = pl.callbacks.ModelCheckpoint(
+            #     os.path.join(model_dir, "trial_{}".format(trial.number)), monitor="val_loss",
+            #     period=10
+            # )
+
+            model = BaseTransformerModel(
                 trial=trial,
                 hparams=hparams,
                 sample_size=sample_size,
@@ -398,132 +404,80 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
             study = optuna.create_study(direction="minimize")
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "filter_size": 1,
-                    "hidCNN": 64,
-                    "hidSkip": 64,
-                    "hidRNN": 64,
+                    "nhead": 8,
+                    "head_dim": 64,
+                    "d_feedforward": 256,
+                    "num_encoder_layers": 6,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "filter_size": 3,
-                    "hidCNN": 64,
-                    "hidSkip": 64,
-                    "hidRNN": 64,
+                    "nhead": 4,
+                    "head_dim": 64,
+                    "d_feedforward": 256,
+                    "num_encoder_layers": 6,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "filter_size": 5,
-                    "hidCNN": 64,
-                    "hidSkip": 64,
-                    "hidRNN": 64,
+                    "nhead": 2,
+                    "head_dim": 64,
+                    "d_feedforward": 256,
+                    "num_encoder_layers": 6,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "filter_size": 3,
-                    "hidCNN": 128,
-                    "hidSkip": 64,
-                    "hidRNN": 64,
+                    "nhead": 8,
+                    "head_dim": 32,
+                    "d_feedforward": 256,
+                    "num_encoder_layers": 6,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "filter_size": 3,
-                    "hidCNN": 32,
-                    "hidSkip": 64,
-                    "hidRNN": 64,
+                    "nhead": 8,
+                    "head_dim": 256,
+                    "d_feedforward": 256,
+                    "num_encoder_layers": 6,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "filter_size": 3,
-                    "hidCNN": 64,
-                    "hidSkip": 128,
-                    "hidRNN": 64,
+                    "nhead": 8,
+                    "head_dim": 64,
+                    "d_feedforward": 512,
+                    "num_encoder_layers": 6,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "filter_size": 3,
-                    "hidCNN": 64,
-                    "hidSkip": 32,
-                    "hidRNN": 64,
+                    "nhead": 8,
+                    "head_dim": 64,
+                    "d_feedforward": 256,
+                    "num_encoder_layers": 2,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
             )
             study.enqueue_trial(
                 {
-                    "sigma": 1.3,
-                    "filter_size": 3,
-                    "hidCNN": 64,
-                    "hidSkip": 64,
-                    "hidRNN": 128,
-                    "learning_rate": learning_rate,
-                    "batch_size": batch_size,
-                }
-            )
-            study.enqueue_trial(
-                {
-                    "sigma": 1.3,
-                    "filter_size": 3,
-                    "hidCNN": 64,
-                    "hidSkip": 64,
-                    "hidRNN": 32,
-                    "learning_rate": learning_rate,
-                    "batch_size": batch_size,
-                }
-            )
-            study.enqueue_trial(
-                {
-                    "sigma": 0.8,
-                    "filter_size": 3,
-                    "hidCNN": 64,
-                    "hidSkip": 64,
-                    "hidRNN": 64,
-                    "learning_rate": learning_rate,
-                    "batch_size": batch_size,
-                }
-            )
-            study.enqueue_trial(
-                {
-                    "sigma": 2.0,
-                    "filter_size": 3,
-                    "hidCNN": 64,
-                    "hidSkip": 64,
-                    "hidRNN": 64,
-                    "learning_rate": learning_rate,
-                    "batch_size": batch_size,
-                }
-            )
-            study.enqueue_trial(
-                {
-                    "sigma": 4.0,
-                    "filter_size": 3,
-                    "hidCNN": 64,
-                    "hidSkip": 64,
-                    "hidRNN": 64,
+                    "nhead": 8,
+                    "head_dim": 64,
+                    "d_feedforward": 256,
+                    "num_encoder_layers": 10,
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                 }
@@ -542,21 +496,27 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
             print("output_size : ", output_size)
 
             # plot optmization results
-            fig_cont1 = optv.plot_contour(study, params=["filter_size", "hidCNN"])
-            fig_cont1.write_image(str(output_dir / "contour_filter_size_hidCNN.png"))
-            fig_cont1.write_image(str(output_dir / "contour_filter_size_hidCNN.svg"))
+            fig_cont1 = optv.plot_contour(study, params=["nhead", "head_dim"])
+            fig_cont1.write_image(str(output_dir / "contour_n_head_head_dim.png"))
+            fig_cont1.write_image(str(output_dir / "contour_n_head_head_dim.svg"))
 
-            fig_cont2 = optv.plot_contour(study, params=["hidCNN", "hidRNN"])
-            fig_cont2.write_image(str(output_dir / "contour_hidCNN_hidRNN.png"))
-            fig_cont2.write_image(str(output_dir / "contour_hidCNN_hidRNN.svg"))
+            fig_cont2 = optv.plot_contour(study, params=["head_dim", "d_feedforward"])
+            fig_cont2.write_image(
+                str(output_dir / "contour_head_dim_d_feedforward.png")
+            )
+            fig_cont2.write_image(
+                str(output_dir / "contour_head_dim_d_feedforward.svg")
+            )
 
-            fig_cont3 = optv.plot_contour(study, params=["filter_size", "hidRNN"])
-            fig_cont3.write_image(str(output_dir / "contour_filter_size_hidRNN.png"))
-            fig_cont3.write_image(str(output_dir / "contour_filter_size_hidRNN.svg"))
-
-            fig_cont3 = optv.plot_contour(study, params=["hidSkip", "hidRNN"])
-            fig_cont3.write_image(str(output_dir / "contour_hidSkip_hidRNN.png"))
-            fig_cont3.write_image(str(output_dir / "contour_hidSkip_hidRNN.svg"))
+            fig_cont3 = optv.plot_contour(
+                study, params=["d_feedforward", "num_encoder_layers"]
+            )
+            fig_cont3.write_image(
+                str(output_dir / "contour_d_feedforward_num_enc_layers.png")
+            )
+            fig_cont3.write_image(
+                str(output_dir / "contour_d_feedforward_num_enc_layers.svg")
+            )
 
             fig_edf = optv.plot_edf(study)
             fig_edf.write_image(str(output_dir / "edf.png"))
@@ -571,23 +531,22 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
             fig_his.write_image(str(output_dir / "opt_history.svg"))
 
             fig_pcoord = optv.plot_parallel_coordinate(
-                study, params=["filter_size", "hidCNN", "hidSkip", "hidRNN"]
+                study, params=["nhead", "head_dim", "d_feedforward"]
             )
             fig_pcoord.write_image(str(output_dir / "parallel_coord.png"))
             fig_pcoord.write_image(str(output_dir / "parallel_coord.svg"))
 
             fig_slice = optv.plot_slice(
-                study, params=["filter_size", "hidCNN", "hidSkip", "hidRNN"]
+                study, params=["nhead", "head_dim", "d_feedforward"]
             )
             fig_slice.write_image(str(output_dir / "slice.png"))
             fig_slice.write_image(str(output_dir / "slice.svg"))
 
             # set hparams with optmized value
-            hparams.sigma = trial.params["sigma"]
-            hparams.filter_size = trial.params["filter_size"]
-            hparams.hidCNN = trial.params["hidCNN"]
-            hparams.hidSkip = trial.params["hidSkip"]
-            hparams.hidRNN = trial.params["hidRNN"]
+            hparams.nhead = trial.params["nhead"]
+            hparams.head_dim = trial.params["head_dim"]
+            hparams.d_feedforward = trial.params["d_feedforward"]
+            hparams.num_encoder_layers = trial.params["num_encoder_layers"]
 
             dict_hparams = copy.copy(vars(hparams))
             dict_hparams["sample_size"] = sample_size
@@ -597,7 +556,7 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
             with open(output_dir / "hparams.csv", "w") as f:
                 print(pd.DataFrame.from_dict(dict_hparams, orient="index"), file=f)
 
-        model = BaseLSTNetModel(
+        model = BaseTransformerModel(
             hparams=hparams,
             sample_size=sample_size,
             output_size=output_size,
@@ -668,30 +627,62 @@ def ml_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
         shutil.rmtree(model_dir)
 
 
-class BaseLSTNetModel(LightningModule):
-    """Lightning Moduel for Multivariate LSTNet model using MCCR loss
+class Time2Vec(nn.Module):
+    """Encode time information
 
-    LSTNet + Skip Layer
+    phi and omega has k + 1 elements per each time step
+    so, from input (batch_size, sample_size) will be
+    ouptut (batch_size, sample_size, embed_size)
+
+    Reference
+    * https://arxiv.org/abs/1907.05321
+    * https://github.com/ojus1/Time2Vec-PyTorch
     """
+
+    def __init__(self, input_size, embed_size):
+        super().__init__()
+        self.input_size = input_size
+        self.embed_size = embed_size
+
+        self.lin = nn.Linear(self.input_size, 1)
+        self.nonlin = nn.Linear(self.input_size, self.embed_size - 1)
+
+        # activation
+        self.F = torch.sin
+
+    def forward(self, x):
+        """Compute following equation
+
+        t2v(t)[i] = omega[i] * x[t] + phi[i] if i == 0
+        t2v(t)[i] = f(omega[i] * x[t] + phi[i]) if 1 <= i <= k
+
+        so, just applying Linear layer twice
+
+        x: (batch_size, feature_size, sample_size)
+        v1: (batch_size, feature_size, 1)
+        v2: (batch_size, feature_size, embed_size-1)
+        """
+        # batch_size = x.size(0)
+
+        v1 = self.lin(x)
+        v2 = self.F(self.nonlin(x))
+
+        return torch.cat([v1, v2], dim=2)
+
+
+class BaseTransformerModel(LightningModule):
+    """Lightning Moduel for Multivariate Transformer model using MSE loss"""
 
     def __init__(self, **kwargs):
         super().__init__()
-        # h_out = (h_in + 2 * padding[0] - dilation[0]*(kernel_size[0] - 1) - 1) / stride[0] + 1
-        # to make h_out == h_in, dilation[0] == 1, stride[0] == 1,
-        # 2*padding[0] + 1 = kernel_size[0]
-
-        # w_out = (w_in + 2 * padding[1] - dilation[1]*(kernel_size[1] - 1) - 1) / stride[1] + 1
-        # to make w_out == w_in, dilation[1] == 1, stride[1] == 1,
-        # 2*padding[1] + 1 = kernel_size[1]
 
         self.hparams = kwargs.get(
             "hparams",
             Namespace(
-                sigma=1.0,
-                hidCNN=4,
-                hidSkip=16,
-                hidRNN=16,
-                filter_size=5,
+                nhead=16,
+                head_dim=128,
+                d_feedforward=256,
+                num_encoder_layers=6,
                 learning_rate=1e-3,
                 batch_size=32,
             ),
@@ -726,7 +717,7 @@ class BaseLSTNetModel(LightningModule):
         self.metrics = kwargs.get("metrics", ["MAE", "MSE", "R2", "MAD"])
         self.num_workers = kwargs.get("num_workers", 1)
         self.output_dir = kwargs.get(
-            "output_dir", Path("/mnt/data/RNNLSTNetSkipMultivariate/")
+            "output_dir", Path("/mnt/data/MLPTransformerMultivariate/")
         )
         self.png_dir = kwargs.get("plot_dir", self.output_dir / Path("png/"))
         Path.mkdir(self.png_dir, parents=True, exist_ok=True)
@@ -739,60 +730,64 @@ class BaseLSTNetModel(LightningModule):
         self.val_dataset = kwargs.get("val_dataset", None)
         self.test_dataset = kwargs.get("test_dataset", None)
 
-        # Set ColumnTransformer if provided
-        self._scaler_X = kwargs.get("scaler_X", None)
-        self._scaler_Y = kwargs.get("scaler_Y", None)
-
         self.trial = kwargs.get("trial", None)
         self.sample_size = kwargs.get("sample_size", 48)
         self.output_size = kwargs.get("output_size", 24)
 
         if self.trial:
-            self.hparams.sigma = self.trial.suggest_float("sigma", 0.5, 5.0, step=0.1)
-            self.hparams.filter_size = self.trial.suggest_int(
-                "filter_size", 1, 9, step=2
+            self.hparams.nhead = self.trial.suggest_int("nhead", 1, 12)
+            self.hparams.head_dim = self.trial.suggest_int("head_dim", 8, 256)
+            self.hparams.d_feedforward = self.trial.suggest_int(
+                "d_feedforward", 32, 1024
             )
-            self.hparams.hidRNN = self.trial.suggest_int("hidRNN", 8, 512)
-            self.hparams.hidCNN = self.trial.suggest_int("hidCNN", 8, 512)
-            self.hparams.hidSkip = self.trial.suggest_int("hidSkip", 8, 512)
+            self.hparams.num_encoder_layers = self.trial.suggest_int(
+                "num_encoder_layers", 2, 10
+            )
 
-        self.kernel_shape = (self.hparams.filter_size, len(self.features))
+        self.d_model = self.hparams.nhead * self.hparams.head_dim
 
-        padding_size = int(self.hparams.filter_size - 1)
-        self.pad = nn.ZeroPad2d((0, 0, padding_size, 0))
+        # convert input vector to d_model
+        self.proj = nn.Linear(self.sample_size, self.d_model)
 
-        self.conv = nn.Conv2d(1, self.hparams.hidCNN, self.kernel_shape)
-        self.dropout = nn.Dropout(p=0.1)
+        # convert seasonality to d_model
+        self.proj_sx = nn.Linear(self.sample_size, self.d_model)
+        self.proj_sy = nn.Linear(self.output_size, self.d_model)
 
-        # normal GRU
-        self.gru_no_skip = nn.GRU(
-            self.hparams.hidCNN, self.hparams.hidRNN, batch_first=True
+        # use Time2Vec instead of positional encoding
+        # embed sample_size -> d_model by column-wise
+        self.t2v = Time2Vec(self.sample_size, self.d_model)
+        self.t2v_sx = Time2Vec(self.sample_size, self.d_model)
+        self.t2v_sy = Time2Vec(self.output_size, self.d_model)
+
+        # self.embedding = EmbeddingLayer(self.sample_size, self.d_model)
+        # also needs positional Encoding
+        # self.norm = nn.BatchNorm1d(len(self.features) * self.d_model)
+        # self.norm = nn.LayerNorm((len(self.features), self.d_model))
+        self.norm = None
+
+        self.encoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.d_model,
+            nhead=self.hparams.nhead,
+            dim_feedforward=self.hparams.d_feedforward,
+            activation="gelu",
         )
 
-        # skip interval
-        self.p = 24
-        # total length for skip, remove remainer step
-        # i.e. if sample_size is 25, kernel_shape == (1, 3), and self.p == 24,
-        # self.pt should be (25 - 1) / 24 = 1
-        self.pt = int(self.sample_size / self.p)
-
-        assert self.sample_size > self.p
-
-        # skip layer
-        self.gru_skip = nn.GRU(
-            self.hparams.hidCNN, self.hparams.hidSkip, batch_first=True
+        self.encoder = nn.TransformerEncoder(
+            self.encoder_layer,
+            num_layers=self.hparams.num_encoder_layers,
+            norm=self.norm,
         )
+
+        self.outW = nn.Linear((len(self.features)) * self.d_model, self.output_size)
+
+        self.outSX = nn.Linear(self.sample_size, self.output_size)
+        self.outSY = nn.Linear(self.output_size, self.output_size)
 
         self.ar = nn.Linear(self.sample_size, self.output_size)
 
-        self.proj1 = nn.Linear(
-            self.hparams.hidRNN + self.p * self.hparams.hidSkip, self.output_size
-        )
-        self.proj2 = nn.Linear(self.output_size, self.output_size)
-        # self.act = nn.ReLU()
+        self.act = nn.ReLU()
 
-        # self.loss = nn.MSELoss()
-        self.loss = MCCRLoss(sigma=self.hparams.sigma)
+        self.loss = nn.MSELoss()
         # self.loss = nn.L1Loss()
 
         self.train_logs = {}
@@ -801,64 +796,101 @@ class BaseLSTNetModel(LightningModule):
         self.df_obs = pd.DataFrame()
         self.df_sim = pd.DataFrame()
 
-    def forward(self, _x, _x1d):
+    def forward(self, x, x1d):
         """
         Args:
-            _x  : 2D Input (with input features), shape is (batch_size, sample_size, feature_size)
-            _x1d : 1D Input (only target column), shape is (batch_size, sample_size, feature_size)
-            y0 : First step output feed to Decoder, shape is (batch_size, 1)
-            y  : Output, shape is (batch_size, output_size)
+            x  : 2D input
+            x1d : 1D input for target column
+
+        Returns:
+            outputs: output tensor
+
+        Reference:
+            * https://arxiv.org/abs/2010.02803 :
+                A Transformer-based Framework for Multivariate Time Series Representation Learning
+            * https://arxiv.org/abs/1907.05321 :
+                Time2Vec: Learning a Vector Representation of Time
+            * https://arxiv.org/abs/2001.08317 :
+                Deep Transformer Models for Time Series Forecasting: The Influenza Prevalence Case
         """
-        # _xx : [batch_size, sample_size, feature_size]
-        # use this batch_size,
-        # because batch_size could be different with hparams.batch_size on last batch
-        batch_size = _x.shape[0]
-        # sample_size = _x.shape[1]
-        # feature_size = _x.shape[2]
-        # _x.unsqueeze(1) : (batch_size, 1, sample_size, feature_size), NxC_inxH_inxW_in
-        # x: (batch_size, 1, sample_size + pad_size, feature_size), NxC_inxH_inxW_in
-        x = self.pad(_x.unsqueeze(1))
-        # c: (batch_size, hidCNN, sample_size, 1), NxC_outxH_outxW_out
-        c = self.conv(x)
-        c = self.dropout(F.relu(c))
-        # c: (batch_size, hidCNN, sample_size)
-        c = c.squeeze(3)
+        batch_size = x.shape[0]
+        # sample_size = x.shape[1]
+        feature_size = x.shape[2]
 
-        # Recurrent Layer
-        # x_rnn = (num_layers * num_directions, batch_size, hidRNN)
-        _, x_rnn = self.gru_no_skip(c.permute(0, 2, 1))
+        # section 3.1
+        # to apply transformer by column-wise
+        # x: (batch_size, sample_size, feature_size)
+        # x.permute(0,2,1): (batch_size, feature_size, sample_size) d x m
+        # x_t2v: (batch_size, feature_size, d_model)
+        x_t2v = self.t2v(x.permute(0, 2, 1))
+        # u in paper
+        x_prj = self.proj(x.permute(0, 2, 1))
 
-        # x_rnn = (batch_size, hidRNN)
-        x_rnn = self.dropout(x_rnn.squeeze(0))
+        # (batch_size, feature_size, d_model)
+        _x = x_t2v + x_prj
 
-        # Recurrent Skip Layer
-        # Best implementation is laiguokun/LSTNet
-        # [1, 2, 3, 4] -> [[1, 2], [3, 4]]
-        # -> [[1, 3], [2, 4]] using permute
-        s = c[:, :, (-self.pt * self.p) :].contiguous()
-        s = s.reshape(batch_size, self.hparams.hidCNN, self.pt, self.p)
-        # s.permute(0, 3, 2, 1): (batch_size, self.p, self.pt, hidCNN)
-        s = s.permute(0, 3, 2, 1)
-        # s.reshape: (batch_size * self.p, self.pt, hidCNN) == (batch, seq, input)
-        s = s.reshape(batch_size * self.p, self.pt, self.hparams.hidCNN)
+        # s: (batch_size, 3, sample_size) d x m
+        # sx = torch.column_stack([
+        #         x_sa.unsqueeze(2).reshape(batch_size*sample_size, 1),
+        #         x_sw.unsqueeze(2).reshape(batch_size*sample_size, 1),
+        #         x_sh.unsqueeze(2).reshape(batch_size*sample_size, 1)]) \
+        #     .reshape(batch_size, sample_size, 3) \
+        #     .permute(0, 2, 1)
 
-        # x_rnn_skip: (num_layers * num_directions, batch_size * self.p, hidSkip)
-        _, x_rnn_skip = self.gru_skip(s)
-        # x_rnn_skip: (batch_size, self.p * hidSkip)
-        x_rnn_skip = x_rnn_skip.squeeze(0)
-        x_rnn_skip = self.dropout(
-            x_rnn_skip.reshape(batch_size, self.p * self.hparams.hidSkip)
-        )
+        # sx_t2v = self.t2v_sx(sx)
+        # sx_prj = self.proj_sx(sx)
 
-        # (batch_size, hidRNN + self.p * hidSkip
-        output1 = torch.cat((x_rnn, x_rnn_skip), dim=1)
-        # (batch_first, output_size)
-        output2 = self.ar(_x1d)
+        # sy = torch.column_stack([
+        #         y_sa.unsqueeze(2).reshape(batch_size*self.output_size, 1),
+        #         y_sw.unsqueeze(2).reshape(batch_size*self.output_size, 1),
+        #         y_sh.unsqueeze(2).reshape(batch_size*self.output_size, 1)]) \
+        #     .reshape(batch_size, self.output_size, 3) \
+        #     .permute(0, 2, 1)
 
-        # Sum Autoregressive and Recurrent Layer output
-        output = self.proj1(output1) + self.proj2(output2)
+        # sy_t2v = self.t2v_sy(sy)
+        # sy_prj = self.proj_sy(sy)
 
-        return output
+        # (batch_size, 6, d_model)
+        # _s = sx_t2v + sx_prj + sy_t2v + sy_prj
+        # _sx = sx_t2v + sx_prj
+        # _sy = sy_t2v + sy_prj
+
+        # 1. convert (batch_size, features_size, d_model) ->
+        #            (batch_size, d_model, features_size)
+        # 2. convert (batch_size, 3, d_model) ->
+        #            (batch_size, d_model, 3)
+        # 3. stack arrays
+        # 4. reconvert (batch_size, d_model, features_size + *) ->
+        #              (batch_size, features_size + *, d_model)
+        # xs = torch.column_stack([
+        #             _x.permute(0, 2, 1).reshape(
+        #                   batch_size * self.d_model, feature_size),
+        #             _sx.permute(0, 2, 1).reshape(
+        #                   batch_size * self.d_model, 3)]) \
+        #         .reshape(batch_size, self.d_model, feature_size + 3) \
+        #         .permute(0, 2, 1)
+
+        # u: (batch_size, feature_size + 3, d_model)
+        u = self.encoder(_x)
+        # u = self.encoder(xs)
+
+        # z: (batch_size, feature_size + 3 * d_model)
+        # section 3.3
+        z = u.reshape(batch_size, (feature_size) * self.d_model)
+
+        # nonlinear part
+        # yhat: (batch_size, output_size)
+        # z is nonlinear information
+        # outW : add weight to tranformer processed input
+        # outSX : add weight to seasonality
+        # outSY : add weight to seasonality
+        yhat = self.outW(z)
+
+        # linear part
+        # (self.ar(x1d))
+        yhat = yhat + self.ar(x1d)
+
+        return yhat
 
     def configure_optimizers(self):
         return torch.optim.Adam(
@@ -866,7 +898,10 @@ class BaseLSTNetModel(LightningModule):
         )
 
     def training_step(self, batch, batch_idx):
-        x, _x1d, _y, _, _ = batch
+        # without seasonality
+        # x, _x1d, _y0, _y, _y_raw, y_dates = batch
+        # with seasonality
+        x, _x1d, _, _, _, _y, _, _, _, _, _ = batch
 
         _y_hat = self(x, _x1d)
         _loss = self.loss(_y_hat, _y)
@@ -923,7 +958,10 @@ class BaseLSTNetModel(LightningModule):
         self.log("train/avg_loss", _log["loss"], on_epoch=True, logger=self.logger)
 
     def validation_step(self, batch, batch_idx):
-        x, _x1d, _y, _, _ = batch
+        # without seasonality
+        # x, _x1d, _y0, _y, _y_raw, y_dates = batch
+        # with seasonality
+        x, _x1d, _, _, _, _y, _, _, _, _, _ = batch
 
         _y_hat = self(x, _x1d)
         _loss = self.loss(_y_hat, _y)
@@ -981,14 +1019,17 @@ class BaseLSTNetModel(LightningModule):
         self.log("valid/loss", _log["loss"], on_epoch=True, logger=self.logger)
 
     def test_step(self, batch, batch_idx):
-        x, _x1d, _, _y_raw, dates = batch
+        # without seasonality
+        # x, _x1d, _y0, _y, _y_raw, y_dates = batch
+        # with seasonality
+        x, _x1d, _, _, _, _, _y_raw, _, _, _, y_dates = batch
 
         _y_hat = self(x, _x1d)
 
         # y = _y.detach().cpu().clone().numpy()
         y_raw = _y_raw.detach().cpu().clone().numpy()
         y_hat = _y_hat.detach().cpu().clone().numpy()
-        y_hat2 = relu_mul(np.array(self.test_dataset.inverse_transform(y_hat, dates)))
+        y_hat2 = relu_mul(np.array(self.test_dataset.inverse_transform(y_hat, y_dates)))
         _loss = self.loss(_y_raw, torch.as_tensor(y_hat2).to(device))
 
         _mae = mean_absolute_error(y_raw, y_hat2)
@@ -1000,7 +1041,7 @@ class BaseLSTNetModel(LightningModule):
             "loss": _loss,
             "obs": y_raw,
             "sim": y_hat2,
-            "dates": dates,
+            "dates": y_dates,
             "metric": {"MSE": _mse, "MAE": _mae, "MAD": _mad, "R2": _r2},
         }
 
@@ -1123,9 +1164,7 @@ class BaseLSTNetModel(LightningModule):
             pandas.DataFrame: DataFrame contains predicted values
         """
         values, indicies = [], []
-
         for _d, _y in zip(dates, ys):
-            # values.append(_y.cpu().detach().numpy())
             if isinstance(_y, torch.Tensor):
                 values.append(_y.cpu().detach().numpy())
             elif isinstance(_y, np.ndarray):
@@ -1152,7 +1191,8 @@ class BaseLSTNetModel(LightningModule):
     def setup(self, stage=None):
         """Data operations on every GPU
         Wrong usage of LightningModule. Need to Refactored
-        * TODO: Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
+
+        * TODO : Refactoring https://pytorch-lightning.readthedocs.io/en/stable/datamodules.html
         """
         # first mkdir of seasonality
         Path.mkdir(self.png_dir / "seasonality", parents=True, exist_ok=True)
@@ -1190,30 +1230,49 @@ class BaseLSTNetModel(LightningModule):
         dates will not be trained but need to construct output, so don't put dates into Tensors
         Args:
         data: list of tuple  (x, x1d, y0, y, dates).
-            - x: pandas DataFrame or numpy of shape (sample_size, num_features);
-            - x1d: pandas DataFrma or numpy of shape (sample_size)
+            - x: numpy of shape (sample_size, num_features);
             - y0: scalar
-            - y: pandas DataFrame or numpy of shape (output_size);
-            - date: pandas DateTimeIndex of shape (output_size):
+            - y: numpy of shape (output_size);
+            - y_date: pandas DateTimeIndex of shape (output_size):
 
         Returns:
             - xs: torch Tensor of shape (batch_size, sample_size, num_features);
-            - xs_1d: torch Tensor of shape (batch_size, sample_size);
+            - xs_1d: torch Tensor of shape (batch_size, 1, num_features);
             - ys: torch Tensor of shape (batch_size, output_size);
             - y0: torch scalar Tensor
             - dates: pandas DateTimeIndex of shape (batch_size, output_size):
         """
-
+        # without seasonality
         # seperate source and target sequences
         # data goes to tuple (thanks to *) and zipped
-        xs, xs_1d, _, _, _, ys, ys_raw, _, _, _, dates = zip(*batch)
+        # MutlivariateRNNDataset
+        # xs, xs_1d, ys0, ys, ys_raw, y_dates = zip(*batch)
+
+        # return torch.as_tensor(xs), \
+        #     torch.as_tensor(xs_1d), \
+        #     torch.as_tensor(ys0), \
+        #     torch.as_tensor(ys), \
+        #     torch.as_tensor(ys_raw), \
+        #     y_dates
+
+        # with seasonality
+        # MutlivariateRNNMeanSeasonalityDataset
+        xs, xs_1d, xs_sa, xs_sw, xs_sh, ys, ys_raw, ys_sa, ys_sw, ys_sh, y_dates = zip(
+            *batch
+        )
 
         return (
             torch.as_tensor(xs),
             torch.as_tensor(xs_1d),
+            torch.as_tensor(xs_sa),
+            torch.as_tensor(xs_sw),
+            torch.as_tensor(xs_sh),
             torch.as_tensor(ys),
             torch.as_tensor(ys_raw),
-            dates,
+            torch.as_tensor(ys_sa),
+            torch.as_tensor(ys_sw),
+            torch.as_tensor(ys_sh),
+            y_dates,
         )
 
 
@@ -1600,35 +1659,6 @@ def swish(_input, beta=1.0):
         output: Activated tensor
     """
     return _input * beta * torch.sigmoid(_input)
-
-
-class MCCRLoss(nn.Module):
-    """Maximum Correntropy Criterion Induced Losses for Regression(MCCR) Loss"""
-
-    def __init__(self, sigma=1.0):
-        super().__init__()
-        # save sigma
-        assert sigma > 0
-        self.sigma2 = sigma ** 2
-
-    def forward(self, _input: torch.Tensor, _target: torch.Tensor) -> torch.Tensor:
-        """
-        Implement maximum correntropy criterion for regression
-
-        loss(y, t) = sigma^2 * (1.0 - exp(-(y-t)^2/sigma^2))
-
-        where sigma > 0 (parameter)
-
-        Reference:
-            * Feng, Yunlong, et al.
-                "Learning with the maximum correntropy criterion
-                    induced losses for regression."
-                J. Mach. Learn. Res. 16.1 (2015): 993-1034.
-        """
-
-        return torch.mean(
-            self.sigma2 * (1 - torch.exp(-((_input - _target) ** 2) / self.sigma2))
-        )
 
 
 def relu_mul(x):
