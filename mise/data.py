@@ -2241,11 +2241,11 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
 
         ## compute hourly populated seasonality from daily residuals
         X_h_spop = df_sea_annual.merge(
-            X_h, how="left", on="key_md", left_index=True, validate="1:m"
+            X_h, how="left", left_on="key_md", validate="1:m"
         ).dropna()
         X_h_spop = X_h_spop.rename(columns={"sea": "sea_annual"})
         X_h_spop = df_sea_weekly.merge(
-            X_h_spop, how="left", on="key_w", left_index=True, validate="1:m"
+            X_h_spop, how="left", left_on="key_w", validate="1:m"
         ).dropna()
         X_h_spop = X_h_spop.rename(columns={"sea": "sea_weekly"})
 
@@ -2272,7 +2272,7 @@ class SeasonalityDecompositor_AWH(TransformerMixin, BaseEstimator):
 
         ## merge hourly seasonality to orignal hourly DataFram
         X_h_hourly = df_sea_hourly.merge(
-            X_h_spop, how="left", on="key_h", left_index=True, validate="1:m"
+            X_h_spop, how="left", left_on="key_h", validate="1:m"
         ).dropna()
         X_h_hourly = X_h_hourly.rename(columns={"sea": "sea_hourly"})
         ## Subtract annual and weekly seasonality
