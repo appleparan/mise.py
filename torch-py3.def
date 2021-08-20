@@ -1,1 +1,156 @@
-/home/appleparan/src/SING-scripts/torch-py3.def
+BootStrap: docker
+From: nvidia/cuda:11.1-cudnn8-devel-ubuntu20.04
+
+%help
+    base recipe: https://github.com/NIH-HPC/singularity-examples
+
+    should be built on same directory with pyproject.toml and poetry.lock
+
+    Version Information
+    - Python 3.9
+    - Poetry 1.1.7
+
+#---------------------------------------------------------------------
+%labels
+#---------------------------------------------------------------------
+MAINTAINER Jongsu Kim
+
+#---------------------------------------------------------------------
+%environment
+#---------------------------------------------------------------------
+# https://github.com/python-poetry/poetry/discussions/1879#discussioncomment-216865
+# Python
+export PYTHONUNBUFFERED=1
+# prevents python creating .pyc files
+export PYTHONDONTWRITEBYTECODE=1
+
+# pip
+PIP_NO_CACHE_DIR=off
+PIP_DISABLE_PIP_VERSION_CHECK=on
+PIP_DEFAULT_TIMEOUT=100
+
+# paths
+# this is where our requirements + virtual environment will live
+export PYSETUP_PATH=/opt/pysetup
+export VENV_PATH=/opt/pysetup/.venv
+
+# prepend venv to path
+export PATH=$VENV_PATH/bin:$PATH
+
+# activate virtual environment
+. $VENV_PATH/bin/activate
+#---------------------------------------------------------------------
+%setup
+#---------------------------------------------------------------------
+# copy requirements.txt to container
+export PYSETUP_PATH="/opt/pysetup"
+mkdir -p $SINGULARITY_ROOTFS$PYSETUP_PATH
+cp /home/appleparan/src/mise.py/requirements.txt $SINGULARITY_ROOTFS$PYSETUP_PATH/requirements.txt
+
+#---------------------------------------------------------------------
+%files
+#---------------------------------------------------------------------
+# copy files to install Python packages.
+# If fakeroot enabled,  I would access my repo
+# /home/appleparan/src/mise.py/pyproject.toml $PYSETUP_PATH/pyproject.toml
+# /home/appleparan/src/mise.py/poetry.lock $PYSETUP_PATH/poetry.lock
+
+#---------------------------------------------------------------------
+%post
+#---------------------------------------------------------------------
+# https://github.com/python-poetry/poetry/discussions/1879#discussioncomment-216865
+# Python
+export PYTHONUNBUFFERED=1
+# prevents python creating .pyc files
+export PYTHONDONTWRITEBYTECODE=1
+
+# pip
+PIP_NO_CACHE_DIR=off
+PIP_DISABLE_PIP_VERSION_CHECK=on
+PIP_DEFAULT_TIMEOUT=100
+
+# paths
+# this is where our requirements + virtual environment will live
+export PYSETUP_PATH=/opt/pysetup
+export VENV_PATH=/opt/pysetup/.venv
+
+# prepend venv to path
+export PATH=$VENV_PATH/bin:$PATH
+
+# non interactive mode when using apt
+export DEBIAN_FRONTEND=noninteractive
+
+# setup apt
+apt-get update
+
+# Prerequisites for python 3
+apt-get install -y build-essential libssl-dev zlib1g-dev libbz2-dev \
+    libreadline-dev libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev \
+    xz-utils tk-dev libffi-dev liblzma-dev python-openssl git software-properties-common
+
+# Install Python 3
+# add-apt-repository ppa:deadsnakes/ppa
+# apt-get update
+apt-get install -y python3.9 python3.9-venv python3.9-dev python3-distutils
+curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+/usr/bin/python3.9 get-pip.py
+/usr/bin/python3.9 -m pip install --upgrade setuptools wheel
+
+# select mirrors
+/usr/bin/python3.9 -m pip install apt-mirror-updater
+apt-mirror-updater --auto-change-mirror
+
+# pkg
+# add for mscorefonts-installer
+# add-apt-repository multiverse
+# accept EULA for mscorefonts
+echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections
+apt-get update
+apt-get install -y ttf-mscorefonts-installer
+apt-get install -y libhdf5-dev locales tzdata python3-tk
+apt-get install -y chromium-browser firefox
+#apt-get install -y libnetcdf-dev libnetcdff-dev
+apt-get clean
+
+# locales
+locale-gen --purge en_US.UTF-8
+#echo "LC_ALL=en_US.UTF-8" >> /etc/environment
+#echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
+#echo "LANG=en_US.UTF-8" > /etc/locale.conf
+#locale-gen en_US.UTF-8
+echo -e 'LANG="en_US.UTF-8"\nLANGUAGE="en_US:en"\n' > /etc/default/locale
+dpkg-reconfigure locales
+
+# TZ
+export TZ="Asia/Seoul"
+ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime
+echo ${TZ} > /etc/timezone
+dpkg-reconfigure tzdata --frontend noninteractive tzdata
+
+export HDF5_DIR=/usr/lib/x86_64-linux-gnu/hdf5/serial/
+
+# Gecko Driver
+export GECKO_DRIVER_VERSION='v0.26.0'
+wget https://github.com/mozilla/geckodriver/releases/download/$GECKO_DRIVER_VERSION/geckodriver-$GECKO_DRIVER_VERSION-linux64.tar.gz
+tar -xvzf geckodriver-$GECKO_DRIVER_VERSION-linux64.tar.gz
+rm geckodriver-$GECKO_DRIVER_VERSION-linux64.tar.gz
+chmod +x geckodriver
+cp geckodriver /usr/local/bin/
+
+# install Python virtual environment
+cd $PYSETUP_PATH
+python3.9 -m venv $VENV_PATH
+. activate $VENV_PATH
+
+# requirements.txt are exported from
+# poetry export -f requirements.txt --output requirements.txt --without-hashes
+# hashes are problematic on dependencies when using pip
+python3.9 -m pip install -r requirements.txt
+
+chmod -R 755 /opt
+#---------------------------------------------------------------------
+# %runscript
+#---------------------------------------------------------------------
+# activate virtualenv ($VENV_PATH/bin/activate)
+#. activate
+

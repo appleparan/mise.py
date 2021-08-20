@@ -36,8 +36,18 @@
 * scikit-learn (>= 0.24.0)
 
 # Container
-* Run in Singularity (> 3.x) container generated from [this script](https://github.com/appleparan/SING-scripts/blob/master/torch-py3.def)
-* Singualrity excution script: [Link](https://github.com/appleparan/SING-scripts/blob/master/torch)
+* Run in Singularity (> 3.x) container generated `torch-py3.def`
+* Run singularity with following commands
+    - clean environment (such as `PATH`)
+    - bind paths (`/input` for input, `/mnt/data` for output)
+    - enable nvidia devices by `--nv`
+    ```
+    TORCH_IMG=my_torch_img.sif
+    CASES=rnn_mul_lstnet_skip_mccr
+    CASE_NAME=210818_LSTNet_MCCR
+    mkdir -p /data/appleparan/"${CASE_NAME}"
+    singularity exec --nv --cleanenv --bind "${HOME}"/input:/input:ro,/data/"${CASE_NAME}":/mnt/data:rw ${TORCH_IMG} python3 -m mise --dl ${CASES}
+    ```
 
 # Reference
 * LSTNet: [arxiv link](https://arxiv.org/abs/1703.07015)
