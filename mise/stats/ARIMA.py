@@ -33,7 +33,7 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 
 def stats_arima(station_name="종로구"):
     print("Data loading start...", flush=True)
-    _df_h = data.load_imputed(HOURLY_DATA_PATH)
+    _df_h = data.load_imputed([1], filepath=HOURLY_DATA_PATH)
     df_h = _df_h.query('stationCode == "' + str(SEOUL_STATIONS[station_name]) + '"')
 
     if (
@@ -78,7 +78,7 @@ def stats_arima(station_name="종로구"):
             Path.mkdir(data_dir, parents=True, exist_ok=True)
             Path.mkdir(png_dir, parents=True, exist_ok=True)
             Path.mkdir(svg_dir, parents=True, exist_ok=True)
-            norm_values, norm_maxlog = boxcox(df_h[target])
+            # norm_values, norm_maxlog = boxcox(df_h[target])
             # norm_target = "norm_" + target
 
             train_set = data.UnivariateRNNMeanSeasonalityDataset(
@@ -229,7 +229,7 @@ def mw_df(df_org, target, output_size, fdate, tdate):
     cols = [str(t) for t in range(output_size)]
     df_obs = pd.DataFrame(columns=cols)
 
-    for i, (index, row) in enumerate(df.iterrows()):
+    for _, (index, _) in enumerate(df.iterrows()):
         # skip prediction before fdate
         if index < fdate:
             continue
@@ -420,8 +420,8 @@ def plot_line(
     p.xaxis.axis_label = "dates"
     p.xaxis.formatter = DatetimeTickFormatter()
     p.yaxis.axis_label = target
-    p.line(dates, obs, line_color="dodgerblue", legend_label="obs")
-    p.line(dates, sim, line_color="lightcoral", legend_label="sim")
+    p.line(x=dates, y=obs, line_color="dodgerblue", legend_label="obs")
+    p.line(x=dates, y=sim, line_color="lightcoral", legend_label="sim")
     export_png(p, filename=png_path)
     p.output_backend = "svg"
     export_svgs(p, filename=str(svg_path))
@@ -443,7 +443,7 @@ def plot_corr(times, corrs, data_dir, png_dir, svg_dir, output_name):
     p.yaxis.axis_label = "corr"
     p.yaxis.bounds = (0.0, 1.0)
     p.y_range = Range1d(0.0, 1.0)
-    p.line(times, corrs)
+    p.line(x=times, y=corrs)
     export_png(p, filename=png_path)
     p.output_backend = "svg"
     export_svgs(p, filename=str(svg_path))

@@ -245,7 +245,7 @@ def dl_mlp_mul_transformer_mccr(station_name="종로구"):
         log_dir = output_dir / "log"
         Path.mkdir(log_dir, parents=True, exist_ok=True)
 
-        _df_h = data.load_imputed(HOURLY_DATA_PATH)
+        _df_h = data.load_imputed([1], filepath=HOURLY_DATA_PATH)
         df_h = _df_h.query('stationCode == "' + str(SEOUL_STATIONS[station_name]) + '"')
 
         if (

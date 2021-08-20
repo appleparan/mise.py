@@ -25,7 +25,8 @@ DAILY_DATA_PATH = "/input/python/input_seoul_imputed_daily_pandas.csv"
 
 def dl_xgboost(station_name="종로구"):
     """Run XGBoost model
-
+    data.load_imputed([1], filepath=HOURLY_DATA_PATH)
+    data.load_imputed([1], filepath=HOURLY_DATA_PATH)
     Args:
         station_name (str, optional): station name. Defaults to "종로구".
 
@@ -33,7 +34,7 @@ def dl_xgboost(station_name="종로구"):
         None
     """
     print("Start Multivariate XGBoost", flush=True)
-    _df_h = data.load_imputed(HOURLY_DATA_PATH)
+    _df_h = data.load_imputed([1], filepath=HOURLY_DATA_PATH)
     df_h = _df_h.query('stationCode == "' + str(SEOUL_STATIONS[station_name]) + '"')
 
     if (

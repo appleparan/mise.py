@@ -28,7 +28,7 @@ def stats_ou(station_name="종로구"):
         station_name (str, optional): [description]. Defaults to "종로구".
     """
     print("Data loading start...")
-    _df_h = data.load_imputed(HOURLY_DATA_PATH)
+    _df_h = data.load_imputed([1], filepath=HOURLY_DATA_PATH)
     df_h = _df_h.query('stationCode == "' + str(SEOUL_STATIONS[station_name]) + '"')
 
     if (
@@ -217,7 +217,7 @@ def mw_df(df_org, output_size, fdate, tdate):
     cols = [str(t) for t in range(output_size)]
     df_obs = pd.DataFrame(columns=cols)
 
-    for i, (index, row) in enumerate(df.iterrows()):
+    for _, (index, _) in enumerate(df.iterrows()):
         # skip prediction before fdate
         if index < fdate:
             continue
@@ -241,7 +241,9 @@ def sim_OU(df_test, dates, target, m, s, intT, scaler, output_size):
     """
     Mean Reverting term + white noise term
     Reference:
-    * The Ornstein-Uhlenbeck Process In Neural Decision-Making: Mathematical Foundations And Simulations Suggesting The Adaptiveness Of Robustly Integrating Stochastic Neural Evidence
+    * The Ornstein-Uhlenbeck Process In Neural Decision-Making:
+        Mathematical Foundations And Simulations Suggesting
+        The Adaptiveness Of Robustly Integrating Stochastic Neural Evidence
     """
     # columns are offset to datetime
     cols = [str(i) for i in range(output_size)]
