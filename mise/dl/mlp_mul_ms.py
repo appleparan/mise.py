@@ -550,7 +550,7 @@ def dl_mlp_mul_ms(station_name="종로구"):
         checkpoint_callback = pl.callbacks.ModelCheckpoint(
             os.path.join(model_dir, "train_{epoch}_{valid/MSE:.2f}"),
             monitor="valid/MSE",
-            every_n_epochs=10,
+            every_n_epochs=50,
         )
 
         early_stop_callback = EarlyStopping(
@@ -574,8 +574,8 @@ def dl_mlp_mul_ms(station_name="종로구"):
             logger=loggers,
             log_every_n_steps=5,
             flush_logs_every_n_steps=10,
+            checkpoint_callback=False,
             callbacks=[early_stop_callback],
-            checkpoint_callback=checkpoint_callback,
         )
 
         trainer.fit(model)
