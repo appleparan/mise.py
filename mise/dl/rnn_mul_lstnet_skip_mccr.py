@@ -683,8 +683,7 @@ class BaseLSTNetModel(LightningModule):
         # w_out = (w_in + 2 * padding[1] - dilation[1]*(kernel_size[1] - 1) - 1) / stride[1] + 1
         # to make w_out == w_in, dilation[1] == 1, stride[1] == 1,
         # 2*padding[1] + 1 = kernel_size[1]
-
-        self.hparams = kwargs.get(
+        _hparams = kwargs.get(
             "hparams",
             Namespace(
                 sigma=1.0,
@@ -696,6 +695,7 @@ class BaseLSTNetModel(LightningModule):
                 batch_size=32,
             ),
         )
+        self.save_hyperparameters(_hparams)
 
         self.station_name = kwargs.get("station_name", "종로구")
         self.target = kwargs.get("target", "PM10")

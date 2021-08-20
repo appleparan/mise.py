@@ -711,7 +711,7 @@ class BaseTransformerModel(LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
 
-        self.hparams = kwargs.get(
+        _hparams = kwargs.get(
             "hparams",
             Namespace(
                 sigma=1.0,
@@ -723,6 +723,7 @@ class BaseTransformerModel(LightningModule):
                 batch_size=32,
             ),
         )
+        self.save_hyperparameters(_hparams)
 
         self.station_name = kwargs.get("station_name", "종로구")
         self.target = kwargs.get("target", "PM10")
