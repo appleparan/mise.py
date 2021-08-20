@@ -1173,7 +1173,7 @@ def plot_logs(
         ax.set_ylabel(col)
         fig.savefig(png_path, dpi=600)
         fig.savefig(svg_path)
-        fig.close()
+        plt.close(fig)
 
     csv_path = data_dir / ("log_valid.csv")
     df_valid_logs.to_csv(csv_path)
@@ -1217,7 +1217,7 @@ def plot_logs(
         ax.set_ylabel(col1)
         fig.savefig(png_path, dpi=600)
         fig.savefig(svg_path)
-        fig.close()
+        plt.close(fig)
 
 
 def plot_scatter(
@@ -1276,7 +1276,7 @@ def plot_scatter(
         plt.ylim([0.0, maxval])
         fig.savefig(png_path, dpi=600)
         fig.savefig(svg_path)
-        fig.close()
+        plt.close(fig)
 
 
 def plot_metrics(
@@ -1424,7 +1424,7 @@ def plot_metrics(
 
     fig.savefig(png_path, dpi=600)
     fig.savefig(svg_path)
-    fig.close()
+    plt.close(fig)
 
 
 def swish(_input, beta=1.0):

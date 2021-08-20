@@ -279,7 +279,7 @@ def stats_analysis(_station_name="종로구"):
                     svg_path = _svg_dir / ("MFDFA_norm_res_o" + str(order) + ".svg")
                     fig.savefig(png_path, dpi=600)
                     fig.savefig(svg_path)
-                    fig.close()
+                    plt.close(fig)
 
                     fig = plt.figure()
                     plt.clf()
@@ -341,7 +341,7 @@ def stats_analysis(_station_name="종로구"):
                     svg_path = _svg_dir / ("MFDFA_res_o" + str(order) + ".svg")
                     fig.savefig(png_path, dpi=600)
                     fig.savefig(svg_path)
-                    fig.close()
+                    plt.close(fig)
 
                     lag, dfa, _ = MFDFA.MFDFA(
                         Xs_raw[target].to_numpy(), lag=org_lag, q=q_list, order=order
@@ -422,7 +422,7 @@ def stats_analysis(_station_name="종로구"):
                     svg_path = _svg_dir / ("MFDFA_norm_o" + str(order) + ".svg")
                     fig.savefig(png_path, dpi=600)
                     fig.savefig(svg_path)
-                    fig.close()
+                    plt.close(fig)
 
                     fig = plt.figure()
                     plt.clf()
@@ -484,7 +484,7 @@ def stats_analysis(_station_name="종로구"):
                     svg_path = _svg_dir / ("MFDFA_o" + str(order) + ".svg")
                     fig.savefig(png_path, dpi=600)
                     fig.savefig(svg_path)
-                    fig.close()
+                    plt.close(fig)
 
             def run_01_DFA():
                 """DFA Analysis"""
@@ -585,7 +585,7 @@ def stats_analysis(_station_name="종로구"):
                     svg_path = _svg_dir / ("DFA_norm_res_o" + str(order) + ".svg")
                     fig.savefig(png_path, dpi=600)
                     fig.savefig(svg_path)
-                    fig.close()
+                    plt.close(fig)
 
                     fig = plt.figure()
                     sns.color_palette("tab10")
@@ -636,7 +636,7 @@ def stats_analysis(_station_name="종로구"):
                     svg_path = _svg_dir / ("DFA_res_o" + str(order) + ".svg")
                     fig.savefig(png_path, dpi=600)
                     fig.savefig(svg_path)
-                    fig.close()
+                    plt.close(fig)
 
                     # RAW
                     lag, dfa, _ = MFDFA.MFDFA(
@@ -710,7 +710,7 @@ def stats_analysis(_station_name="종로구"):
                     svg_path = _svg_dir / ("DFA_norm_o" + str(order) + ".svg")
                     fig.savefig(png_path, dpi=600)
                     fig.savefig(svg_path)
-                    fig.close()
+                    plt.close(fig)
 
                     fig = plt.figure()
                     sns.color_palette("tab10")
@@ -761,7 +761,7 @@ def stats_analysis(_station_name="종로구"):
                     svg_path = _svg_dir / ("DFA_o" + str(order) + ".svg")
                     fig.savefig(png_path, dpi=600)
                     fig.savefig(svg_path)
-                    fig.close()
+                    plt.close(fig)
 
             run_01_DFA()
             run_02_MFDFA()
