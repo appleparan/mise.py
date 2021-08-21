@@ -130,7 +130,7 @@ def dl_rnn_mul_lstnet_skip(station_name="종로구"):
     fast_dev_run = False
     n_trials = 120
     # fast_dev_run = True
-    # n_trials = 1
+    # n_trials = 3
 
     # Hyper parameter
     epoch_size = 500
