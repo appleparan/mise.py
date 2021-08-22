@@ -22,6 +22,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
+from pytorch_lightning.loggers.base import LoggerCollection
 from scipy.stats import median_abs_deviation
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from torch import nn
@@ -381,7 +382,7 @@ def dl_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
                 max_epochs=20,
                 default_root_dir=output_dir,
                 fast_dev_run=fast_dev_run,
-                logger=True,
+                logger=False,
                 checkpoint_callback=False,
                 callbacks=[PyTorchLightningPruningCallback(trial, monitor="valid/MSE")],
             )
@@ -640,10 +641,10 @@ def dl_rnn_mul_lstnet_skip_mccr(station_name="종로구"):
         )
 
         log_version = dt.date.today().strftime("%y%m%d-%H-%M")
-        loggers = [
-            TensorBoardLogger(log_dir, version=log_version),
-            CSVLogger(log_dir, version=log_version),
-        ]
+        loggers = LoggerCollection([
+            TensorBoardLogger(save_dir=log_dir, version=log_version),
+            # CSVLogger(save_dir=log_dir, version=log_version),
+        ])
 
         # most basic trainer, uses good defaults
         trainer = Trainer(

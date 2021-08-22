@@ -601,7 +601,7 @@ def dl_mlp_mul_transformer(station_name="종로구"):
         log_version = dt.date.today().strftime("%y%m%d-%H-%M")
         loggers = [
             TensorBoardLogger(log_dir, version=log_version),
-            CSVLogger(log_dir, version=log_version),
+            # CSVLogger(log_dir, version=log_version),
         ]
 
         # most basic trainer, uses good defaults
