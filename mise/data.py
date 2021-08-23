@@ -1741,7 +1741,7 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         x_1d = self._ys.iloc[i : (i + self.sample_size)]
         x_sa = self._xs_sea["annual"].iloc[i : (i + self.sample_size)]
         x_sw = self._xs_sea["weekly"].iloc[i : (i + self.sample_size)]
-        x_sh = self._xs_sea["annual"].iloc[i : (i + self.sample_size)]
+        x_sh = self._xs_sea["hourly"].iloc[i : (i + self.sample_size)]
         # save initial input as target variable input at last step (single step)
         y = self._ys.iloc[
             (i + self.sample_size) : (i + self.sample_size + self.output_size)
@@ -1752,7 +1752,7 @@ class MultivariateRNNMeanSeasonalityDataset(BaseDataset):
         y_sw = self._ys_sea["weekly"].iloc[
             (i + self.sample_size) : (i + self.sample_size + self.output_size)
         ]
-        y_sh = self._ys_sea["annual"].iloc[
+        y_sh = self._ys_sea["hourly"].iloc[
             (i + self.sample_size) : (i + self.sample_size + self.output_size)
         ]
         y_raw = self._ys_raw.iloc[
