@@ -44,7 +44,7 @@
     ```
     $ poetry export -f requirements.txt --output requirements.txt --without-hashes
     ```
-* Container execution example
+* Running models in container (singularity) with commands
     ```
     TORCH_IMG=my_torch_img.sif
     CASES=rnn_mul_lstnet_skip_mccr
